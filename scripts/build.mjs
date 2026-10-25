@@ -640,6 +640,38 @@ export async function buildSite(options = {}) {
     `${JSON.stringify(library, null, 2)}\n`,
   );
   await writeFile(path.join(outputDirectory, ".nojekyll"), "");
+  await fs.cp(
+    path.join(root, "admin"),
+    path.join(outputDirectory, "admin"),
+    { recursive: true },
+  );
+  const browserScripts = [
+    "library-data.mjs",
+    "catalog-data.mjs",
+    "duplicate-data.mjs",
+    "admin-data.mjs",
+  ];
+  await fs.mkdir(path.join(outputDirectory, "scripts"), { recursive: true });
+  await Promise.all(
+    browserScripts.map((file) =>
+      fs.copyFile(
+        path.join(root, "scripts", file),
+        path.join(outputDirectory, "scripts", file),
+      ),
+    ),
+  );
+  await writeFile(
+    path.join(outputDirectory, "admin", "config.js"),
+    `window.ANIME_ADMIN_CONFIG = ${JSON.stringify(
+      {
+        mode: "github",
+        repository: repository.slug,
+        branch: repository.branch,
+      },
+      null,
+      2,
+    )};\n`,
+  );
 
   return {
     outputDirectory,

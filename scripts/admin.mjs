@@ -11,6 +11,7 @@ const root = path.resolve(
   process.env.ADMIN_ROOT || path.resolve(scriptDirectory, ".."),
 );
 const adminDirectory = path.join(root, "admin");
+const scriptsDirectory = path.join(root, "scripts");
 const store = new LibraryAdminStore(root);
 const catalogStore = new CatalogStore(root);
 const host = process.env.ADMIN_HOST || "127.0.0.1";
@@ -20,6 +21,7 @@ const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
 };
@@ -70,14 +72,17 @@ function assertLocalRequest(request) {
 }
 
 async function serveStatic(pathname, response) {
-  const relativePath =
-    pathname === "/" || pathname === "/admin/"
+  const sharedScript = pathname.startsWith("/scripts/");
+  const baseDirectory = sharedScript ? scriptsDirectory : adminDirectory;
+  const relativePath = sharedScript
+    ? decodeURIComponent(pathname.slice("/scripts/".length))
+    : pathname === "/" || pathname === "/admin/"
       ? "index.html"
       : pathname.replace(/^\/admin\/?/u, "");
-  const filePath = path.resolve(adminDirectory, relativePath);
+  const filePath = path.resolve(baseDirectory, relativePath);
   if (
-    filePath !== adminDirectory &&
-    !filePath.startsWith(`${adminDirectory}${path.sep}`)
+    filePath !== baseDirectory &&
+    !filePath.startsWith(`${baseDirectory}${path.sep}`)
   ) {
     sendJson(response, 404, { error: "页面不存在" });
     return;

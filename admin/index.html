@@ -15,6 +15,7 @@
             <strong>Anime Records Manager</strong>
             <span id="repoStatus">正在读取仓库状态</span>
           </div>
+          <span id="runtimeBadge" class="runtime-badge">读取模式</span>
         </div>
         <nav class="view-switch" aria-label="管理模式">
           <button class="is-active" data-view="library" type="button">
@@ -24,6 +25,13 @@
           <button data-view="duplicates" type="button">重复检查</button>
         </nav>
         <div class="topbar-actions">
+          <button
+            id="connectionButton"
+            class="button button-quiet connection-button"
+            type="button"
+          >
+            GitHub 连接设置
+          </button>
           <button id="refreshButton" class="button button-quiet" type="button">
             刷新
           </button>
@@ -340,7 +348,114 @@
       </main>
     </div>
 
+    <dialog id="connectionDialog" class="connection-dialog">
+      <form id="connectionForm" class="connection-form">
+        <div class="connection-heading">
+          <div>
+            <p class="eyebrow">ONLINE MANAGEMENT</p>
+            <h2>连接数据仓库</h2>
+          </div>
+          <button
+            id="connectionClose"
+            class="dialog-close"
+            type="button"
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        </div>
+
+        <p class="connection-intro">
+          公开仓库无需 Token 即可浏览。编辑、删除和同步需要一个只保存在当前标签页中的
+          GitHub 细粒度 Token；关闭标签页后即清除。
+        </p>
+
+        <div class="connection-fields">
+          <label class="field">
+            <span>数据仓库</span>
+            <input
+              id="repositoryInput"
+              placeholder="owner/repository"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>分支</span>
+            <input
+              id="branchInput"
+              placeholder="main"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>GitHub Token（只读浏览可留空）</span>
+          <input
+            id="tokenInput"
+            type="password"
+            placeholder="github_pat_..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+
+        <div class="connection-guide">
+          <strong>Token 权限</strong>
+          <span>
+            仅选择该数据仓库，并授予 Repository permissions →
+            Contents: Read and write。不要使用写入 URL 或提交到仓库的 Token。
+          </span>
+          <a
+            href="https://github.com/settings/personal-access-tokens/new"
+            target="_blank"
+            rel="noreferrer"
+          >
+            创建细粒度 Token
+          </a>
+        </div>
+
+        <p
+          id="connectionStatus"
+          class="connection-status"
+          role="status"
+          aria-live="polite"
+        ></p>
+
+        <div class="connection-actions">
+          <button
+            id="connectionDisconnect"
+            class="button button-danger"
+            type="button"
+            hidden
+          >
+            清除 Token
+          </button>
+          <span class="connection-action-spacer"></span>
+          <button
+            id="connectionCancel"
+            class="button button-quiet"
+            type="button"
+          >
+            取消
+          </button>
+          <button
+            id="connectionSubmit"
+            class="button button-primary"
+            type="submit"
+          >
+            验证并连接
+          </button>
+        </div>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./config.js"></script>
     <script type="module" src="./app.js"></script>
     <script type="module" src="./catalog.js"></script>
     <script type="module" src="./duplicates.js"></script>

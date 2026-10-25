@@ -19,14 +19,14 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 每部番剧有独立详情页
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
-- 提供只在本地运行的批量管理页，可搜索、编辑评分和评价、批量删除、一键提交并推送
+- 同时提供本地批量管理页和 GitHub Pages 在线管理页，可搜索、编辑评分和评价、批量删除并提交到远端
 - 管理页可多选 `bangumi-data` 全量索引，逐条填写评分和评价后一次加入档案或加入并同步
 - 管理页可集中检查站点 ID、同季度同名和相似标题重复项，并定位编辑或批量删除
 - 提供 `/insights/` 数据洞察页，统计收录节奏、年代分布、评分分布和索引覆盖
 - 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
 - 内置三套可切换模板和两份不同职责的说明文档
 
-GitHub Pages 只发布只读展示网站。管理页不会部署到 Pages，只在本地克隆中通过 `npm run admin` 启动。
+GitHub Pages 会发布只读展示网站和在线管理页。在线管理页默认允许公开只读浏览；填写只保存在当前标签页内的 GitHub Token 后，可以直接编辑记录并自动创建远端提交，不需要在本地启动服务器。
 
 ## 油猴脚本
 
@@ -38,7 +38,7 @@ https://raw.githubusercontent.com/zjsycwmrbig/MyAnimeLife/main/userscript/dist/a
 
 在 Tampermonkey 中打开该地址，或新建脚本后粘贴内容即可。脚本通过 GitHub Contents API 读写个人仓库中的 `data/anime.jsonl` 和 `data/anime-index.jsonl`，不要求个人仓库与模板同名。详细设置和识别机制见 [`userscript/README.md`](userscript/README.md)。
 
-如果希望脚本更新也完全由自己的仓库管理，可以把上述地址中的 `zjsycwmrbig/MyAnimeLife` 替换成自己的 `owner/repository`。使用 Template 创建的个人仓库同样会包含 `userscript/dist/anime-index.user.js`。
+如果希望脚本更新也完全由自己的仓库管理，可以把上述地址中的 `zjsycwmrbig/MyAnimeLife` 替换成自己的 `owner/repository`。使用 Template 创建的个人数据仓库同样会包含 `userscript/dist/anime-index.user.js`。
 
 ## 创建个人仓库
 
@@ -89,7 +89,13 @@ GitHub 不支持只 Fork 某一个分支。Fork 会复制仓库当时可见的�
 
 Pages 工作流只在当前默认分支执行，因此把 `records` 设为默认分支后，它才会发布个人站点。分支方案便于保持 `main` 干净，但**不是隐私边界**：公开仓库的所有分支都可被访问，也都会被 Fork 复制。需要真正私密的数据时，必须使用私有仓库，或把数据拆到独立的私有仓库。
 
-如果未来需要让代码公开、记录完全私有，应再拆成“模板仓库 + 独立数据仓库”的双仓库模式。当前版本仍采用单仓库，以换取更简单的模板生成、Token 和 Pages 部署流程。
+本项目当前采用“公开模板仓库 + 个人数据仓库”的双仓库工作流：
+
+- `zjsycwmrbig/MyAnimeLife` 是公开上游模板，负责代码、页面、管理工具、油猴脚本和工作流。
+- `zjsycwmrbig/my-anime-life` 是维护者的个人数据仓库，包含上游代码与个人记录。
+- 新用户通过 `Use this template` 创建自己的数据仓库，而不是直接 Fork 上游。
+- 上游功能更新需要同步合并到个人数据仓库，但个人仓库中的 `data/anime.jsonl`、`data/anime-index.jsonl`、`data/backups/` 和个人配置必须原样保留。
+- 不应对个人数据仓库使用整仓覆盖、强制重置或会删除数据目录的同步方式。
 
 ## 本地运行
 
@@ -121,7 +127,7 @@ http://127.0.0.1:4173
 npm run admin
 ```
 
-默认地址为 `http://127.0.0.1:4174/admin/`。服务只监听本机回环地址，不会部署到 GitHub Pages。
+默认地址为 `http://127.0.0.1:4174/admin/`。服务只监听本机回环地址，使用本地 Git 提交和推送。
 
 常用命令：
 
@@ -162,13 +168,38 @@ data/backups/library-<timestamp>-<hash>.json
 
 配置中的 `backupLimit` 默认为 `5`。超过上限时，按备份文件名从旧到新删除；JSONL 文件以当前写出的完整内容为准，不做追加。
 
+## GitHub Pages 在线管理
+
+构建后的管理页地址为：
+
+```text
+https://<owner>.github.io/<repository>/admin/
+```
+
+同一套管理界面会自动识别运行环境：
+
+- 在 `localhost` 或 `127.0.0.1` 上由 `npm run admin` 启动时，使用本地 Node 服务、文件系统和 Git 命令。
+- 在其他静态托管环境中，直接使用 GitHub API 读取和写入数据仓库，不依赖本地服务。
+
+在线模式的行为：
+
+- 公开数据仓库不填写 Token 也能浏览记录、全量索引、重复检查和统计信息。
+- 公开浏览通过 HEAD SHA 从 `raw.githubusercontent.com` 读取配置和 JSONL，只使用两次 GitHub API 调用来确定当前提交和 Git 树。
+- 编辑、批量加入和删除需要 GitHub 细粒度 Token；Token 只保存在当前标签页的 `sessionStorage` 和内存中，不会写入 `localStorage`、URL、日志或仓库文件。关闭标签页后需要重新填写。
+- Token 只需对目标数据仓库授予 `Repository permissions > Contents: Read and write`。不需要 Actions、Administration 或其他仓库权限。
+- 每次在线修改都会先读取远端 HEAD，再用 Git Data API 创建 blobs、tree、commit，最后以非强制方式更新分支。数据文件、轻量索引和新备份位于同一个提交中。
+- 如果编辑期间远端分支已有新的提交，更新分支会被拒绝，页面会提示先刷新再重试，不会覆盖其他人的改动。
+- 每次实际修改前仍会生成包含完整 JSONL 和索引 JSONL 的备份，并按 `backupLimit` 在同一个提交中轮换旧备份。
+- 在线模式的“同步远端”不会重复推送，因为保存已经完成远端提交；它会重新读取 GitHub 上的最新状态。
+
 ### 全量索引
 
 管理页的“全量索引”视图使用 npm 包 [`bangumi-data`](https://github.com/bangumi-data/bangumi-data) 作为发现和选择作品的公共目录。它不会修改或替代个人记录，只有点击“添加到我的档案”后，才会在本机数据中创建记录。
 
 - 第一次进入该视图时才下载索引，不会影响管理页启动速度。
 - 下载优先使用 jsDelivr，失败时回退到 unpkg。
-- 索引缓存在 `.cache/bangumi-data.catalog.json`，该目录已加入 `.gitignore`，不会提交到个人仓库。
+- 本地管理页将索引缓存在 `.cache/bangumi-data.catalog.json`，该目录已加入 `.gitignore`，不会提交到个人仓库。
+- GitHub Pages 在线管理页在 Web Worker 中下载索引，并缓存到浏览器的 IndexedDB，不阻塞主界面。
 - 缓存默认 24 小时内直接复用；超过 24 小时后再次进入或点击“检查索引更新”时，才检查 npm 版本。也可以随时手动检查。
 - 搜索会优先展示中文标题，同时匹配日文原名、其他译名、Bangumi/Bilibili/AniList/MAL 站点 ID，并支持空格分词模糊匹配。
 - 记录 ID 或任一外部站点 ID 已存在时会阻止添加，避免同一作品重复入库。
@@ -211,7 +242,11 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 │  ├─ styles.css
 │  ├─ app.js
 │  ├─ catalog.js
-│  └─ duplicates.js
+│  ├─ duplicates.js
+│  ├─ runtime.js
+│  ├─ github-client.js
+│  ├─ browser-catalog-store.js
+│  └─ catalog-worker.js
 ├─ config/site.json
 ├─ data/
 │  ├─ anime.jsonl
@@ -221,6 +256,7 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 │  ├─ anime.schema.json
 │  └─ anime-index.schema.json
 ├─ scripts/
+│  ├─ admin-data.mjs
 │  ├─ admin.mjs
 │  ├─ admin-store.mjs
 │  ├─ build.mjs

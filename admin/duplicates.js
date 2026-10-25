@@ -1,3 +1,9 @@
+import {
+  api,
+  getRuntime,
+  refreshRuntimeLibrary,
+} from "./runtime.js";
+
 const state = {
   groups: [],
   selectedIds: new Set(),
@@ -26,26 +32,6 @@ function showToast(message, options = {}) {
     () => elements.toast.classList.remove("is-visible"),
     options.duration ?? 3600,
   );
-}
-
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-  });
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = {};
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || `请求失败 (${response.status})`);
-  }
-  return payload;
 }
 
 function seasonText(season) {
@@ -99,10 +85,12 @@ function createCover(member) {
 
 function renderSelection() {
   const count = state.selectedIds.size;
+  const writable = getRuntime().writable;
   elements.selectionLabel.textContent = count
     ? `已选择 ${count} 条记录`
     : "未选择重复记录";
-  elements.deleteButton.disabled = state.loading || count === 0;
+  elements.deleteButton.disabled =
+    state.loading || !writable || count === 0;
 }
 
 function toggleRecord(recordId, checked) {
@@ -130,6 +118,7 @@ function createMemberRow(member) {
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = picked;
+  checkbox.disabled = !getRuntime().writable;
   checkbox.setAttribute("aria-label", `选择 ${member.title}`);
   checkbox.addEventListener("change", () => {
     toggleRecord(member.id, checkbox.checked);
@@ -170,6 +159,7 @@ function createGroup(group) {
   selectAllLabel.className = "duplicate-group-select";
   const selectAll = document.createElement("input");
   selectAll.type = "checkbox";
+  selectAll.disabled = !getRuntime().writable;
   const memberIds = group.members.map((member) => member.id);
   const selectedCount = memberIds.filter((id) =>
     state.selectedIds.has(id),
@@ -274,6 +264,10 @@ async function deleteSelected() {
   if (!state.selectedIds.size || state.loading) {
     return;
   }
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
+    return;
+  }
   const ids = [...state.selectedIds];
   if (
     !window.confirm(
@@ -308,6 +302,18 @@ elements.refreshButton.addEventListener("click", loadDuplicates);
 elements.deleteButton.addEventListener("click", deleteSelected);
 window.addEventListener("anime-duplicates:activate", loadDuplicates);
 window.addEventListener("anime-library:changed", () => {
+  if (!document.querySelector("#duplicateWorkspace")?.hidden) {
+    loadDuplicates();
+  }
+});
+
+window.addEventListener("anime-runtime:changed", () => {
+  refreshRuntimeLibrary();
+  if (!getRuntime().writable) {
+    state.selectedIds.clear();
+  }
+  state.groups = [];
+  renderGroups();
   if (!document.querySelector("#duplicateWorkspace")?.hidden) {
     loadDuplicates();
   }

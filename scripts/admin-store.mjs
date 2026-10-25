@@ -12,42 +12,19 @@ import {
 import {
   buildAnimeIndex,
   createBackupSnapshot,
-  nextRecordTimestamp,
   serializeJsonl,
 } from "./library-data.mjs";
 import { createRecordFromCatalog } from "./catalog-data.mjs";
+import {
+  appendCatalogRecords,
+  removeLibraryRecords,
+  updateLibraryRecord,
+} from "./admin-data.mjs";
 
 const execFileAsync = promisify(execFile);
 
 function cleanString(value) {
   return String(value ?? "").trim();
-}
-
-function sanitizeRating(value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-  const rating = Number(value);
-  if (!Number.isFinite(rating) || rating < 0 || rating > 10) {
-    throw new Error("评分必须是 0 到 10 之间的数字");
-  }
-  return Math.round(rating * 10) / 10;
-}
-
-function validateText(value, label, maximumLength) {
-  const text = String(value ?? "");
-  if (text.length > maximumLength) {
-    throw new Error(`${label}不能超过 ${maximumLength} 个字符`);
-  }
-  return text;
-}
-
-function externalIdEntries(record) {
-  return Object.entries(record.externalIds ?? {}).map(([source, id]) => ({
-    key: `${source}:${id}`,
-    source,
-    id,
-  }));
 }
 
 async function writeFileAtomic(filePath, text) {
@@ -181,42 +158,16 @@ export class LibraryAdminStore {
 
   async saveRecord(recordId, changes) {
     const library = await this.load();
-    const existing = library.records.find((record) => record.id === recordId);
-    if (!existing) {
-      const error = new Error("没有找到这条番剧记录");
-      error.status = 404;
-      throw error;
-    }
-    const now = this.now();
-    const title = cleanString(changes.title ?? existing.title);
-    if (!title) {
-      throw new Error("标题不能为空");
-    }
-    const updated = {
-      ...existing,
-      title: validateText(title, "标题", 200),
-      rating: sanitizeRating(
-        Object.hasOwn(changes, "rating") ? changes.rating : existing.rating,
-      ),
-      review: validateText(
-        Object.hasOwn(changes, "review") ? changes.review : existing.review,
-        "评价",
-        20000,
-      ),
-      note: validateText(
-        Object.hasOwn(changes, "note") ? changes.note : existing.note,
-        "备注",
-        5000,
-      ),
-      updatedAt: nextRecordTimestamp(existing.updatedAt, now),
-    };
-    const records = library.records.map((record) =>
-      record.id === recordId ? updated : record,
+    const updated = updateLibraryRecord(
+      library.records,
+      recordId,
+      changes,
+      this.now(),
     );
-    const saved = await this.writeLibrary(records);
+    const saved = await this.writeLibrary(updated.records);
     return {
       ...saved,
-      record: updated,
+      record: updated.record,
     };
   }
 
@@ -255,157 +206,31 @@ export class LibraryAdminStore {
   }
 
   async addCatalogRecords(entries) {
-    if (!Array.isArray(entries) || !entries.length) {
-      throw new Error("没有选择要添加的番剧");
-    }
-    if (entries.length > 100) {
-      throw new Error("单次最多添加 100 部番剧");
-    }
-
     const library = await this.load();
-    const now = this.now();
-    const existingIds = new Set(library.records.map((record) => record.id));
-    const existingExternalIds = new Map();
-    for (const record of library.records) {
-      for (const external of externalIdEntries(record)) {
-        existingExternalIds.set(external.key, record);
-      }
-    }
-
-    const addedRecords = [];
-    const skipped = [];
-    const batchExternalIds = new Map();
-    const seenCatalogIds = new Set();
-    for (const [position, entry] of entries.entries()) {
-      const item = entry?.item ?? entry;
-      if (!item || typeof item !== "object") {
-        skipped.push({
-          catalogId: null,
-          title: `第 ${position + 1} 个候选`,
-          reason: "invalid-item",
-          message: "索引候选无效",
-        });
-        continue;
-      }
-
-      const catalogId = cleanString(item.id);
-      const title = cleanString(item.displayTitle ?? item.title);
-      if (!catalogId) {
-        skipped.push({
-          catalogId: null,
-          title: title || `第 ${position + 1} 个候选`,
-          reason: "invalid-item",
-          message: "索引候选缺少 ID",
-        });
-        continue;
-      }
-      if (seenCatalogIds.has(catalogId)) {
-        skipped.push({
-          catalogId,
-          title,
-          reason: "batch-duplicate",
-          message: "同一索引在本次选择中重复出现",
-        });
-        continue;
-      }
-      seenCatalogIds.add(catalogId);
-
-      const record = createRecordFromCatalog(item, entry, now);
-      if (existingIds.has(record.id)) {
-        skipped.push({
-          catalogId,
-          title: record.title,
-          reason: "existing-record-id",
-          message: "相同记录 ID 已存在",
-        });
-        continue;
-      }
-
-      let conflict = null;
-      for (const external of externalIdEntries(record)) {
-        const existing = existingExternalIds.get(external.key);
-        if (existing) {
-          conflict = {
-            key: external.key,
-            record: existing,
-            source: "library",
-          };
-          break;
-        }
-        const batchRecord = batchExternalIds.get(external.key);
-        if (batchRecord) {
-          conflict = {
-            key: external.key,
-            record: batchRecord,
-            source: "batch",
-          };
-          break;
-        }
-      }
-      if (conflict) {
-        const reusedInBatch = conflict.source === "batch";
-        skipped.push({
-          catalogId,
-          title: record.title,
-          reason: reusedInBatch
-            ? "batch-external-id"
-            : "existing-external-id",
-          message: reusedInBatch
-            ? `外部站点 ID ${conflict.key} 已在本批次使用`
-            : `外部站点 ID ${conflict.key} 已存在于《${conflict.title}》`,
-          conflictRecordId: conflict.id ?? null,
-          externalKey: conflict.key,
-        });
-        continue;
-      }
-
-      existingIds.add(record.id);
-      for (const external of externalIdEntries(record)) {
-        batchExternalIds.set(external.key, {
-          id: record.id,
-          title: record.title,
-          key: external.key,
-        });
-      }
-      addedRecords.push(record);
-    }
-
-    if (!addedRecords.length) {
+    const result = appendCatalogRecords(
+      library.records,
+      entries,
+      this.now(),
+    );
+    if (!result.addedRecords.length) {
       return {
-        records: library.records,
-        index: library.index,
-        dataText: library.dataText,
-        indexText: library.indexText,
+        ...result,
         backupPath: null,
-        addedRecords: [],
-        skipped,
       };
     }
 
-    const saved = await this.writeLibrary([
-      ...library.records,
-      ...addedRecords,
-    ]);
+    const saved = await this.writeLibrary(result.records);
     return {
       ...saved,
-      addedRecords,
-      skipped,
+      addedRecords: result.addedRecords,
+      skipped: result.skipped,
     };
   }
 
   async deleteRecords(recordIds) {
-    const ids = new Set(
-      (recordIds ?? []).map((id) => cleanString(id)).filter(Boolean),
-    );
-    if (!ids.size) {
-      throw new Error("没有选择要删除的番剧");
-    }
     const library = await this.load();
-    const remaining = library.records.filter((record) => !ids.has(record.id));
-    if (remaining.length === library.records.length) {
-      throw new Error("选择的番剧不在当前数据中");
-    }
-    return this.writeLibrary(remaining);
+    const result = removeLibraryRecords(library.records, recordIds);
+    return this.writeLibrary(result.records);
   }
 
   async gitStatus() {

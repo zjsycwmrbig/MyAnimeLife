@@ -1,3 +1,9 @@
+import {
+  api,
+  getRuntime,
+  refreshRuntimeLibrary,
+} from "./runtime.js";
+
 const state = {
   records: [],
   index: [],
@@ -50,26 +56,6 @@ function showToast(message, options = {}) {
     () => elements.toast.classList.remove("is-visible"),
     options.duration ?? 3600,
   );
-}
-
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-  });
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = {};
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || `请求失败 (${response.status})`);
-  }
-  return payload;
 }
 
 function formatDate(value) {
@@ -131,25 +117,30 @@ function currentRecord() {
 
 function setBusy(busy) {
   state.busy = busy;
-  for (const button of [
-    elements.refreshButton,
-    elements.syncButton,
-    elements.saveButton,
-    elements.deleteButton,
-  ]) {
+  const writable = getRuntime().writable;
+  for (const button of [elements.refreshButton, elements.syncButton]) {
     button.classList.toggle("is-loading", busy);
-    button.disabled = busy || (button === elements.deleteButton && !state.selectedIds.size);
+    button.disabled = busy;
   }
-  if (!busy) {
-    elements.saveButton.disabled = false;
-    elements.deleteButton.disabled = !state.selectedIds.size;
-  }
+  elements.saveButton.classList.toggle("is-loading", busy);
+  elements.deleteButton.classList.toggle("is-loading", busy);
+  elements.saveButton.disabled = busy || !writable;
+  elements.deleteButton.disabled =
+    busy || !writable || state.selectedIds.size === 0;
 }
 
 function renderGitStatus() {
   const git = state.git;
   if (!git) {
     elements.repoStatus.textContent = "未读取 Git 状态";
+    return;
+  }
+  if (git.mode === "github") {
+    elements.repoStatus.textContent = [
+      "GitHub Pages 在线管理",
+      `${git.remote}@${git.branch}`,
+      getRuntime().writable ? "可写入" : "只读，填写 Token 后可编辑",
+    ].join(" · ");
     return;
   }
   const stateLabel = git.dirty ? "有未提交更改" : "数据已提交";
@@ -162,8 +153,10 @@ function renderGitStatus() {
 
 function renderSelection() {
   const count = state.selectedIds.size;
+  const writable = getRuntime().writable;
   elements.selectionLabel.textContent = count ? `已选择 ${count} 条` : "未选择";
-  elements.deleteButton.disabled = state.busy || count === 0;
+  elements.deleteButton.disabled = state.busy || !writable || count === 0;
+  elements.selectAll.disabled = state.busy || !writable;
   const visible = state.records.filter(recordMatches);
   const selectedVisible = visible.filter((record) =>
     state.selectedIds.has(record.id),
@@ -207,6 +200,7 @@ function renderRows() {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = state.selectedIds.has(record.id);
+    checkbox.disabled = !getRuntime().writable;
     checkbox.setAttribute("aria-label", `选择 ${record.title}`);
     checkbox.addEventListener("click", (event) => event.stopPropagation());
     checkbox.addEventListener("change", () => {
@@ -266,6 +260,7 @@ function setDirty(dirty) {
 
 function renderEditor() {
   const record = currentRecord();
+  const writable = getRuntime().writable;
   elements.editorEmpty.hidden = Boolean(record);
   elements.editorForm.hidden = !record;
   if (!record) {
@@ -283,6 +278,15 @@ function renderEditor() {
   elements.seasonLabel.textContent = seasonText(record) || "季度未标注";
   elements.updatedLabel.textContent = `更新于 ${formatDate(record.updatedAt)}`;
   elements.backupLabel.textContent = `备份上限 ${state.backupLimit} 个`;
+  for (const input of [
+    elements.titleInput,
+    elements.ratingInput,
+    elements.reviewInput,
+    elements.noteInput,
+  ]) {
+    input.disabled = !writable;
+  }
+  elements.saveButton.disabled = state.busy || !writable;
   setDirty(false);
 }
 
@@ -336,6 +340,10 @@ async function saveCurrentRecord() {
   if (!record || state.busy) {
     return false;
   }
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
+    return false;
+  }
   setBusy(true);
   try {
     const payload = await api(`/api/records/${encodeURIComponent(record.id)}`, {
@@ -353,7 +361,14 @@ async function saveCurrentRecord() {
     renderGitStatus();
     renderRows();
     renderEditor();
-    showToast(payload.backupPath ? "已保存，并创建备份快照" : "已保存");
+    const online = getRuntime().mode === "github";
+    showToast(
+      online
+        ? `已提交到 GitHub${payload.commit ? ` (${payload.commit.slice(0, 7)})` : ""}`
+        : payload.backupPath
+          ? "已保存，并创建备份快照"
+          : "已保存",
+    );
     return true;
   } catch (error) {
     showToast(error.message, { error: true });
@@ -365,6 +380,10 @@ async function saveCurrentRecord() {
 
 async function deleteSelected() {
   if (!state.selectedIds.size || state.busy) {
+    return;
+  }
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
     return;
   }
   const ids = [...state.selectedIds];
@@ -404,6 +423,16 @@ async function syncRemote() {
     if (!saved) {
       return;
     }
+  }
+  if (getRuntime().mode === "github") {
+    refreshRuntimeLibrary();
+    try {
+      await loadLibrary({ quiet: true });
+      showToast("已读取 GitHub 最新数据；在线保存会自动提交到远端");
+    } catch (error) {
+      showToast(error.message, { error: true });
+    }
+    return;
   }
   setBusy(true);
   elements.syncButton.textContent = "正在同步";
@@ -524,6 +553,18 @@ window.addEventListener("anime-library:changed", async (event) => {
     }
   } catch (error) {
     showToast(error.message, { error: true });
+  }
+});
+
+window.addEventListener("anime-runtime:changed", async () => {
+  refreshRuntimeLibrary();
+  if (!getRuntime().writable) {
+    state.selectedIds.clear();
+  }
+  try {
+    await loadLibrary({ quiet: true });
+  } catch (error) {
+    showToast(error.message, { error: true, duration: 7000 });
   }
 });
 

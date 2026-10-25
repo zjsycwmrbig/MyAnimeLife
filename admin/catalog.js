@@ -1,3 +1,9 @@
+import {
+  api,
+  getRuntime,
+  refreshRuntimeLibrary,
+} from "./runtime.js";
+
 const MAX_BATCH_SIZE = 100;
 
 const state = {
@@ -60,26 +66,6 @@ function showToast(message, options = {}) {
   );
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-  });
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = {};
-  }
-  if (!response.ok) {
-    throw new Error(payload.error || `请求失败 (${response.status})`);
-  }
-  return payload;
-}
-
 function formatDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -123,13 +109,20 @@ function createDraft(item) {
 
 function renderBatchActions() {
   const count = state.selectedItems.size;
-  const disabled = state.busy || count === 0;
+  const writable = getRuntime().writable;
+  const disabled = state.busy || count === 0 || !writable;
+  const online = getRuntime().mode === "github";
   elements.catalogSaveButton.disabled = disabled;
   elements.catalogSyncButton.disabled = disabled;
+  elements.catalogSyncButton.hidden = online;
   const suffix = state.dirty ? " *" : "";
   elements.catalogSaveButton.textContent = state.busy
     ? "正在写入"
-    : `加入 ${count} 部到本地${suffix}`;
+    : !writable
+      ? "填写 Token 后可编辑"
+    : online
+      ? `加入并提交 ${count} 部${suffix}`
+      : `加入 ${count} 部到本地${suffix}`;
   elements.catalogSyncButton.textContent = state.busy
     ? "正在同步"
     : `加入并同步${suffix}`;
@@ -253,6 +246,10 @@ function createCover(item) {
 }
 
 function toggleSelection(item) {
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
+    return;
+  }
   if (item.ownedRecordId) {
     showToast(`《${item.displayTitle}》已经在本地档案中`);
     return;
@@ -285,7 +282,7 @@ function createCatalogRow(item) {
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = picked;
-  checkbox.disabled = Boolean(item.ownedRecordId);
+  checkbox.disabled = Boolean(item.ownedRecordId) || !getRuntime().writable;
   checkbox.setAttribute(
     "aria-label",
     item.ownedRecordId
@@ -369,7 +366,8 @@ function renderSelectionSummary() {
     selectable.length > 0 && selectedVisible === selectable.length;
   elements.catalogSelectAll.indeterminate =
     selectedVisible > 0 && selectedVisible < selectable.length;
-  elements.catalogSelectAll.disabled = state.busy || selectable.length === 0;
+  elements.catalogSelectAll.disabled =
+    state.busy || !getRuntime().writable || selectable.length === 0;
   renderBatchActions();
 }
 
@@ -501,6 +499,7 @@ function createDraftRow(item) {
   rating.step = "0.1";
   rating.placeholder = "未评分";
   rating.value = draft.rating;
+  rating.disabled = !getRuntime().writable;
   rating.addEventListener("input", () => {
     draft.rating = rating.value;
     setDirty(true);
@@ -516,6 +515,7 @@ function createDraftRow(item) {
   review.rows = 3;
   review.placeholder = "写下这部作品的评价";
   review.value = draft.review;
+  review.disabled = !getRuntime().writable;
   review.addEventListener("input", () => {
     draft.review = review.value;
     setDirty(true);
@@ -537,6 +537,7 @@ function createDraftRow(item) {
   const titleInput = document.createElement("input");
   titleInput.maxLength = 200;
   titleInput.value = draft.title;
+  titleInput.disabled = !getRuntime().writable;
   titleInput.addEventListener("input", () => {
     draft.title = titleInput.value;
     setDirty(true);
@@ -552,6 +553,7 @@ function createDraftRow(item) {
   note.rows = 2;
   note.placeholder = "内部备注";
   note.value = draft.note;
+  note.disabled = !getRuntime().writable;
   note.addEventListener("input", () => {
     draft.note = note.value;
     setDirty(true);
@@ -612,6 +614,10 @@ function skippedSummary(skipped) {
 
 async function submitBatch(sync) {
   if (state.busy || !state.selectedItems.size) {
+    return;
+  }
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
     return;
   }
   const items = [...state.selectedItems.values()].map((item) => {
@@ -745,4 +751,27 @@ window.addEventListener("beforeunload", (event) => {
   }
   event.preventDefault();
   event.returnValue = "";
+});
+
+window.addEventListener("anime-runtime:changed", () => {
+  refreshRuntimeLibrary();
+  if (!getRuntime().writable) {
+    state.selectedItems.clear();
+    state.drafts.clear();
+    state.dirty = false;
+  }
+  state.catalogLoaded = false;
+  state.items = [];
+  state.total = 0;
+  state.facetsLoaded = false;
+  for (const select of [elements.catalogYear, elements.catalogSource]) {
+    while (select.options.length > 1) {
+      select.options.remove(1);
+    }
+    select.value = "";
+  }
+  if (state.view === "catalog") {
+    loadCatalog();
+  }
+  renderBatchEditor();
 });

@@ -50,7 +50,7 @@ async function createBuildFixture(template) {
   );
 
   await Promise.all(
-    ["config", "schemas", "templates"].map((directory) =>
+    ["admin", "config", "schemas", "scripts", "templates"].map((directory) =>
       fs.cp(path.join(root, directory), path.join(fixtureRoot, directory), {
         recursive: true,
       }),
@@ -214,6 +214,50 @@ test("ships three independently buildable templates", async () => {
       /data-own-repository="example\/anime-records"/u,
     );
     assert.match(insightsHtml, /data-own-branch="main"/u);
+
+    const adminConfig = await fs.readFile(
+      path.join(fixtureRoot, "dist", "admin", "config.js"),
+      "utf8",
+    );
+    assert.match(adminConfig, /"mode": "github"/u);
+    assert.match(adminConfig, /"repository": "example\/anime-records"/u);
+    assert.match(adminConfig, /"branch": "main"/u);
+    for (const file of [
+      "admin/index.html",
+      "admin/app.js",
+      "admin/runtime.js",
+      "admin/github-client.js",
+      "scripts/library-data.mjs",
+      "scripts/catalog-data.mjs",
+      "scripts/duplicate-data.mjs",
+      "scripts/admin-data.mjs",
+    ]) {
+      await fs.access(path.join(fixtureRoot, "dist", file));
+    }
+
+    const modules = [];
+    for (const directory of ["admin", "scripts"]) {
+      const folder = path.join(fixtureRoot, "dist", directory);
+      for (const name of await fs.readdir(folder)) {
+        if (/\.(?:js|mjs)$/u.test(name)) {
+          modules.push(path.join(folder, name));
+        }
+      }
+    }
+    for (const modulePath of modules) {
+      const source = await fs.readFile(modulePath, "utf8");
+      const references = [
+        ...source.matchAll(
+          /(?:\bfrom\s+|\bimport\s*\()\s*["'](\.{1,2}\/[^"']+)["']/gu,
+        ),
+        ...source.matchAll(
+          /new URL\(\s*["'](\.{1,2}\/[^"']+)["']\s*,\s*import\.meta\.url/gu,
+        ),
+      ].map((match) => match[1]);
+      for (const reference of references) {
+        await fs.access(path.resolve(path.dirname(modulePath), reference));
+      }
+    }
 
     const library = JSON.parse(
       await fs.readFile(
