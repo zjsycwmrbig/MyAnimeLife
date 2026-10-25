@@ -1,0 +1,22 @@
+{
+  "name": "anime-index-userscript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tampermonkey anime recognition assistant with a cached local index.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:index": "node scripts/build-local-index.mjs",
+    "test": "node --test",
+    "test:e2e": "playwright test",
+    "check": "npm run test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "fuse.js": "^7.1.0",
+    "lucide": "^0.468.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "esbuild": "^0.25.0"
+  }
+}
