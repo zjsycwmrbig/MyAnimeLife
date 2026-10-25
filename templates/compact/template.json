@@ -5,6 +5,7 @@
   "entrypoints": {
     "index": "index.njk",
     "detail": "detail.njk",
+    "insights": "insights.njk",
     "notFound": "404.njk"
   },
   "assets": "assets"

@@ -12,6 +12,7 @@ import {
   parseJsonl,
   sortRecordsById,
 } from "./library-data.mjs";
+import { calculateInsights } from "./insights-data.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(scriptDirectory, "..");
@@ -223,7 +224,7 @@ export async function loadTemplate(root, templateName) {
     );
   }
 
-  for (const entrypoint of ["index", "detail", "notFound"]) {
+  for (const entrypoint of ["index", "detail", "insights", "notFound"]) {
     const value = manifest.entrypoints?.[entrypoint];
     if (typeof value !== "string" || !value.trim()) {
       throw new Error(`模板 ${templateName} 缺少 entrypoints.${entrypoint}`);
@@ -447,24 +448,6 @@ function createRecordViewModel(record) {
   };
 }
 
-function calculateStats(records) {
-  const ratings = records
-    .map((record) => record.rating)
-    .filter((rating) => rating !== null);
-  const averageRating =
-    ratings.length === 0
-      ? "—"
-      : (
-          ratings.reduce((total, rating) => total + rating, 0) / ratings.length
-        ).toFixed(1);
-
-  return {
-    total: records.length,
-    rated: ratings.length,
-    averageRating,
-  };
-}
-
 export function createRepositoryContext(config, environment = process.env) {
   const slug = String(
     environment.GITHUB_REPOSITORY || config.repository?.slug || "",
@@ -544,7 +527,8 @@ export async function buildSite(options = {}) {
         new Date(left.updatedAt).getTime();
       return byUpdatedAt || left.title.localeCompare(right.title, "zh-CN");
     });
-  const stats = calculateStats(records);
+  const insights = calculateInsights(records, now);
+  const stats = insights.summary;
   const outputDirectory = resolveInside(root, config.outputDirectory);
   const environment = createNunjucksEnvironment(template.directory);
   const generatedAt = now.toISOString();
@@ -580,6 +564,24 @@ export async function buildSite(options = {}) {
     indexContext,
   );
   await writeFile(path.join(outputDirectory, "index.html"), indexHtml);
+
+  const insightsContext = {
+    ...common,
+    pageTitle: `统计与对比 | ${config.site.title}`,
+    pageDescription: `${config.site.title}的收录趋势、年代分布与仓库对比。`,
+    homeUrl: "../",
+    assetRoot: "../assets/",
+    insights,
+    currentDataUrl: "../data/library.json",
+  };
+  const insightsHtml = environment.render(
+    template.manifest.entrypoints.insights,
+    insightsContext,
+  );
+  await writeFile(
+    path.join(outputDirectory, "insights", "index.html"),
+    insightsHtml,
+  );
 
   for (const record of records) {
     const detailContext = {

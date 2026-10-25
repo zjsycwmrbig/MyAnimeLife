@@ -68,6 +68,7 @@ async function createBuildFixture(template) {
   const configPath = path.join(fixtureRoot, "config", "site.json");
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
   config.template = template;
+  config.repository.slug = "example/anime-records";
   await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
   return fixtureRoot;
@@ -188,6 +189,7 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(indexHtml, new RegExp(heading, "u"));
     assert.match(indexHtml, /测试番剧/u);
+    assert.match(indexHtml, /insights\//u);
 
     const detailHtml = await fs.readFile(
       path.join(
@@ -200,6 +202,18 @@ test("ships three independently buildable templates", async () => {
       "utf8",
     );
     assert.match(detailHtml, /我的评价/u);
+
+    const insightsHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "insights", "index.html"),
+      "utf8",
+    );
+    assert.match(insightsHtml, /数据洞察/u);
+    assert.match(insightsHtml, /近 7 天/u);
+    assert.match(
+      insightsHtml,
+      /data-own-repository="example\/anime-records"/u,
+    );
+    assert.match(insightsHtml, /data-own-branch="main"/u);
 
     const library = JSON.parse(
       await fs.readFile(

@@ -11,6 +11,7 @@
     <title>{{ pageTitle }}</title>
     <link rel="icon" href="{{ assetRoot }}favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="{{ assetRoot }}styles.css" />
+    {% block head %}{% endblock %}
   </head>
   <body class="{% block bodyClass %}{% endblock %}">
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -26,6 +27,7 @@
         </a>
         <nav class="header-nav" aria-label="站点">
           <a href="{{ homeUrl }}">档案</a>
+          <a class="insights-nav-link" href="{{ homeUrl }}insights/">数据洞察</a>
           {% if repository.url %}
             <a
               class="header-icon-link"
@@ -61,6 +63,8 @@
       </div>
     </footer>
 
-    <script src="{{ assetRoot }}app.js" defer></script>
+    {% block scripts %}
+      <script src="{{ assetRoot }}app.js" defer></script>
+    {% endblock %}
   </body>
 </html>
