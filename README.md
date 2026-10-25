@@ -19,7 +19,8 @@ data/anime.jsonl + data/anime-index.jsonl + templates/<current>/ = dist/*
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
 - 提供只在本地运行的批量管理页，可搜索、编辑评分和评价、批量删除、一键提交并推送
-- 管理页可搜索、筛选 `bangumi-data` 全量索引，选中后直接填写评分和评价并加入档案
+- 管理页可多选 `bangumi-data` 全量索引，逐条填写评分和评价后一次加入档案或加入并同步
+- 管理页可集中检查站点 ID、同季度同名和相似标题重复项，并定位编辑或批量删除
 - 提供 `/insights/` 数据洞察页，统计收录节奏、年代分布、评分分布和索引覆盖
 - 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
 - 内置三套可切换模板和两份不同职责的说明文档
@@ -108,7 +109,9 @@ npm run admin     # 启动本地数据管理页
 - 多选并批量删除番剧
 - 编辑标题、评分、评价和备注
 - 在全量索引中按中文标题、原名、站点 ID、年份和来源查找作品
-- 从全量索引选择作品后，直接设置展示标题、评分、评价和备注并添加到档案
+- 多选全量索引作品，逐条设置评分、评价、展示标题和备注，一次写入本地
+- 已选数量会固定显示，可一次“加入本地”或“加入并同步”；批次内重复和已在档案中的站点 ID 会汇总跳过
+- 重复检查会显示确定重复和疑似重复分组，支持按组选择、定位到记录编辑和批量删除
 - 查看当前分支、origin 和未提交状态
 - 一键提交 `data/anime.jsonl`、`data/anime-index.jsonl` 与备份，并推送到 origin
 
@@ -169,7 +172,8 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 │  ├─ index.html
 │  ├─ styles.css
 │  ├─ app.js
-│  └─ catalog.js
+│  ├─ catalog.js
+│  └─ duplicates.js
 ├─ config/site.json
 ├─ data/
 │  ├─ anime.jsonl
@@ -184,6 +188,7 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 │  ├─ build.mjs
 │  ├─ catalog-data.mjs
 │  ├─ catalog-store.mjs
+│  ├─ duplicate-data.mjs
 │  ├─ insights-data.mjs
 │  ├─ library-data.mjs
 │  ├─ validate.mjs

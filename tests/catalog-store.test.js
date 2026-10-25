@@ -135,3 +135,27 @@ test("falls back to unpkg and keeps the old cache after network failures", async
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("loads multiple catalog items without rescanning the cache per item", async () => {
+  const root = await createFixture();
+  const fetchImpl = async (url) => {
+    if (url.includes("data.jsdelivr.com")) {
+      return jsonResponse({ tags: { latest: "1.0.0" } });
+    }
+    return jsonResponse(rawCatalog);
+  };
+  try {
+    const store = new CatalogStore(root, {
+      fetchImpl,
+      now: () => "2026-10-25T00:00:00.000Z",
+    });
+    const items = await store.getItems(["bangumi:100", "missing:item"]);
+
+    assert.deepEqual(
+      items.map((item) => item.id),
+      ["bangumi:100"],
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,22 +1,26 @@
+const MAX_BATCH_SIZE = 100;
+
 const state = {
   view: "library",
   catalogLoaded: false,
   loading: false,
+  busy: false,
   items: [],
   total: 0,
-  selectedId: null,
-  dirty: false,
-  busy: false,
   query: "",
   year: "",
   source: "",
   facetsLoaded: false,
+  selectedItems: new Map(),
+  drafts: new Map(),
+  dirty: false,
 };
 
 const elements = {
   switchButtons: [...document.querySelectorAll("[data-view]")],
   libraryWorkspace: document.querySelector("#libraryWorkspace"),
   catalogWorkspace: document.querySelector("#catalogWorkspace"),
+  duplicateWorkspace: document.querySelector("#duplicateWorkspace"),
   catalogSearch: document.querySelector("#catalogSearch"),
   catalogYear: document.querySelector("#catalogYear"),
   catalogSource: document.querySelector("#catalogSource"),
@@ -25,28 +29,19 @@ const elements = {
   catalogCount: document.querySelector("#catalogCount"),
   catalogStatus: document.querySelector("#catalogStatus"),
   catalogResultLabel: document.querySelector("#catalogResultLabel"),
+  catalogSelectionLabel: document.querySelector("#catalogSelectionLabel"),
+  catalogClearSelection: document.querySelector("#catalogClearSelection"),
+  catalogSelectAll: document.querySelector("#catalogSelectAll"),
   catalogEmpty: document.querySelector("#catalogEmpty"),
   catalogEmptyTitle: document.querySelector("#catalogEmptyTitle"),
   catalogEmptyText: document.querySelector("#catalogEmptyText"),
   catalogMoreButton: document.querySelector("#catalogMoreButton"),
   catalogEditorEmpty: document.querySelector("#catalogEditorEmpty"),
-  catalogForm: document.querySelector("#catalogForm"),
-  catalogEditorTitle: document.querySelector("#catalogEditorTitle"),
-  catalogEditorBadge: document.querySelector("#catalogEditorBadge"),
-  catalogCover: document.querySelector("#catalogCover"),
-  catalogCoverFallback: document.querySelector("#catalogCoverFallback"),
-  catalogCoverImage: document.querySelector("#catalogCoverImage"),
-  catalogPreviewTitle: document.querySelector("#catalogPreviewTitle"),
-  catalogPreviewOriginal: document.querySelector("#catalogPreviewOriginal"),
-  catalogPreviewMeta: document.querySelector("#catalogPreviewMeta"),
-  catalogTitleInput: document.querySelector("#catalogTitleInput"),
-  catalogRatingInput: document.querySelector("#catalogRatingInput"),
-  catalogRecordId: document.querySelector("#catalogRecordId"),
-  catalogReviewInput: document.querySelector("#catalogReviewInput"),
-  catalogNoteInput: document.querySelector("#catalogNoteInput"),
-  catalogSourceLabel: document.querySelector("#catalogSourceLabel"),
-  catalogSeasonLabel: document.querySelector("#catalogSeasonLabel"),
+  catalogBatchForm: document.querySelector("#catalogBatchForm"),
+  catalogSelectionBadge: document.querySelector("#catalogSelectionBadge"),
+  catalogSelectionList: document.querySelector("#catalogSelectionList"),
   catalogSaveButton: document.querySelector("#catalogSaveButton"),
+  catalogSyncButton: document.querySelector("#catalogSyncButton"),
   toast: document.querySelector("#toast"),
 };
 
@@ -107,21 +102,51 @@ function seasonText(season) {
   return "季度未标注";
 }
 
-function currentCatalogItem() {
-  return state.items.find((item) => item.id === state.selectedId) ?? null;
+function itemMeta(item) {
+  return [
+    item.year || "年份未知",
+    seasonText(item.season),
+    item.sources.map((source) => source.label).join(" / "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function createDraft(item) {
+  return {
+    title: item.displayTitle,
+    rating: "",
+    review: "",
+    note: "",
+  };
+}
+
+function renderBatchActions() {
+  const count = state.selectedItems.size;
+  const disabled = state.busy || count === 0;
+  elements.catalogSaveButton.disabled = disabled;
+  elements.catalogSyncButton.disabled = disabled;
+  const suffix = state.dirty ? " *" : "";
+  elements.catalogSaveButton.textContent = state.busy
+    ? "正在写入"
+    : `加入 ${count} 部到本地${suffix}`;
+  elements.catalogSyncButton.textContent = state.busy
+    ? "正在同步"
+    : `加入并同步${suffix}`;
+  elements.catalogSaveButton.classList.toggle("is-loading", state.busy);
+  elements.catalogSyncButton.classList.toggle("is-loading", state.busy);
 }
 
 function setDirty(dirty) {
   state.dirty = dirty;
-  if (!elements.catalogSaveButton.disabled) {
-    elements.catalogSaveButton.textContent = dirty
-      ? "添加到我的档案 *"
-      : "添加到我的档案";
-  }
+  renderBatchActions();
 }
 
 function confirmCatalogDiscard() {
-  return !state.dirty || window.confirm("当前评价尚未添加，确定放弃吗？");
+  return (
+    !state.dirty ||
+    window.confirm("当前填写的评分或评价尚未加入本地，确定放弃吗？")
+  );
 }
 
 function requestLibraryDiscard() {
@@ -132,18 +157,40 @@ function requestLibraryDiscard() {
   return detail.allowed;
 }
 
+function resetSelectionState() {
+  state.selectedItems.clear();
+  state.drafts.clear();
+  state.dirty = false;
+  renderCatalogRows();
+  renderBatchEditor();
+}
+
 function activateView(view, options = {}) {
   if (view === state.view) {
     return;
   }
-  if (
-    !options.force &&
-    ((view === "library" && !confirmCatalogDiscard()) ||
-      (view === "catalog" && !requestLibraryDiscard()))
-  ) {
-    return;
+  if (!options.force) {
+    if (
+      state.view === "library" &&
+      view !== "library" &&
+      !requestLibraryDiscard()
+    ) {
+      return;
+    }
+    if (
+      state.view === "catalog" &&
+      view !== "catalog" &&
+      !confirmCatalogDiscard()
+    ) {
+      return;
+    }
   }
-  if (view === "library" && !options.force) {
+  if (state.view === "library" && view !== "library") {
+    window.dispatchEvent(new CustomEvent("anime-editor:discard"));
+  }
+  if (state.view === "catalog" && view !== "catalog" && state.dirty) {
+    state.selectedItems.clear();
+    state.drafts.clear();
     state.dirty = false;
   }
   state.view = view;
@@ -154,8 +201,15 @@ function activateView(view, options = {}) {
   }
   elements.libraryWorkspace.hidden = view !== "library";
   elements.catalogWorkspace.hidden = view !== "catalog";
-  if (view === "catalog" && !state.catalogLoaded) {
-    loadCatalog();
+  elements.duplicateWorkspace.hidden = view !== "duplicates";
+  if (view === "catalog") {
+    renderBatchEditor();
+    if (!state.catalogLoaded) {
+      loadCatalog();
+    }
+  }
+  if (view === "duplicates") {
+    window.dispatchEvent(new CustomEvent("anime-duplicates:activate"));
   }
 }
 
@@ -198,16 +252,50 @@ function createCover(item) {
   return cover;
 }
 
+function toggleSelection(item) {
+  if (item.ownedRecordId) {
+    showToast(`《${item.displayTitle}》已经在本地档案中`);
+    return;
+  }
+  if (state.selectedItems.has(item.id)) {
+    state.selectedItems.delete(item.id);
+    state.drafts.delete(item.id);
+  } else {
+    if (state.selectedItems.size >= MAX_BATCH_SIZE) {
+      showToast(`单次最多选择 ${MAX_BATCH_SIZE} 部番剧`, { error: true });
+      return;
+    }
+    state.selectedItems.set(item.id, item);
+    state.drafts.set(item.id, createDraft(item));
+  }
+  state.dirty = false;
+  renderCatalogRows();
+  renderBatchEditor();
+}
+
 function createCatalogRow(item) {
   const row = document.createElement("tr");
   row.className = "record-row catalog-row";
   row.tabIndex = 0;
-  if (item.id === state.selectedId) {
-    row.classList.add("is-selected");
-  }
-  if (item.ownedRecordId) {
-    row.classList.add("is-owned");
-  }
+  const picked = state.selectedItems.has(item.id);
+  row.classList.toggle("is-selected", picked);
+  row.classList.toggle("is-owned", Boolean(item.ownedRecordId));
+
+  const checkCell = document.createElement("td");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = picked;
+  checkbox.disabled = Boolean(item.ownedRecordId);
+  checkbox.setAttribute(
+    "aria-label",
+    item.ownedRecordId
+      ? `${item.displayTitle} 已收录`
+      : `选择 ${item.displayTitle}`,
+  );
+  checkbox.addEventListener("click", (event) => event.stopPropagation());
+  checkbox.addEventListener("change", () => toggleSelection(item));
+  checkCell.append(checkbox);
+  row.append(checkCell);
 
   const titleCell = document.createElement("td");
   titleCell.className = "catalog-title-cell";
@@ -257,7 +345,7 @@ function createCatalogRow(item) {
   }
   row.append(sourcesCell);
 
-  const select = () => selectCatalogItem(item);
+  const select = () => toggleSelection(item);
   row.addEventListener("click", select);
   row.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -268,10 +356,25 @@ function createCatalogRow(item) {
   return row;
 }
 
+function renderSelectionSummary() {
+  const count = state.selectedItems.size;
+  const selectable = state.items.filter((item) => !item.ownedRecordId);
+  const selectedVisible = selectable.filter((item) =>
+    state.selectedItems.has(item.id),
+  ).length;
+  elements.catalogSelectionLabel.textContent = `已选择 ${count} 部`;
+  elements.catalogSelectionBadge.textContent = `已选择 ${count} 部`;
+  elements.catalogClearSelection.disabled = state.busy || count === 0;
+  elements.catalogSelectAll.checked =
+    selectable.length > 0 && selectedVisible === selectable.length;
+  elements.catalogSelectAll.indeterminate =
+    selectedVisible > 0 && selectedVisible < selectable.length;
+  elements.catalogSelectAll.disabled = state.busy || selectable.length === 0;
+  renderBatchActions();
+}
+
 function renderCatalogRows() {
-  elements.catalogRows.replaceChildren(
-    ...state.items.map(createCatalogRow),
-  );
+  elements.catalogRows.replaceChildren(...state.items.map(createCatalogRow));
   elements.catalogCount.textContent = state.total
     ? state.total.toLocaleString("zh-CN")
     : "0";
@@ -285,6 +388,7 @@ function renderCatalogRows() {
     elements.catalogEmptyTitle.textContent = "没有匹配的索引";
     elements.catalogEmptyText.textContent = "换一个标题或调整筛选条件。";
   }
+  renderSelectionSummary();
 }
 
 async function loadCatalog(options = {}) {
@@ -325,12 +429,6 @@ async function loadCatalog(options = {}) {
     state.items = options.append
       ? [...state.items, ...(payload.items ?? [])]
       : payload.items ?? [];
-    if (
-      state.selectedId &&
-      !state.items.some((item) => item.id === state.selectedId)
-    ) {
-      clearCatalogSelection();
-    }
     populateFacets(payload.facets);
     elements.catalogStatus.textContent = [
       `bangumi-data ${payload.meta?.version ?? "未知版本"}`,
@@ -364,146 +462,215 @@ async function loadCatalog(options = {}) {
   }
 }
 
-function setCatalogInputsDisabled(disabled) {
-  for (const input of [
-    elements.catalogTitleInput,
-    elements.catalogRatingInput,
-    elements.catalogReviewInput,
-    elements.catalogNoteInput,
-  ]) {
-    input.disabled = disabled;
+function createDraftRow(item) {
+  const draft = state.drafts.get(item.id) ?? createDraft(item);
+  const section = document.createElement("section");
+  section.className = "catalog-draft";
+  section.dataset.catalogId = item.id;
+
+  const heading = document.createElement("div");
+  heading.className = "catalog-draft-heading";
+  heading.append(createCover(item));
+  const copy = document.createElement("div");
+  copy.className = "catalog-draft-copy";
+  const title = document.createElement("strong");
+  title.textContent = item.displayTitle;
+  const meta = document.createElement("span");
+  meta.textContent = itemMeta(item);
+  copy.append(title, meta);
+  heading.append(copy);
+
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "text-button catalog-draft-remove";
+  removeButton.textContent = "移除";
+  removeButton.addEventListener("click", () => toggleSelection(item));
+  heading.append(removeButton);
+  section.append(heading);
+
+  const fields = document.createElement("div");
+  fields.className = "catalog-draft-fields";
+  const ratingLabel = document.createElement("label");
+  ratingLabel.className = "field";
+  const ratingText = document.createElement("span");
+  ratingText.textContent = "评分";
+  const rating = document.createElement("input");
+  rating.type = "number";
+  rating.min = "0";
+  rating.max = "10";
+  rating.step = "0.1";
+  rating.placeholder = "未评分";
+  rating.value = draft.rating;
+  rating.addEventListener("input", () => {
+    draft.rating = rating.value;
+    setDirty(true);
+  });
+  ratingLabel.append(ratingText, rating);
+
+  const reviewLabel = document.createElement("label");
+  reviewLabel.className = "field catalog-draft-review";
+  const reviewText = document.createElement("span");
+  reviewText.textContent = "评价";
+  const review = document.createElement("textarea");
+  review.maxLength = 20000;
+  review.rows = 3;
+  review.placeholder = "写下这部作品的评价";
+  review.value = draft.review;
+  review.addEventListener("input", () => {
+    draft.review = review.value;
+    setDirty(true);
+  });
+  reviewLabel.append(reviewText, review);
+  fields.append(ratingLabel, reviewLabel);
+  section.append(fields);
+
+  const details = document.createElement("details");
+  details.className = "catalog-draft-extra";
+  const summary = document.createElement("summary");
+  summary.textContent = "更多选项";
+  details.append(summary);
+
+  const titleLabel = document.createElement("label");
+  titleLabel.className = "field";
+  const titleText = document.createElement("span");
+  titleText.textContent = "展示标题";
+  const titleInput = document.createElement("input");
+  titleInput.maxLength = 200;
+  titleInput.value = draft.title;
+  titleInput.addEventListener("input", () => {
+    draft.title = titleInput.value;
+    setDirty(true);
+  });
+  titleLabel.append(titleText, titleInput);
+
+  const noteLabel = document.createElement("label");
+  noteLabel.className = "field";
+  const noteText = document.createElement("span");
+  noteText.textContent = "备注";
+  const note = document.createElement("textarea");
+  note.maxLength = 5000;
+  note.rows = 2;
+  note.placeholder = "内部备注";
+  note.value = draft.note;
+  note.addEventListener("input", () => {
+    draft.note = note.value;
+    setDirty(true);
+  });
+  noteLabel.append(noteText, note);
+  details.append(titleLabel, noteLabel);
+  section.append(details);
+
+  const source = document.createElement("span");
+  source.className = "catalog-draft-id";
+  source.textContent = item.id;
+  section.append(source);
+  return section;
+}
+
+function renderBatchEditor() {
+  const items = [...state.selectedItems.values()];
+  elements.catalogEditorEmpty.hidden = items.length > 0;
+  elements.catalogBatchForm.hidden = items.length === 0;
+  if (!items.length) {
+    elements.catalogSelectionList.replaceChildren();
+    renderSelectionSummary();
+    return;
   }
-  elements.catalogSaveButton.disabled = disabled;
+  elements.catalogSelectionList.replaceChildren(
+    ...items.map(createDraftRow),
+  );
+  renderSelectionSummary();
 }
 
-function clearCatalogSelection() {
-  state.selectedId = null;
-  state.dirty = false;
-  elements.catalogEditorEmpty.hidden = false;
-  elements.catalogForm.hidden = true;
-}
-
-function selectCatalogItem(item) {
+function clearSelection() {
   if (!confirmCatalogDiscard()) {
     return;
   }
-  state.selectedId = item.id;
-  state.dirty = false;
-  elements.catalogEditorEmpty.hidden = true;
-  elements.catalogForm.hidden = false;
-  elements.catalogEditorTitle.textContent = item.displayTitle;
-  elements.catalogEditorBadge.textContent = item.ownedRecordId
-    ? "已收录"
-    : "索引候选";
-  elements.catalogEditorBadge.classList.toggle(
-    "is-owned",
-    Boolean(item.ownedRecordId),
-  );
-  elements.catalogPreviewTitle.textContent = item.displayTitle;
-  elements.catalogPreviewOriginal.textContent =
-    item.title !== item.displayTitle ? item.title : "";
-  elements.catalogPreviewMeta.textContent = [
-    item.year || "年份未知",
-    seasonText(item.season),
-    item.sources.map((source) => source.label).join(" / "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  elements.catalogTitleInput.value = item.displayTitle;
-  elements.catalogRatingInput.value = "";
-  elements.catalogReviewInput.value = "";
-  elements.catalogNoteInput.value = "";
-  elements.catalogRecordId.textContent = item.id;
-  elements.catalogSourceLabel.textContent = item.sources.length
-    ? item.sources.map((source) => source.label).join(" · ")
-    : "仅标题索引";
-  elements.catalogSeasonLabel.textContent = seasonText(item.season);
-  elements.catalogCoverFallback.textContent = [...item.displayTitle][0] ?? "A";
-  elements.catalogCover.classList.remove("has-image");
-  elements.catalogCoverImage.hidden = true;
-  elements.catalogCoverImage.removeAttribute("src");
-  if (item.coverUrl) {
-    elements.catalogCoverImage.addEventListener(
-      "load",
-      () => {
-        elements.catalogCoverImage.hidden = false;
-        elements.catalogCover.classList.add("has-image");
-      },
-      { once: true },
-    );
-    elements.catalogCoverImage.addEventListener(
-      "error",
-      () => {
-        elements.catalogCoverImage.hidden = true;
-        elements.catalogCover.classList.remove("has-image");
-      },
-      { once: true },
-    );
-    elements.catalogCoverImage.src = item.coverUrl;
-  }
-
-  setCatalogInputsDisabled(Boolean(item.ownedRecordId));
-  elements.catalogSaveButton.textContent = item.ownedRecordId
-    ? "已在当前档案中"
-    : "添加到我的档案";
-  renderCatalogRows();
-  if (window.matchMedia("(max-width: 900px)").matches) {
-    elements.catalogForm.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else {
-    elements.catalogTitleInput.focus();
-  }
+  resetSelectionState();
 }
 
-async function saveCatalogRecord() {
-  const item = currentCatalogItem();
-  if (!item || item.ownedRecordId || state.busy) {
+function skippedSummary(skipped) {
+  if (!skipped.length) {
+    return "";
+  }
+  const reasons = new Map();
+  for (const item of skipped) {
+    reasons.set(item.reason, (reasons.get(item.reason) ?? 0) + 1);
+  }
+  const labels = {
+    "catalog-not-found": "索引失效",
+    "batch-duplicate": "批次重复",
+    "existing-record-id": "已存在",
+    "existing-external-id": "站点 ID 已存在",
+    "batch-external-id": "批次站点重复",
+    "invalid-item": "候选无效",
+  };
+  return [...reasons.entries()]
+    .map(([reason, count]) => `${labels[reason] ?? reason} ${count}`)
+    .join("，");
+}
+
+async function submitBatch(sync) {
+  if (state.busy || !state.selectedItems.size) {
     return;
   }
-  if (!elements.catalogTitleInput.value.trim()) {
-    showToast("展示标题不能为空", { error: true });
-    elements.catalogTitleInput.focus();
-    return;
-  }
+  const items = [...state.selectedItems.values()].map((item) => {
+    const draft = state.drafts.get(item.id) ?? createDraft(item);
+    return {
+      id: item.id,
+      title: draft.title,
+      rating: draft.rating,
+      review: draft.review,
+      note: draft.note,
+    };
+  });
   state.busy = true;
-  elements.catalogSaveButton.disabled = true;
-  elements.catalogSaveButton.classList.add("is-loading");
-  elements.catalogSaveButton.textContent = "正在添加";
+  renderSelectionSummary();
   try {
-    const payload = await api(
-      `/api/catalog/${encodeURIComponent(item.id)}`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          title: elements.catalogTitleInput.value,
-          rating: elements.catalogRatingInput.value,
-          review: elements.catalogReviewInput.value,
-          note: elements.catalogNoteInput.value,
-        }),
-      },
-    );
+    const payload = await api("/api/catalog/bulk", {
+      method: "POST",
+      body: JSON.stringify({ items, sync }),
+    });
+    const addedCount = payload.addedRecords?.length ?? 0;
+    const skippedText = skippedSummary(payload.skipped ?? []);
+    if (!addedCount) {
+      showToast(
+        skippedText
+          ? `没有新增记录：${skippedText}`
+          : "没有新增记录",
+        { error: true, duration: 6500 },
+      );
+      return;
+    }
+
+    const resultText = [
+      `已加入 ${addedCount} 部`,
+      skippedText ? `跳过 ${payload.skipped.length} 部（${skippedText}）` : "",
+      payload.sync?.commit ? `已同步 ${payload.sync.commit}` : "",
+      payload.syncError ? `同步失败：${payload.syncError}` : "",
+    ]
+      .filter(Boolean)
+      .join("；");
+    state.selectedItems.clear();
+    state.drafts.clear();
     state.dirty = false;
-    showToast(
-      payload.backupPath
-        ? `《${payload.record.title}》已添加，并创建备份快照`
-        : `《${payload.record.title}》已添加`,
-    );
     window.dispatchEvent(
       new CustomEvent("anime-library:changed", {
-        detail: { selectId: payload.record.id },
+        detail: {
+          selectId: payload.addedRecords[0]?.id ?? null,
+        },
       }),
     );
     activateView("library", { force: true });
+    showToast(resultText, {
+      error: Boolean(payload.syncError),
+      duration: payload.syncError ? 8000 : 5000,
+    });
   } catch (error) {
-    showToast(error.message, { error: true });
+    showToast(error.message, { error: true, duration: 7000 });
   } finally {
     state.busy = false;
-    elements.catalogSaveButton.classList.remove("is-loading");
-    if (!item.ownedRecordId) {
-      elements.catalogSaveButton.disabled = false;
-      elements.catalogSaveButton.textContent = state.dirty
-        ? "添加到我的档案 *"
-        : "添加到我的档案";
-    }
+    renderSelectionSummary();
   }
 }
 
@@ -511,15 +678,6 @@ for (const button of elements.switchButtons) {
   button.addEventListener("click", () => {
     activateView(button.dataset.view);
   });
-}
-
-for (const input of [
-  elements.catalogTitleInput,
-  elements.catalogRatingInput,
-  elements.catalogReviewInput,
-  elements.catalogNoteInput,
-]) {
-  input.addEventListener("input", () => setDirty(true));
 }
 
 elements.catalogSearch.addEventListener("input", () => {
@@ -546,9 +704,39 @@ elements.catalogMoreButton.addEventListener("click", () => {
   loadCatalog({ append: true });
 });
 
-elements.catalogForm.addEventListener("submit", (event) => {
+elements.catalogClearSelection.addEventListener("click", clearSelection);
+
+elements.catalogSelectAll.addEventListener("change", () => {
+  const selectable = state.items.filter((item) => !item.ownedRecordId);
+  if (elements.catalogSelectAll.checked) {
+    for (const item of selectable) {
+      if (state.selectedItems.size >= MAX_BATCH_SIZE) {
+        showToast(`单次最多选择 ${MAX_BATCH_SIZE} 部番剧`, { error: true });
+        break;
+      }
+      if (!state.selectedItems.has(item.id)) {
+        state.selectedItems.set(item.id, item);
+        state.drafts.set(item.id, createDraft(item));
+      }
+    }
+  } else {
+    for (const item of selectable) {
+      state.selectedItems.delete(item.id);
+      state.drafts.delete(item.id);
+    }
+  }
+  state.dirty = false;
+  renderCatalogRows();
+  renderBatchEditor();
+});
+
+elements.catalogBatchForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  saveCatalogRecord();
+  submitBatch(false);
+});
+
+elements.catalogSyncButton.addEventListener("click", () => {
+  submitBatch(true);
 });
 
 window.addEventListener("beforeunload", (event) => {

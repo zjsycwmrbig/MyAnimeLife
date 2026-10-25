@@ -21,6 +21,7 @@
             我的记录
           </button>
           <button data-view="catalog" type="button">全量索引</button>
+          <button data-view="duplicates" type="button">重复检查</button>
         </nav>
         <div class="topbar-actions">
           <button id="refreshButton" class="button button-quiet" type="button">
@@ -213,13 +214,25 @@
 
           <div class="catalog-result-bar">
             <span id="catalogResultLabel">尚未加载</span>
-            <span>选择作品后在右侧直接评价</span>
+            <div class="catalog-selection-tools">
+              <strong id="catalogSelectionLabel">已选择 0 部</strong>
+              <button id="catalogClearSelection" class="text-button" type="button" disabled>
+                清空
+              </button>
+            </div>
           </div>
 
           <div class="table-wrap catalog-table-wrap">
             <table class="catalog-table">
               <thead>
                 <tr>
+                  <th class="checkbox-column">
+                    <input
+                      id="catalogSelectAll"
+                      type="checkbox"
+                      aria-label="选择当前已加载的索引"
+                    />
+                  </th>
                   <th>番剧</th>
                   <th>年份</th>
                   <th>索引</th>
@@ -247,77 +260,24 @@
         <aside class="editor-pane" aria-label="从索引添加记录">
           <div id="catalogEditorEmpty" class="editor-empty">
             <span class="editor-empty-mark" aria-hidden="true">＋</span>
-            <strong>从索引选择一部作品</strong>
-            <p>候选会默认显示中文标题，选中后可填写评分与评价。</p>
+            <strong>多选后批量评分与评价</strong>
+            <p>先勾选若干部作品，再一次填写并加入本地档案。</p>
           </div>
 
-          <form id="catalogForm" class="editor-form" hidden>
+          <form id="catalogBatchForm" class="editor-form catalog-batch-form" hidden>
             <div class="editor-heading">
               <div>
-                <p class="eyebrow">NEW RECORD</p>
-                <h2 id="catalogEditorTitle">从索引添加</h2>
+                <p class="eyebrow">BULK ADD</p>
+                <h2>批量录入</h2>
               </div>
-              <span id="catalogEditorBadge" class="status-badge">索引候选</span>
+              <span id="catalogSelectionBadge" class="status-badge">已选择 0 部</span>
             </div>
 
-            <div class="catalog-preview">
-              <div id="catalogCover" class="catalog-preview-cover">
-                <span id="catalogCoverFallback" aria-hidden="true">Aa</span>
-                <img id="catalogCoverImage" alt="" hidden />
-              </div>
-              <div class="catalog-preview-copy">
-                <strong id="catalogPreviewTitle"></strong>
-                <span id="catalogPreviewOriginal"></span>
-                <span id="catalogPreviewMeta"></span>
-              </div>
+            <div class="catalog-batch-note">
+              评分和评价只作用于各自作品。标题和备注可在“更多选项”中调整。
             </div>
 
-            <label class="field">
-              <span>展示标题</span>
-              <input id="catalogTitleInput" maxlength="200" required />
-            </label>
-
-            <div class="field-grid">
-              <label class="field">
-                <span>评分</span>
-                <input
-                  id="catalogRatingInput"
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.1"
-                  placeholder="未评分"
-                />
-              </label>
-              <div class="field">
-                <span>全量索引 ID</span>
-                <code id="catalogRecordId"></code>
-              </div>
-            </div>
-
-            <label class="field field-grow">
-              <span>评价</span>
-              <textarea
-                id="catalogReviewInput"
-                maxlength="20000"
-                placeholder="写下评价"
-              ></textarea>
-            </label>
-
-            <label class="field">
-              <span>备注</span>
-              <textarea
-                id="catalogNoteInput"
-                maxlength="5000"
-                rows="3"
-                placeholder="内部备注"
-              ></textarea>
-            </label>
-
-            <div class="record-meta">
-              <span id="catalogSourceLabel"></span>
-              <span id="catalogSeasonLabel"></span>
-            </div>
+            <div id="catalogSelectionList" class="catalog-selection-list"></div>
 
             <div class="editor-actions">
               <button
@@ -325,16 +285,64 @@
                 class="button button-primary"
                 type="submit"
               >
-                添加到我的档案
+                加入本地
+              </button>
+              <button
+                id="catalogSyncButton"
+                class="button button-quiet"
+                type="button"
+              >
+                加入并同步
               </button>
             </div>
           </form>
         </aside>
+      </main>
+
+      <main id="duplicateWorkspace" class="workspace duplicate-workspace" hidden>
+        <section class="library-pane duplicate-pane" aria-label="重复番剧检查">
+          <div class="library-heading">
+            <div>
+              <p class="eyebrow">DUPLICATES</p>
+              <h1>重复检查</h1>
+            </div>
+            <div class="library-counts" aria-live="polite">
+              <strong id="duplicateGroupCount">—</strong>
+              <span>组待处理</span>
+            </div>
+          </div>
+
+          <div class="catalog-meta">
+            <span id="duplicateStatus">进入此视图时检查当前 JSONL 数据</span>
+            <button id="duplicateRefresh" class="text-button" type="button">
+              重新检查
+            </button>
+          </div>
+
+          <div class="selection-bar duplicate-selection-bar">
+            <span id="duplicateSelectionLabel">未选择重复记录</span>
+            <button
+              id="duplicateDeleteButton"
+              class="button button-danger"
+              type="button"
+              disabled
+            >
+              删除所选
+            </button>
+          </div>
+
+          <div id="duplicateGroups" class="duplicate-groups"></div>
+          <div id="duplicateEmpty" class="empty-state" hidden>
+            <strong>没有发现重复项</strong>
+            <span>精确站点 ID、同季度同名和相似标题会在这里集中显示。</span>
+          </div>
+        </section>
       </main>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./app.js"></script>
     <script type="module" src="./catalog.js"></script>
+    <script type="module" src="./duplicates.js"></script>
   </body>
 </html>

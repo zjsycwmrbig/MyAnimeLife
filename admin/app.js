@@ -496,6 +496,22 @@ window.addEventListener("anime-editor:request-close", (event) => {
   event.detail.allowed = confirmDiscard();
 });
 
+window.addEventListener("anime-editor:discard", () => {
+  state.dirty = false;
+  renderEditor();
+});
+
+window.addEventListener("anime-library:edit", (event) => {
+  const recordId = event.detail?.recordId;
+  if (!recordId || !state.records.some((record) => record.id === recordId)) {
+    return;
+  }
+  state.selectedId = recordId;
+  state.dirty = false;
+  renderRows();
+  renderEditor();
+});
+
 window.addEventListener("anime-library:changed", async (event) => {
   try {
     await loadLibrary({ quiet: true });

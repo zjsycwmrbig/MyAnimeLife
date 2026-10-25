@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LibraryAdminStore } from "./admin-store.mjs";
 import { CatalogStore } from "./catalog-store.mjs";
+import { findDuplicateGroups } from "./duplicate-data.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(
@@ -42,7 +43,7 @@ async function readBody(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 256 * 1024) {
+    if (size > 5 * 1024 * 1024) {
       throw new Error("请求内容过大");
     }
     chunks.push(chunk);
@@ -123,6 +124,70 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, 200, result);
       return;
     }
+    if (url.pathname === "/api/catalog/bulk" && request.method === "POST") {
+      assertLocalRequest(request);
+      const body = await readBody(request);
+      const selections = Array.isArray(body.items) ? body.items : [];
+      if (!selections.length) {
+        throw new Error("没有选择要添加的番剧");
+      }
+      if (selections.length > 100) {
+        throw new Error("单次最多添加 100 部番剧");
+      }
+      const uniqueIds = [
+        ...new Set(
+          selections
+            .map((selection) => String(selection?.id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      const catalogItems = await catalogStore.getItems(uniqueIds);
+      const byId = new Map(catalogItems.map((item) => [item.id, item]));
+      const missing = selections
+        .filter((selection) => !byId.has(String(selection?.id ?? "").trim()))
+        .map((selection) => ({
+          catalogId: String(selection?.id ?? "").trim() || null,
+          title: String(selection?.title ?? "未知候选").trim(),
+          reason: "catalog-not-found",
+          message: "全量索引中已找不到该候选",
+        }));
+      const entries = selections
+        .map((selection) => {
+          const item = byId.get(String(selection?.id ?? "").trim());
+          return item ? { item, ...selection } : null;
+        })
+        .filter(Boolean);
+      const result = entries.length
+        ? await store.addCatalogRecords(entries)
+        : await store.load().then((library) => ({
+            records: library.records,
+            index: library.index,
+            backupPath: null,
+            addedRecords: [],
+            skipped: [],
+          }));
+      let sync = null;
+      let syncError = null;
+      if (body.sync && result.addedRecords.length) {
+        try {
+          sync = await store.sync(body.message);
+        } catch (error) {
+          syncError = error.message;
+        }
+      }
+      sendJson(response, 201, {
+        addedRecords: result.addedRecords,
+        skipped: [...missing, ...(result.skipped ?? [])],
+        records: result.records,
+        index: result.index,
+        backupPath: result.backupPath
+          ? path.relative(root, result.backupPath)
+          : null,
+        sync,
+        syncError,
+      });
+      return;
+    }
     if (
       url.pathname.startsWith("/api/catalog/") &&
       request.method === "POST"
@@ -149,6 +214,19 @@ const server = http.createServer(async (request, response) => {
     }
     if (url.pathname === "/api/status" && request.method === "GET") {
       sendJson(response, 200, await store.gitStatus());
+      return;
+    }
+    if (url.pathname === "/api/duplicates" && request.method === "GET") {
+      const library = await store.load();
+      const groups = findDuplicateGroups(library.records);
+      sendJson(response, 200, {
+        groups,
+        recordCount: library.records.length,
+        groupCount: groups.length,
+        confirmedCount: groups.filter(
+          (group) => group.severity === "confirmed",
+        ).length,
+      });
       return;
     }
     if (

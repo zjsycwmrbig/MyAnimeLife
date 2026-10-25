@@ -253,6 +253,94 @@ test("adds a catalog candidate and rejects duplicate external ids", async () => 
   }
 });
 
+test("batch adds catalog candidates with one write and skips duplicate identities", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    await writeLibrary(fixtureRoot, [
+      {
+        ...baseRecord,
+        id: "manual-existing",
+        title: "已有作品",
+        externalIds: { mal: "99" },
+      },
+    ]);
+    const store = new LibraryAdminStore(fixtureRoot, {
+      now: () => "2026-10-25T13:00:00.000Z",
+    });
+    const firstItem = {
+      id: "bangumi:400602",
+      title: "葬送のフリーレン",
+      displayTitle: "葬送的芙莉莲",
+      names: ["葬送のフリーレン", "葬送的芙莉莲"],
+      type: "tv",
+      begin: "2023-09-29T15:00:00.000Z",
+      year: 2023,
+      sites: {
+        bangumi: "400602",
+        bilibiliMedia: "292073015",
+      },
+      season: {
+        key: "bangumi:400602",
+        number: 1,
+        label: "第1季",
+        year: 2023,
+      },
+      coverUrl: null,
+    };
+    const secondItem = {
+      ...firstItem,
+      id: "bangumi:500000",
+      title: "第二部作品",
+      displayTitle: "第二部作品",
+      sites: { bilibiliMedia: "300", mal: "2" },
+      season: {
+        key: "bangumi:500000",
+        number: 2,
+        label: "第2季",
+        year: 2024,
+      },
+    };
+
+    const result = await store.addCatalogRecords([
+      { item: firstItem, rating: 9.2, review: "批量评价" },
+      { item: secondItem, rating: "", review: "" },
+      { item: firstItem, rating: 1, review: "批次重复" },
+      {
+        item: {
+          ...firstItem,
+          id: "bangumi:alternate",
+          sites: { bilibiliMedia: "301", mal: "2" },
+        },
+      },
+      {
+        item: {
+          ...firstItem,
+          id: "bangumi:existing",
+          sites: { bangumi: "999", mal: "99" },
+        },
+      },
+    ]);
+
+    assert.equal(result.addedRecords.length, 2);
+    assert.equal(result.skipped.length, 3);
+    assert.deepEqual(
+      result.skipped.map((entry) => entry.reason),
+      ["batch-duplicate", "batch-external-id", "existing-external-id"],
+    );
+    assert.equal(result.addedRecords[0].rating, 9.2);
+    assert.equal(result.addedRecords[0].review, "批量评价");
+    assert.equal(result.addedRecords[1].rating, null);
+    assert.equal(result.addedRecords[1].review, "");
+    assert.equal((await store.load()).records.length, 3);
+    const backupNames = (
+      await fs.readdir(path.join(fixtureRoot, "data", "backups"))
+    ).filter((name) => /^library-.*\.json$/u.test(name));
+    assert.equal(backupNames.length, 1);
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
 test("commits data changes and pushes them to origin", async () => {
   const fixtureRoot = await createFixture();
   const remoteRoot = `${fixtureRoot}-remote.git`;

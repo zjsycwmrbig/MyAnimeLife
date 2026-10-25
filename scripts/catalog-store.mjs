@@ -234,4 +234,10 @@ export class CatalogStore {
     const catalog = await this.load();
     return catalog.items.find((item) => item.id === itemId) ?? null;
   }
+
+  async getItems(itemIds) {
+    const catalog = await this.load();
+    const requested = new Set(itemIds);
+    return catalog.items.filter((item) => requested.has(item.id));
+  }
 }

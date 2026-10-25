@@ -42,6 +42,14 @@ function validateText(value, label, maximumLength) {
   return text;
 }
 
+function externalIdEntries(record) {
+  return Object.entries(record.externalIds ?? {}).map(([source, id]) => ({
+    key: `${source}:${id}`,
+    source,
+    id,
+  }));
+}
+
 async function writeFileAtomic(filePath, text) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -243,6 +251,145 @@ export class LibraryAdminStore {
     return {
       ...saved,
       record,
+    };
+  }
+
+  async addCatalogRecords(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+      throw new Error("没有选择要添加的番剧");
+    }
+    if (entries.length > 100) {
+      throw new Error("单次最多添加 100 部番剧");
+    }
+
+    const library = await this.load();
+    const now = this.now();
+    const existingIds = new Set(library.records.map((record) => record.id));
+    const existingExternalIds = new Map();
+    for (const record of library.records) {
+      for (const external of externalIdEntries(record)) {
+        existingExternalIds.set(external.key, record);
+      }
+    }
+
+    const addedRecords = [];
+    const skipped = [];
+    const batchExternalIds = new Map();
+    const seenCatalogIds = new Set();
+    for (const [position, entry] of entries.entries()) {
+      const item = entry?.item ?? entry;
+      if (!item || typeof item !== "object") {
+        skipped.push({
+          catalogId: null,
+          title: `第 ${position + 1} 个候选`,
+          reason: "invalid-item",
+          message: "索引候选无效",
+        });
+        continue;
+      }
+
+      const catalogId = cleanString(item.id);
+      const title = cleanString(item.displayTitle ?? item.title);
+      if (!catalogId) {
+        skipped.push({
+          catalogId: null,
+          title: title || `第 ${position + 1} 个候选`,
+          reason: "invalid-item",
+          message: "索引候选缺少 ID",
+        });
+        continue;
+      }
+      if (seenCatalogIds.has(catalogId)) {
+        skipped.push({
+          catalogId,
+          title,
+          reason: "batch-duplicate",
+          message: "同一索引在本次选择中重复出现",
+        });
+        continue;
+      }
+      seenCatalogIds.add(catalogId);
+
+      const record = createRecordFromCatalog(item, entry, now);
+      if (existingIds.has(record.id)) {
+        skipped.push({
+          catalogId,
+          title: record.title,
+          reason: "existing-record-id",
+          message: "相同记录 ID 已存在",
+        });
+        continue;
+      }
+
+      let conflict = null;
+      for (const external of externalIdEntries(record)) {
+        const existing = existingExternalIds.get(external.key);
+        if (existing) {
+          conflict = {
+            key: external.key,
+            record: existing,
+            source: "library",
+          };
+          break;
+        }
+        const batchRecord = batchExternalIds.get(external.key);
+        if (batchRecord) {
+          conflict = {
+            key: external.key,
+            record: batchRecord,
+            source: "batch",
+          };
+          break;
+        }
+      }
+      if (conflict) {
+        const reusedInBatch = conflict.source === "batch";
+        skipped.push({
+          catalogId,
+          title: record.title,
+          reason: reusedInBatch
+            ? "batch-external-id"
+            : "existing-external-id",
+          message: reusedInBatch
+            ? `外部站点 ID ${conflict.key} 已在本批次使用`
+            : `外部站点 ID ${conflict.key} 已存在于《${conflict.title}》`,
+          conflictRecordId: conflict.id ?? null,
+          externalKey: conflict.key,
+        });
+        continue;
+      }
+
+      existingIds.add(record.id);
+      for (const external of externalIdEntries(record)) {
+        batchExternalIds.set(external.key, {
+          id: record.id,
+          title: record.title,
+          key: external.key,
+        });
+      }
+      addedRecords.push(record);
+    }
+
+    if (!addedRecords.length) {
+      return {
+        records: library.records,
+        index: library.index,
+        dataText: library.dataText,
+        indexText: library.indexText,
+        backupPath: null,
+        addedRecords: [],
+        skipped,
+      };
+    }
+
+    const saved = await this.writeLibrary([
+      ...library.records,
+      ...addedRecords,
+    ]);
+    return {
+      ...saved,
+      addedRecords,
+      skipped,
     };
   }
 
