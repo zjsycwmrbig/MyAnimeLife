@@ -19,6 +19,9 @@ data/anime.jsonl + data/anime-index.jsonl + templates/<current>/ = dist/*
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
 - 提供只在本地运行的批量管理页，可搜索、编辑评分和评价、批量删除、一键提交并推送
+- 管理页可搜索、筛选 `bangumi-data` 全量索引，选中后直接填写评分和评价并加入档案
+- 提供 `/insights/` 数据洞察页，统计收录节奏、年代分布、评分分布和索引覆盖
+- 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
 - 内置三套可切换模板和两份不同职责的说明文档
 
 GitHub Pages 只发布只读展示网站。管理页不会部署到 Pages，只在本地克隆中通过 `npm run admin` 启动。
@@ -104,6 +107,8 @@ npm run admin     # 启动本地数据管理页
 - 按已评分或未评分筛选
 - 多选并批量删除番剧
 - 编辑标题、评分、评价和备注
+- 在全量索引中按中文标题、原名、站点 ID、年份和来源查找作品
+- 从全量索引选择作品后，直接设置展示标题、评分、评价和备注并添加到档案
 - 查看当前分支、origin 和未提交状态
 - 一键提交 `data/anime.jsonl`、`data/anime-index.jsonl` 与备份，并推送到 origin
 
@@ -117,6 +122,44 @@ data/backups/library-<timestamp>-<hash>.json
 
 配置中的 `backupLimit` 默认为 `5`。超过上限时，按备份文件名从旧到新删除；JSONL 文件以当前写出的完整内容为准，不做追加。
 
+### 全量索引
+
+管理页的“全量索引”视图使用 npm 包 [`bangumi-data`](https://github.com/bangumi-data/bangumi-data) 作为发现和选择作品的公共目录。它不会修改或替代个人记录，只有点击“添加到我的档案”后，才会在本机数据中创建记录。
+
+- 第一次进入该视图时才下载索引，不会影响管理页启动速度。
+- 下载优先使用 jsDelivr，失败时回退到 unpkg。
+- 索引缓存在 `.cache/bangumi-data.catalog.json`，该目录已加入 `.gitignore`，不会提交到个人仓库。
+- 缓存默认 24 小时内直接复用；超过 24 小时后再次进入或点击“检查索引更新”时，才检查 npm 版本。也可以随时手动检查。
+- 搜索会优先展示中文标题，同时匹配日文原名、其他译名、Bangumi/Bilibili/AniList/MAL 站点 ID，并支持空格分词模糊匹配。
+- 记录 ID 或任一外部站点 ID 已存在时会阻止添加，避免同一作品重复入库。
+
+`bangumi-data` 当前不提供可直接依赖的封面字段，因此大多数候选只能显示标题首字占位图，不能把全量索引当作封面数据源。后续如需封面，应在用户选中候选后，再按 Bangumi ID 惰性请求单独的封面接口并缓存结果。
+
+### 数据洞察与仓库 PK
+
+构建器会生成 `/insights/` 页面，使用已隐藏软删除记录后的个人数据计算：
+
+- 近 7 天、近 30 天和近 365 天新增数量
+- 最近 12 个月收录趋势
+- 番剧年代分布、各年代平均评分和评分最高年代
+- 评分区间、未评分比例、外部站点索引及季度信息覆盖率
+
+页面下方的“仓库 PK”会读取当前站点的 `/data/library.json`，并根据 `owner/repository` 和分支，从以下公开地址读取对方轻量索引：
+
+```text
+https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/<branch>/data/anime-index.jsonl
+```
+
+只支持可公开读取的仓库和分支；单个索引响应最多读取 8 MiB。作品先按记录 `id` 匹配，再按 Bangumi、Bilibili、AniList、MAL 等稳定外部 ID 匹配。不同季度应由不同记录 ID 和季度元数据表达，不会被主动合并为同一部作品。
+
+配置了 `repository.slug` 后，可以使用“分享 PK 邀请”。它复制以下格式的链接：
+
+```text
+https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
+```
+
+对方打开后会填入分享者仓库并自动开始 PK。GitHub Pages 上的 `repository.slug` 会从 Actions 环境自动取得；本地预览时需要在 `config/site.json` 中显式填写。静态页面无法在对方未登录或未授权的情况下自动识别其 GitHub 用户名，因此不会猜测访客自己的 Fork 地址；对方可以修改输入框后继续比较自己的仓库。
+
 ## 仓库结构
 
 ```text
@@ -125,7 +168,8 @@ data/backups/library-<timestamp>-<hash>.json
 ├─ admin/
 │  ├─ index.html
 │  ├─ styles.css
-│  └─ app.js
+│  ├─ app.js
+│  └─ catalog.js
 ├─ config/site.json
 ├─ data/
 │  ├─ anime.jsonl
@@ -138,6 +182,9 @@ data/backups/library-<timestamp>-<hash>.json
 │  ├─ admin.mjs
 │  ├─ admin-store.mjs
 │  ├─ build.mjs
+│  ├─ catalog-data.mjs
+│  ├─ catalog-store.mjs
+│  ├─ insights-data.mjs
 │  ├─ library-data.mjs
 │  ├─ validate.mjs
 │  └─ serve.mjs
@@ -251,6 +298,7 @@ manual-01jabcdef
   "entrypoints": {
     "index": "index.njk",
     "detail": "detail.njk",
+    "insights": "insights.njk",
     "notFound": "404.njk"
   },
   "assets": "assets"
@@ -264,8 +312,10 @@ manual-01jabcdef
 - `records`：首页记录集合
 - `record`：详情页当前记录
 - `stats`：收录数、已评分数量和平均分
+- `insights`：收录窗口、月度趋势、年代、评分和索引覆盖统计
 - `homeUrl`：适合当前页面层级的首页地址
 - `assetRoot`：适合当前页面层级的静态资源地址
+- `currentDataUrl`：统计页读取当前档案公开数据的相对地址
 - `generatedAt`：本次构建时间
 
 默认模板还使用 `Nunjucks` 的 `markdown`、`formatDate`、`formatDateTime` 和 `json` 过滤器。其他模板可以完全重写 HTML、CSS 和浏览器脚本，但不能修改数据字段。
