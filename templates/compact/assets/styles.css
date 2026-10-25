@@ -1375,6 +1375,39 @@ a:focus-visible {
   }
 }
 
+.share-trigger {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 100ms ease;
+}
+
+.share-trigger:hover { border-color: var(--accent); background: var(--accent-soft, #e5f0f2); }
+.share-trigger:active { transform: scale(0.97); }
+.share-trigger .icon { width: 14px; height: 14px; }
+.record-share-trigger { min-height: 25px; margin-left: auto; padding: 0 7px; border-color: transparent; background: transparent; color: var(--muted); font-size: 10px; }
+.record-share-trigger:hover { border-color: var(--line-strong); color: var(--accent-dark); }
+.detail-share-trigger { margin-left: auto; }
+.share-menu { position: fixed; z-index: 100; display: grid; min-width: 142px; gap: 3px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface-strong, var(--surface)); box-shadow: 0 14px 34px rgb(20 33 39 / 16%); }
+.share-menu button { min-height: 32px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.share-menu button:hover { background: var(--accent-soft, #e5f0f2); }
+.share-menu button:disabled { cursor: wait; opacity: 0.55; }
+.share-status { position: fixed; z-index: 110; right: 20px; bottom: 20px; max-width: min(360px, calc(100vw - 40px)); padding: 11px 14px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--dark); color: #fff; font-size: 12px; box-shadow: 0 12px 30px rgb(20 33 39 / 18%); }
+.share-status[data-tone="error"] { background: #9b3d32; }
+.share-status[data-tone="success"] { background: var(--accent-dark); }
+@media (max-width: 640px) { .record-share-trigger span { display: none; } .detail-share-trigger { width: 100%; margin-left: 0; } .share-status { right: 12px; bottom: 12px; } }
+
 /* Compact Ledger */
 :root {
   --paper: #f4f7f7;
@@ -1766,5 +1799,136 @@ body {
 
   .detail-summary h1 {
     font-size: 32px;
+  }
+}
+
+.records-grid {
+  scroll-margin-top: 110px;
+}
+
+.records-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 32px;
+  padding: 20px 0 4px;
+  border-top: 1px solid var(--line);
+}
+
+.pagination-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pagination-controls,
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-pages {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.pagination-page,
+.pagination-step {
+  display: inline-flex;
+  min-width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.pagination-page:hover:not(:disabled),
+.pagination-step:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.pagination-page[aria-current="page"] {
+  border-color: var(--dark);
+  background: var(--dark);
+  color: #fff;
+}
+
+.pagination-page:focus-visible,
+.pagination-step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pagination-step:disabled,
+.pagination-page:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.pagination-step .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.pagination-gap {
+  display: inline-grid;
+  min-width: 24px;
+  height: 38px;
+  color: var(--muted);
+  font-size: 12px;
+  place-items: center;
+}
+
+@media (max-width: 640px) {
+  .records-pagination {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pagination-summary {
+    text-align: center;
+  }
+
+  .pagination-controls {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .pagination-step span {
+    display: none;
+  }
+
+  .pagination-controls,
+  .pagination-pages {
+    gap: 4px;
+  }
+
+  .pagination-page,
+  .pagination-step {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 7px;
+  }
+
+  .pagination-gap {
+    min-width: 18px;
+    height: 34px;
   }
 }

@@ -82,10 +82,18 @@
           </label>
         </div>
 
-        <div id="records-grid" class="records-grid">
+        <div id="records-grid" class="records-grid" data-page-size="24">
           {% for record in records %}
             <article
               class="record-card"
+              data-share-record
+              data-share-id="{{ record.id }}"
+              data-share-title="{{ record.title }}"
+              data-share-cover="{{ record.coverUrl or '' }}"
+              data-share-rating="{{ record.ratingDisplay }}"
+              data-share-review="{{ record.reviewExcerpt }}"
+              data-share-season="{{ record.seasonLabel }}"
+              data-share-updated="{{ record.updatedLabel }}"
               data-record-id="{{ record.id }}"
               data-title="{{ record.title }}"
               data-rating="{{ record.ratingValue }}"
@@ -140,11 +148,52 @@
                     {% endif %}
                   </span>
                   <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
+                  <button
+                    class="share-trigger record-share-trigger"
+                    data-share-trigger
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-label="分享《{{ record.title }}》"
+                    title="分享图片"
+                  >
+                    {{ icon("share") }}
+                    <span>分享</span>
+                  </button>
                 </div>
               </div>
             </article>
           {% endfor %}
         </div>
+
+        <nav
+          id="records-pagination"
+          class="records-pagination"
+          aria-label="记录分页"
+          hidden
+        >
+          <p id="pagination-summary" class="pagination-summary" aria-live="polite"></p>
+          <div class="pagination-controls">
+            <button
+              id="pagination-previous"
+              class="pagination-step"
+              type="button"
+              aria-label="上一页"
+            >
+              {{ icon("chevron-left") }}
+              <span>上一页</span>
+            </button>
+            <div id="pagination-pages" class="pagination-pages"></div>
+            <button
+              id="pagination-next"
+              class="pagination-step"
+              type="button"
+              aria-label="下一页"
+            >
+              <span>下一页</span>
+              {{ icon("chevron-right") }}
+            </button>
+          </div>
+        </nav>
 
         <div id="empty-state" class="empty-state" hidden>
           {{ icon("sparkle") }}

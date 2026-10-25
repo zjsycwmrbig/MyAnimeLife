@@ -624,18 +624,9 @@ function renderCatalogRows() {
 
 async function hydrateVisibleCovers(sequence) {
   try {
-    const covers = await resolveCatalogCovers(state.items);
+    await hydrateCatalogCovers(state.items);
     if (sequence !== requestSequence) {
       return;
-    }
-    for (const item of state.items) {
-      const coverUrl = covers.get(item.id);
-      if (coverUrl) {
-        item.coverUrl = coverUrl;
-      }
-      if (item.sites?.bangumi && !item.coverUrl) {
-        item.coverResolved = true;
-      }
     }
     renderCatalogRows();
     if (state.selectedItems.size) {
@@ -646,20 +637,31 @@ async function hydrateVisibleCovers(sequence) {
   }
 }
 
+async function hydrateCatalogCovers(items) {
+  try {
+    const covers = await resolveCatalogCovers(items);
+    for (const item of items) {
+      const coverUrl = covers.get(item.id);
+      if (coverUrl) {
+        item.coverUrl = coverUrl;
+      }
+      if (item.sites?.bangumi && !item.coverUrl) {
+        item.coverResolved = true;
+      }
+    }
+  } catch {
+    // Cover lookup is optional; records can still be saved with a title fallback.
+  }
+}
+
 async function hydrateSelectedCover(item) {
   if (item.coverUrl || !item.sites?.bangumi) {
     return;
   }
-  try {
-    const covers = await resolveCatalogCovers([item]);
-    item.coverUrl = covers.get(item.id) ?? item.coverUrl;
-    item.coverResolved = true;
-    if (state.selectedItems.has(item.id)) {
-      renderCatalogRows();
-      renderBatchEditor();
-    }
-  } catch {
-    item.coverResolved = true;
+  await hydrateCatalogCovers([item]);
+  if (state.selectedItems.has(item.id)) {
+    renderCatalogRows();
+    renderBatchEditor();
   }
 }
 
@@ -914,19 +916,23 @@ async function submitBatch(sync) {
     showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
     return;
   }
-  const items = [...state.selectedItems.values()].map((item) => {
-    const draft = state.drafts.get(item.id) ?? createDraft(item);
-    return {
-      id: item.id,
-      title: draft.title,
-      rating: draft.rating,
-      review: draft.review,
-      note: draft.note,
-    };
-  });
+  const selectedItems = [...state.selectedItems.values()];
   state.busy = true;
   renderSelectionSummary();
   try {
+    // Wait for lazy Bangumi covers so a successful lookup is persisted with the record.
+    await hydrateCatalogCovers(selectedItems);
+    const items = selectedItems.map((item) => {
+      const draft = state.drafts.get(item.id) ?? createDraft(item);
+      return {
+        id: item.id,
+        title: draft.title,
+        rating: draft.rating,
+        review: draft.review,
+        note: draft.note,
+        coverUrl: item.coverUrl ?? null,
+      };
+    });
     const payload = await api("/api/catalog/bulk", {
       method: "POST",
       body: JSON.stringify({ items, sync }),

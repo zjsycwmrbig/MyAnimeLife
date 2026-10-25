@@ -558,6 +558,10 @@ export async function buildSite(options = {}) {
     path.join(outputDirectory, "assets"),
     { recursive: true },
   );
+  await fs.copyFile(
+    path.join(root, "scripts", "share-card.js"),
+    path.join(outputDirectory, "assets", "share.js"),
+  );
 
   const common = {
     site: config.site,

@@ -410,7 +410,7 @@ export function createRecordFromCatalog(item, changes = {}, now = new Date().toI
     title,
     rating: normalizeRating(changes.rating),
     review: cleanText(changes.review, 20000),
-    coverUrl: normalizeCoverUrl(item.coverUrl),
+    coverUrl: normalizeCoverUrl(changes.coverUrl || item.coverUrl),
     note: cleanText(changes.note, 5000),
     externalIds: item.sites ?? {},
     season: normalizeSeason(item, item.id, item.year),

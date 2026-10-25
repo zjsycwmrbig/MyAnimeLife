@@ -119,3 +119,28 @@ test("creates a stable record from a catalog candidate", () => {
   assert.equal(record.season.year, 2013);
   assert.deepEqual(record.externalIds, item.sites);
 });
+
+test("keeps a cover resolved by the management page", () => {
+  const item = buildCatalog(rawCatalog).items[0];
+  const record = createRecordFromCatalog(
+    item,
+    { coverUrl: "https://images.example.test/cover.jpg" },
+    "2026-10-25T12:00:00.000Z",
+  );
+
+  assert.equal(record.coverUrl, "https://images.example.test/cover.jpg");
+});
+
+test("inherits the catalog cover when changes omit a cover", () => {
+  const item = {
+    ...buildCatalog(rawCatalog).items[0],
+    coverUrl: "https://images.example.test/catalog-cover.jpg",
+  };
+  const record = createRecordFromCatalog(
+    item,
+    { rating: 8.5 },
+    "2026-10-25T12:00:00.000Z",
+  );
+
+  assert.equal(record.coverUrl, item.coverUrl);
+});

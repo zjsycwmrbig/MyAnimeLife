@@ -14,6 +14,17 @@
         <p class="eyebrow">INSIGHTS / 数据洞察</p>
         <h1 id="insights-title">档案的轨迹</h1>
         <p>从收录节奏、年代构成与评分分布，观察这份私人档案的变化。</p>
+        <button
+          class="share-trigger insights-share-trigger"
+          data-share-trigger
+          data-share-kind="overview"
+          type="button"
+          aria-haspopup="menu"
+          title="导出档案总览图"
+        >
+          {{ icon("share") }}
+          <span>分享总览图</span>
+        </button>
       </div>
       <dl class="insights-snapshot" aria-label="档案摘要">
         <div>
@@ -309,6 +320,7 @@
       </div>
     </section>
   </div>
+  <script id="share-insights-data" type="application/json">{{ insights | json }}</script>
 {% endblock %}
 
 {% block scripts %}

@@ -218,6 +218,9 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, new RegExp(heading, "u"));
     assert.match(indexHtml, /测试番剧/u);
     assert.match(indexHtml, /insights\//u);
+    assert.match(indexHtml, /data-page-size="24"/u);
+    assert.match(indexHtml, /id="records-pagination"/u);
+    assert.match(indexHtml, /aria-label="记录分页"/u);
 
     const detailHtml = await fs.readFile(
       path.join(

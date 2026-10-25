@@ -1959,7 +1959,11 @@ export class ScoutPanel {
     const pageCoverUrl = isCurrentPageItem
       ? this.currentResult?.bilibiliMetadata?.coverUrl
       : null;
-    this.setSelectedCover(item?.coverUrl || pageCoverUrl || null);
+    const directUrl = normalizeCoverUrl(item?.coverUrl || pageCoverUrl);
+    if (item && directUrl && !item.coverUrl) {
+      item.coverUrl = directUrl;
+    }
+    this.setSelectedCover(directUrl);
     if (!item || item?.coverUrl || pageCoverUrl || !this.coverResolver) {
       return;
     }
@@ -1967,7 +1971,8 @@ export class ScoutPanel {
     Promise.resolve(this.coverResolver(item))
       .then((url) => {
         if (requestId === this.coverRequestId && url) {
-          this.setSelectedCover(url);
+          item.coverUrl = normalizeCoverUrl(url);
+          this.setSelectedCover(item.coverUrl);
         }
       })
       .catch(() => {
@@ -2420,6 +2425,7 @@ export class ScoutPanel {
       this.selectedResult?.item?.id === item.id ? this.selectedResult : null;
     const rating = this.recordRating;
     const review = this.reviewInput.value;
+    await this.resolveItemCover(item);
     this.recordLoadRequestId += 1;
     const saved = this.personalRecordStore.save(item.id, {
       rating: this.recordRating,
@@ -2873,9 +2879,12 @@ export class ScoutPanel {
     }
 
     this.batchImporting = true;
-    this.batchMessage = `正在将 ${selectedCards.length} 项写入 GitHub`;
+    this.batchMessage = `正在获取封面并写入 ${selectedCards.length} 项`;
     this.renderBatchCards();
     try {
+      await this.resolveBatchCovers(
+        selectedCards.map((card) => card.selectedResult.item),
+      );
       const result = await this.githubRecords.saveRecordsBatch({
         entries: selectedCards.map((card) => ({
           item: card.selectedResult.item,
@@ -2905,6 +2914,41 @@ export class ScoutPanel {
       this.batchImporting = false;
       this.renderBatchCards();
     }
+  }
+
+  async resolveItemCover(item) {
+    if (!item || item.coverUrl || !this.coverResolver) {
+      return item?.coverUrl ?? null;
+    }
+    try {
+      const url = await this.coverResolver(item);
+      if (url) {
+        item.coverUrl = normalizeCoverUrl(url);
+      }
+    } catch {
+      // Cover lookup is optional and must not block saving the record.
+    }
+    return item.coverUrl ?? null;
+  }
+
+  async resolveBatchCovers(items) {
+    const pending = [...new Set(items ?? [])].filter(
+      (item) => item && !item.coverUrl,
+    );
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < pending.length) {
+        const item = pending[cursor];
+        cursor += 1;
+        await this.resolveItemCover(item);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(4, pending.length) },
+        () => worker(),
+      ),
+    );
   }
 
   scheduleBatchCards() {

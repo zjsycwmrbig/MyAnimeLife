@@ -10,7 +10,17 @@
       <span>返回全部档案</span>
     </a>
 
-    <article class="record-detail">
+    <article
+      class="record-detail"
+      data-share-record
+      data-share-id="{{ record.id }}"
+      data-share-title="{{ record.title }}"
+      data-share-cover="{{ record.coverUrl or '' }}"
+      data-share-rating="{{ record.ratingDisplay }}"
+      data-share-review="{{ record.review }}"
+      data-share-season="{{ record.seasonLabel }}"
+      data-share-updated="{{ record.updatedLabel }}"
+    >
       <header class="detail-hero">
         <div class="detail-cover-wrap">
           <div
@@ -53,6 +63,17 @@
               最后更新
               <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
             </p>
+            <button
+              class="share-trigger detail-share-trigger"
+              data-share-trigger
+              type="button"
+              aria-haspopup="menu"
+              aria-label="分享《{{ record.title }}》"
+              title="分享图片"
+            >
+              {{ icon("share") }}
+              <span>分享图片</span>
+            </button>
           </div>
 
           {% if record.sourceLinks.length %}

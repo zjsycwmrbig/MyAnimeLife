@@ -1,6 +1,7 @@
 const DATABASE_NAME = "myanimelife-catalog-covers";
 const STORE_NAME = "covers";
-const MISS_TTL = 7 * 24 * 60 * 60 * 1000;
+const COVER_TTL = 7 * 24 * 60 * 60 * 1000;
+const MISSING_COVER_TTL = 10 * 60 * 1000;
 const inFlight = new Map();
 
 function clean(value) {
@@ -145,7 +146,11 @@ export async function resolveCatalogCovers(items) {
   const now = Date.now();
   const pending = candidates.filter(({ key }) => {
     const entry = cached.get(key);
-    return !entry || now - entry.checkedAt > MISS_TTL;
+    if (!entry) {
+      return true;
+    }
+    const ttl = entry.coverUrl ? COVER_TTL : MISSING_COVER_TTL;
+    return now - entry.checkedAt > ttl;
   });
   const limiter = createLimiter(4);
   const updates = new Map();

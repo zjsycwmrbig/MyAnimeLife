@@ -3,6 +3,10 @@ dist/
 .cache/
 .DS_Store
 *.local
+AGENT.md
+AGENTS.md
+.AGENT.md
+.AGENTS.md
 playwright-report/
 test-results/
 !userscript/dist/

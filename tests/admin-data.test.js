@@ -81,7 +81,12 @@ test("shared batch append skips duplicate catalog and external identities", () =
   const result = appendCatalogRecords(
     [existing],
     [
-      { item: catalogItem, rating: 9.1, review: "第一条" },
+      {
+        item: catalogItem,
+        rating: 9.1,
+        review: "第一条",
+        coverUrl: "https://images.example.test/frieren.jpg",
+      },
       { item: catalogItem, rating: 8.8 },
       {
         item: {
@@ -97,6 +102,10 @@ test("shared batch append skips duplicate catalog and external identities", () =
   assert.equal(result.addedRecords.length, 1);
   assert.equal(result.addedRecords[0].id, "bgm-400602");
   assert.equal(result.addedRecords[0].title, "葬送的芙莉莲");
+  assert.equal(
+    result.addedRecords[0].coverUrl,
+    "https://images.example.test/frieren.jpg",
+  );
   assert.deepEqual(
     result.skipped.map((entry) => entry.reason),
     ["batch-duplicate", "existing-external-id"],

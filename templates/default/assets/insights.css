@@ -955,3 +955,15 @@
     transition: none;
   }
 }
+
+.insights-share-trigger {
+  margin-top: 22px;
+  border-color: rgb(255 255 255 / 30%);
+  background: transparent;
+  color: #fff;
+}
+
+.insights-share-trigger:hover {
+  border-color: #fff;
+  background: rgb(255 255 255 / 12%);
+}
