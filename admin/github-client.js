@@ -17,6 +17,10 @@ const API_ROOT = "https://api.github.com";
 const RAW_ROOT = "https://raw.githubusercontent.com";
 const DEFAULT_BACKUP_LIMIT = 5;
 
+function defaultFetch(...args) {
+  return Reflect.apply(globalThis.fetch, globalThis, args);
+}
+
 function cleanString(value) {
   return String(value ?? "").trim();
 }
@@ -123,7 +127,7 @@ export class GitHubClient {
     this.repository = cleanString(options.repository);
     this.branch = cleanString(options.branch) || "main";
     this.token = cleanString(options.token);
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    this.fetchImpl = options.fetchImpl ?? defaultFetch;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 

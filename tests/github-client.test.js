@@ -94,6 +94,24 @@ function createPublishFetch(requests, options = {}) {
   };
 }
 
+test("calls the default fetch with the global browser receiver", async () => {
+  const originalFetch = globalThis.fetch;
+  let receivedThis = null;
+  globalThis.fetch = function fetchProbe() {
+    receivedThis = this;
+    return Promise.resolve(response({ full_name: "example/anime" }));
+  };
+
+  try {
+    const client = new GitHubClient({ repository: "example/anime" });
+    const result = await client.request("");
+    assert.equal(receivedThis, globalThis);
+    assert.equal(result.full_name, "example/anime");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("publishes data, index, and rotated backups in one Git Data commit", async () => {
   const oldLibrary = buildLibraryData([
     {
