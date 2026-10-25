@@ -1,0 +1,154 @@
+{% extends "base.njk" %}
+{% from "icons.njk" import icon %}
+
+{% block bodyClass %}detail-page{% endblock %}
+
+{% block content %}
+  <div class="page-shell detail-shell">
+    <a class="back-link" href="{{ homeUrl }}">
+      {{ icon("arrow-left") }}
+      <span>返回全部档案</span>
+    </a>
+
+    <article class="record-detail">
+      <header class="detail-hero">
+        <div class="detail-cover-wrap">
+          <div class="detail-cover">
+            <span class="cover-fallback" aria-hidden="true">
+              <span>{{ record.title }}</span>
+            </span>
+            {% if record.coverUrl %}
+              <img
+                src="{{ record.coverUrl }}"
+                alt="《{{ record.title }}》封面"
+                loading="eager"
+                decoding="async"
+                referrerpolicy="no-referrer"
+              />
+            {% endif %}
+          </div>
+          <p class="cover-caption">{{ record.id }}</p>
+        </div>
+
+        <div class="detail-summary">
+          <div class="detail-kicker">
+            <span>{{ record.matchStatusLabel }}</span>
+            <span>{{ record.matchMethodLabel }}</span>
+          </div>
+          <h1>{{ record.title }}</h1>
+
+          <div class="detail-score-row">
+            <p class="detail-score{% if not record.hasRating %} is-empty{% endif %}">
+              {{ icon("star") }}
+              <strong>{{ record.ratingDisplay }}</strong>
+              {% if record.hasRating %}<span>/ 10</span>{% endif %}
+            </p>
+            <p class="detail-updated">
+              最后更新
+              <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
+            </p>
+          </div>
+
+          {% if record.sourceLinks.length %}
+            <div class="source-links" aria-label="外部索引">
+              {% for link in record.sourceLinks %}
+                <a href="{{ link.url }}" target="_blank" rel="noreferrer noopener">
+                  <span>{{ link.label }}</span>
+                  <small>{{ link.id }}</small>
+                  {{ icon("external") }}
+                </a>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if repositoryEditUrl %}
+            <a
+              class="edit-record-link"
+              href="{{ repositoryEditUrl }}"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {{ icon("pencil") }}
+              在 GitHub 编辑数据
+            </a>
+          {% endif %}
+        </div>
+      </header>
+
+      <div class="detail-content">
+        <section class="detail-section" aria-labelledby="review-title">
+          <div class="section-marker">01</div>
+          <div class="section-content">
+            <h2 id="review-title">我的评价</h2>
+            {% if record.reviewHtml %}
+              <div class="prose">{{ record.reviewHtml | safe }}</div>
+            {% else %}
+              <p class="empty-copy">还没有写下评价。</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="detail-section" aria-labelledby="note-title">
+          <div class="section-marker">02</div>
+          <div class="section-content">
+            <h2 id="note-title">备注</h2>
+            {% if record.noteHtml %}
+              <div class="prose">{{ record.noteHtml | safe }}</div>
+            {% else %}
+              <p class="empty-copy">暂无备注。</p>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="detail-section match-section" aria-labelledby="match-title">
+          <div class="section-marker">03</div>
+          <div class="section-content">
+            <div class="section-title-row">
+              <h2 id="match-title">索引信息</h2>
+              {{ icon("database") }}
+            </div>
+
+            <dl class="match-grid">
+              <div>
+                <dt>匹配状态</dt>
+                <dd>{{ record.matchStatusLabel }}</dd>
+              </div>
+              <div>
+                <dt>匹配方式</dt>
+                <dd>{{ record.matchMethodLabel }}</dd>
+              </div>
+              <div>
+                <dt>置信度</dt>
+                <dd>{{ record.matchConfidenceLabel }}</dd>
+              </div>
+              <div>
+                <dt>索引来源</dt>
+                <dd>{{ record.match.source }}</dd>
+              </div>
+              <div class="match-wide">
+                <dt>匹配标题</dt>
+                <dd>{{ record.match.matchedTitle or "无" }}</dd>
+              </div>
+              <div>
+                <dt>匹配时间</dt>
+                <dd>{{ record.matchedAtLabel }}</dd>
+              </div>
+              <div>
+                <dt>记录创建</dt>
+                <dd>{{ record.createdAtLabel }}</dd>
+              </div>
+            </dl>
+
+            {% if record.externalIds and record.externalIds | length %}
+              <div class="external-id-list">
+                {% for source, id in record.externalIds %}
+                  <span><strong>{{ source }}</strong>{{ id }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </article>
+  </div>
+{% endblock %}

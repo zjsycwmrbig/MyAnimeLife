@@ -1,0 +1,171 @@
+{% extends "base.njk" %}
+{% from "icons.njk" import icon %}
+
+{% block bodyClass %}index-page{% endblock %}
+
+{% block content %}
+  <div class="page-shell">
+    <section class="archive-intro" aria-labelledby="archive-title">
+      <div class="archive-heading">
+        <p class="eyebrow">{{ site.brand }}</p>
+        <h1 id="archive-title">{{ site.title }}</h1>
+        <p>{{ site.description }}</p>
+      </div>
+
+      <dl class="archive-stats" aria-label="档案统计">
+        <div>
+          <dt>收录</dt>
+          <dd>{{ stats.total }}<span>部</span></dd>
+        </div>
+        <div>
+          <dt>已评分</dt>
+          <dd>{{ stats.rated }}<span>部</span></dd>
+        </div>
+        <div>
+          <dt>平均分</dt>
+          <dd>{{ stats.averageRating }}<span>/ 10</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="collection" aria-labelledby="collection-title">
+      <div class="collection-heading">
+        <div>
+          <p class="section-index">INDEX / 全部记录</p>
+          <h2 id="collection-title">作品清单</h2>
+        </div>
+        <p id="results-summary" class="results-summary" aria-live="polite">
+          共 {{ stats.total }} 部作品
+        </p>
+      </div>
+
+      {% if records.length %}
+        <div class="toolbar">
+          <label class="search-field">
+            <span class="visually-hidden">搜索番剧</span>
+            {{ icon("search") }}
+            <input
+              id="record-search"
+              type="search"
+              placeholder="按标题、评价或索引 ID 搜索"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button
+              id="clear-search"
+              class="clear-search"
+              type="button"
+              aria-label="清空搜索"
+              title="清空搜索"
+              hidden
+            >
+              {{ icon("x") }}
+            </button>
+          </label>
+
+          <label class="select-field">
+            <span>状态</span>
+            <select id="rating-filter">
+              <option value="all">全部</option>
+              <option value="rated">已评分</option>
+              <option value="unrated">未评分</option>
+            </select>
+          </label>
+
+          <label class="select-field">
+            <span>排序</span>
+            <select id="sort-order">
+              <option value="updated">最近更新</option>
+              <option value="rating">评分最高</option>
+              <option value="title">标题顺序</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="records-grid" class="records-grid">
+          {% for record in records %}
+            <article
+              class="record-card"
+              data-record-id="{{ record.id }}"
+              data-title="{{ record.title }}"
+              data-rating="{{ record.ratingValue }}"
+              data-updated="{{ record.updatedAt }}"
+              data-search="{{ record.searchText }}"
+              data-original-index="{{ loop.index0 }}"
+            >
+              <a
+                class="record-cover-link"
+                href="./{{ record.detailPath }}"
+                aria-label="查看《{{ record.title }}》"
+              >
+                <span class="record-cover">
+                  <span class="cover-fallback" aria-hidden="true">
+                    <span>{{ record.title }}</span>
+                  </span>
+                  {% if record.coverUrl %}
+                    <img
+                      src="{{ record.coverUrl }}"
+                      alt=""
+                      loading="{{ 'eager' if loop.index <= 3 else 'lazy' }}"
+                      decoding="async"
+                      referrerpolicy="no-referrer"
+                    />
+                  {% endif %}
+                </span>
+              </a>
+
+              <div class="record-card-body">
+                <div class="record-card-topline">
+                  <p class="record-state">{{ record.matchStatusLabel }}</p>
+                  <p class="record-rating{% if not record.hasRating %} is-empty{% endif %}">
+                    {{ icon("star") }}
+                    <span>{{ record.ratingDisplay }}</span>
+                  </p>
+                </div>
+
+                <h3>
+                  <a href="./{{ record.detailPath }}">{{ record.title }}</a>
+                </h3>
+                <p class="record-excerpt">{{ record.reviewExcerpt }}</p>
+
+                <div class="record-card-footer">
+                  <span>
+                    {% if record.sourceCount %}
+                      {{ record.sourceCount }} 个索引
+                    {% else %}
+                      手动记录
+                    {% endif %}
+                  </span>
+                  <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
+                </div>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+
+        <div id="empty-state" class="empty-state" hidden>
+          {{ icon("sparkle") }}
+          <h3>没有找到相符的记录</h3>
+          <p>换一个标题或调整筛选条件。</p>
+          <button id="reset-filters" type="button">清除条件</button>
+        </div>
+      {% else %}
+        <div class="empty-state empty-state--initial">
+          {{ icon("sparkle") }}
+          <h3>还没有番剧记录</h3>
+          <p>这个仓库已经从空白索引开始。通过油猴脚本保存第一部评分或短评后，记录会显示在这里。</p>
+          {% if repository.url %}
+            <a
+              class="empty-state-action"
+              href="{{ repository.url }}#readme"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              查看仓库接入说明
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

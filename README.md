@@ -1,6 +1,6 @@
 # Anime Records Template
 
-一个可以直接 fork 的番剧档案源仓库。每部番剧保存为一个 JSON 文件，GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
+一个可以通过 GitHub Template 生成个人副本的番剧档案源仓库。每部番剧保存为一个 JSON 文件，GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
 仓库中的数据和模板彼此独立：
 
@@ -18,19 +18,39 @@ data/anime/*.json + templates/<current>/ = dist/*
 - 每部番剧有独立详情页
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
-- 提供可替换的模板契约和两份不同职责的说明文档
+- 内置三套可切换模板和两份不同职责的说明文档
 
 当前仓库是只读展示网站。数据修改通过 GitHub 网页编辑、后续油猴脚本或 GitHub Contents API 完成。
 
-## Fork 后使用
+## 创建个人仓库
 
-1. 在 GitHub 创建自己的仓库或直接 Fork 本仓库。
-2. 修改 [`config/site.json`](config/site.json) 中的站点名称和描述。
-3. 模板默认不包含番剧。通过油猴脚本保存第一条记录，或按 [`data/README.md`](data/README.md) 手动新增。
-4. 进入仓库 `Settings > Pages`，把 Source 设置为 `GitHub Actions`。
-5. 推送到 `main` 分支，等待 `Deploy GitHub Pages` 工作流完成。
+推荐使用 GitHub 的 `Use this template`，不要直接 Fork。模板生成的仓库与上游提交历史无关联，只包含默认分支当前文件，因此不会继承上游历史中的番剧记录。
+
+1. 仓库所有者在上游 `Settings` 中启用 `Template repository`。
+2. 打开仓库页面，点击 `Use this template > Create a new repository`。
+3. 修改新仓库 [`config/site.json`](config/site.json) 中的站点名称和描述。
+4. 新仓库的 `data/anime/` 为空。通过油猴脚本保存第一条记录，或按 [`data/README.md`](data/README.md) 手动新增。
+5. 进入新仓库 `Settings > Pages`，把 Source 设置为 `GitHub Actions`。
+6. 推送到 `main` 分支，等待 `Deploy GitHub Pages` 工作流完成。
 
 构建器会自动从 GitHub Actions 环境读取仓库地址，因此详情页能够生成正确的“在 GitHub 编辑数据”链接，不需要在配置中写死用户名。
+
+## Fork 与记录隔离
+
+GitHub Fork 会复制完整提交历史。GitHub 没有“只对 Fork 隐藏 `data/anime/`”的能力，`.gitignore` 不能让已经提交的记录从 Fork 中消失，`.gitattributes export-ignore` 也只会影响源码归档。
+
+因此本项目把“模板生成”作为推荐路径：
+
+- `zjsycwmrbig/anime-records-template` 的 `main` 分支始终保持 `data/anime/` 为空，只保留 `.gitkeep`。
+- 新用户通过 `Use this template` 生成一个提交历史无关联的个人仓库，不继承上游旧提交中的文件。
+- 第一条评分或评价只会写进用户自己的个人仓库。
+- 上游部署前会运行空白检查；如果模板仓库误提交了个人记录，发布流程会直接失败。
+- 个人记录不要提交到上游模板，也不需要向上游发 Pull Request。
+- 如果要让同一套模板生成自己的站点，请在自己的个人仓库中录入和维护记录。
+
+当前上游历史曾包含示例记录。最新提交删除这些文件并不会把它们从 Git 历史中移除，所以直接 Fork 仍可能从旧提交恢复它们。若历史中的记录也不应继续公开，需要重建或重写上游仓库历史；已有 Fork 不会因为上游随后删除文件而自动清除旧数据。
+
+如果未来需要让代码公开、记录完全私有，应再拆成“模板仓库 + 独立数据仓库”的双仓库模式。当前版本仍采用单仓库，以换取更简单的模板生成、Token 和 Pages 部署流程。
 
 ## 本地运行
 
@@ -69,13 +89,9 @@ npm run check     # 测试后重新构建
 │  ├─ validate.mjs
 │  └─ serve.mjs
 ├─ templates/
-│  └─ default/
-│     ├─ template.json
-│     ├─ base.njk
-│     ├─ index.njk
-│     ├─ detail.njk
-│     ├─ 404.njk
-│     └─ assets/
+│  ├─ default/
+│  ├─ compact/
+│  └─ spotlight/
 └─ tests/
 ```
 
@@ -177,11 +193,19 @@ manual-01jabcdef
 
 ## 更换模板
 
-在 `config/site.json` 中切换模板：
+内置模板：
+
+| 模板 | 布局特点 | 适合场景 |
+|---|---|---|
+| `default` | 封面卡片与编号档案风 | 通用展示，兼顾封面和评价摘要 |
+| `compact` | 单列高密度清单，缩小封面和工具栏 | 记录很多、频繁搜索和快速扫描 |
+| `spotlight` | 深色海报墙，放大封面和标题 | 以视觉浏览和作品回顾为主 |
+
+在 `config/site.json` 中切换模板，不需要迁移 `data/anime/`：
 
 ```json
 {
-  "template": "default"
+  "template": "compact"
 }
 ```
 
