@@ -495,6 +495,271 @@
     };
   }
 
+  // src/core/season.js
+  var CHINESE_DIGITS = {
+    零: 0,
+    "〇": 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9
+  };
+  var ROMAN_NUMERALS = {
+    i: 1,
+    ii: 2,
+    iii: 3,
+    iv: 4,
+    v: 5,
+    vi: 6,
+    vii: 7,
+    viii: 8,
+    ix: 9,
+    x: 10
+  };
+  var SEASON_PATTERNS = [
+    {
+      pattern: /第\s*([0-9一二两三四五六七八九十百零〇]+)\s*[季期部篇]/iu,
+      number: (value) => parsePositiveInteger(value)
+    },
+    {
+      pattern: /\bseason\s*0*([0-9]{1,2})\b/iu,
+      number: (value) => parsePositiveInteger(value)
+    },
+    {
+      pattern: /\b0*([0-9]{1,2})(?:st|nd|rd|th)\s+season\b/iu,
+      number: (value) => parsePositiveInteger(value)
+    },
+    {
+      pattern: /\bpart\s*0*([0-9]{1,2})\b/iu,
+      number: (value) => parsePositiveInteger(value)
+    },
+    {
+      pattern: /\bs0*([1-9][0-9]?)\b/iu,
+      number: (value) => parsePositiveInteger(value)
+    },
+    {
+      pattern: /(?:^|[\s:：·\-])([ivx]{1,8})(?=\s*(?:season|part)\b|$)/iu,
+      number: (value) => ROMAN_NUMERALS[value.toLocaleLowerCase()] ?? null
+    }
+  ];
+  function parsePositiveInteger(value) {
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 1 && number <= 99 ? number : null;
+  }
+  function parseChineseNumber(value) {
+    const text = String(value ?? "").trim();
+    if (!text) {
+      return null;
+    }
+    if (/^\d+$/u.test(text)) {
+      return parsePositiveInteger(text);
+    }
+    let total = 0;
+    let current = 0;
+    for (const character of text) {
+      if (Object.hasOwn(CHINESE_DIGITS, character)) {
+        current = CHINESE_DIGITS[character];
+        continue;
+      }
+      if (character === "十") {
+        total += (current || 1) * 10;
+        current = 0;
+        continue;
+      }
+      if (character === "百") {
+        total += (current || 1) * 100;
+        current = 0;
+        continue;
+      }
+      return null;
+    }
+    const number = total + current;
+    return Number.isInteger(number) && number >= 1 && number <= 99 ? number : null;
+  }
+  function parseSeasonLabel(value) {
+    const text = String(value ?? "").normalize("NFKC").trim();
+    if (!text) {
+      return { number: null, label: null };
+    }
+    for (const candidate of SEASON_PATTERNS) {
+      const match = text.match(candidate.pattern);
+      if (!match) {
+        continue;
+      }
+      const raw = match[1];
+      const number = /^[0-9]+$/u.test(raw) ? parsePositiveInteger(raw) : candidate.number(raw) ?? parseChineseNumber(raw);
+      if (number) {
+        return {
+          number,
+          label: `第${number}季`
+        };
+      }
+    }
+    return { number: null, label: null };
+  }
+  function coerceYear(value) {
+    const match = String(value ?? "").match(/^(\d{4})/u);
+    return match ? Number(match[1]) : null;
+  }
+  function coerceSeasonNumber(value) {
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 1 && number <= 99 ? number : null;
+  }
+  function createSeasonDescriptor({
+    key,
+    title,
+    names = [],
+    begin = null,
+    year = null,
+    season = null
+  } = {}) {
+    const explicitNumber = coerceSeasonNumber(season?.number);
+    const parsed = [title, ...names].map(parseSeasonLabel).find((candidate) => candidate.number);
+    const number = explicitNumber ?? parsed?.number ?? null;
+    const label = String(season?.label ?? "").trim() || parsed?.label || (number ? `第${number}季` : null);
+    const cleanKey = String(key ?? season?.key ?? "").trim() || null;
+    return {
+      key: cleanKey,
+      number,
+      label,
+      year: coerceYear(year) ?? coerceYear(begin)
+    };
+  }
+  function seasonLabelFromItem(item) {
+    if (item?.season?.label) {
+      return String(item.season.label);
+    }
+    if (item?.season?.number) {
+      return `第${item.season.number}季`;
+    }
+    return parseSeasonLabel(
+      [item?.displayTitle, item?.title, ...item?.names ?? []].filter(Boolean).join(" ")
+    ).label;
+  }
+
+  // src/core/title-normalize.js
+  var HTML_ENTITIES = {
+    "&amp;": "&",
+    "&apos;": "'",
+    "&#39;": "'",
+    "&quot;": '"',
+    "&lt;": "<",
+    "&gt;": ">",
+    "&nbsp;": " "
+  };
+  var SITE_SUFFIXES = [
+    /\s*[_|｜-]\s*番剧\s*[_|｜-]\s*bilibili\s*[_|｜-]\s*哔哩哔哩.*$/iu,
+    /\s*[_|｜-]\s*哔哩哔哩\s*[_|｜-]\s*bilibili.*$/iu,
+    /\s*[-_|｜]\s*(?:哔哩哔哩|bilibili|Bangumi|番组计划).*$/iu,
+    /\s*[-_|｜]\s*(?:在线观看|免费观看|动漫|动画|番剧).*$/iu
+  ];
+  var NOISE_PATTERNS = [
+    /[【[(（]\s*(?:独家|免费|高清|正版|完整版|在线观看|中文字幕|无修版)[^】\])）]*[】\])）]/giu,
+    /(?:免费)?(?:高清)?(?:完整版)?在线观看/giu,
+    /高清完整版/giu,
+    /更新至\s*(?:第\s*)?\d+\s*(?:集|话|話|期)/giu,
+    /全\s*\d+\s*(?:集|话|話)/giu
+  ];
+  var EPISODE_PATTERNS = [
+    /\s*(?:第\s*)?\d+\s*(?:集|话|話|期)\s*$/iu,
+    /\s*[-_ ]?S\d{1,2}E\d{1,3}\s*$/iu,
+    /\s*[-_ ]?EP?\s*\d{1,4}\s*$/iu
+  ];
+  var SEPARATORS = /\s+[-–—|｜]\s+|\s*[|｜]\s*/u;
+  function replaceHtmlEntities(value) {
+    return value.replace(
+      /&(?:amp|apos|quot|lt|gt|nbsp|#39);/giu,
+      (entity) => HTML_ENTITIES[entity.toLowerCase()] ?? entity
+    );
+  }
+  function cleanDisplayTitle(rawTitle) {
+    if (typeof rawTitle !== "string") {
+      return "";
+    }
+    let title = replaceHtmlEntities(rawTitle).normalize("NFKC").replace(/\u00a0/g, " ").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
+    for (const pattern of SITE_SUFFIXES) {
+      title = title.replace(pattern, "");
+    }
+    for (const pattern of NOISE_PATTERNS) {
+      title = title.replace(pattern, " ");
+    }
+    for (const pattern of EPISODE_PATTERNS) {
+      title = title.replace(pattern, "");
+    }
+    return title.replace(/\s+/g, " ").replace(/^[\s\-–—_:：|｜]+|[\s\-–—_:：|｜]+$/g, "").trim();
+  }
+  function normalizeTitle(rawTitle) {
+    return cleanDisplayTitle(rawTitle).toLocaleLowerCase().replace(/[\p{P}\s]+/gu, "").trim();
+  }
+  function extractTitleVariants(rawTitle, options = {}) {
+    const maxVariants = options.maxVariants ?? 8;
+    const base = cleanDisplayTitle(rawTitle);
+    if (!base) {
+      return [];
+    }
+    const variants = [];
+    const add = (value) => {
+      const cleaned = cleanDisplayTitle(value);
+      const key = normalizeTitle(cleaned);
+      if (cleaned && key && key.length >= 2 && !variants.some((item) => normalizeTitle(item) === key)) {
+        variants.push(cleaned);
+      }
+    };
+    add(base);
+    const bracketMatches = base.matchAll(/[【[(（]([^】\])）]{2,80})[】\])）]/gu);
+    for (const match of bracketMatches) {
+      add(match[1]);
+    }
+    const leadingBracketSuffix = base.match(
+      /^(?:[【[(（][^】\])）]{1,80}[】\])）]\s*)+(.+)$/u
+    );
+    if (leadingBracketSuffix?.[1]) {
+      add(leadingBracketSuffix[1]);
+    }
+    for (const part of base.split(SEPARATORS)) {
+      add(part);
+    }
+    const colonIndex = base.search(/[：:]/u);
+    if (colonIndex > 1) {
+      add(base.slice(0, colonIndex));
+    }
+    return variants.slice(0, maxVariants);
+  }
+  function extractBilibiliIds(input) {
+    const value = typeof input === "string" ? input : String(input?.url ?? "");
+    let url;
+    try {
+      url = new URL(value, "https://www.bilibili.com");
+    } catch {
+      return {};
+    }
+    const mediaId = url.pathname.match(/\/bangumi\/media\/md(\d+)/iu)?.[1] ?? url.searchParams.get("media_id") ?? void 0;
+    const episodeId = url.pathname.match(/\/bangumi\/play\/ep(\d+)/iu)?.[1] ?? url.searchParams.get("ep_id") ?? void 0;
+    const seasonId = url.pathname.match(/\/bangumi\/play\/ss(\d+)/iu)?.[1] ?? url.searchParams.get("season_id") ?? void 0;
+    return {
+      ...mediaId ? { mediaId: String(mediaId) } : {},
+      ...episodeId ? { episodeId: String(episodeId) } : {},
+      ...seasonId ? { seasonId: String(seasonId) } : {}
+    };
+  }
+  function uniqueByTitle(items) {
+    const seen = /* @__PURE__ */ new Set();
+    return items.filter((item) => {
+      const key = normalizeTitle(item.title ?? "");
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
   // src/core/github-records.js
   var TEMPLATE_REPOSITORY = "zjsycwmrbig/anime-records-template";
   var TEMPLATE_GENERATE_URL = `https://github.com/${TEMPLATE_REPOSITORY}/generate`;
@@ -503,6 +768,18 @@
   var API_ROOT = "https://api.github.com";
   var RECORD_DIRECTORY = "data/anime";
   var MAX_REVIEW_LENGTH = 2e4;
+  var RECORD_LIST_CACHE_MS = 5 * 60 * 1e3;
+  var RECORD_FETCH_CONCURRENCY = 5;
+  var DUPLICATE_SCORE_THRESHOLD = 0.72;
+  var DuplicateRecordError = class extends Error {
+    constructor(duplicates, scannedCount = 0) {
+      super(`发现 ${duplicates.length} 条疑似重复记录，请确认后再同步`);
+      this.name = "DuplicateRecordError";
+      this.code = "DUPLICATE_RECORDS";
+      this.duplicates = duplicates;
+      this.scannedCount = scannedCount;
+    }
+  };
   function cleanString(value) {
     return String(value ?? "").trim();
   }
@@ -591,11 +868,17 @@
       sites.aniList ?? sites.anilist ?? candidateSites.aniList ?? candidateSites.anilist
     );
     const mal = cleanString(sites.mal ?? candidateSites.mal);
+    const bilibiliSeason = cleanString(
+      selectedResult?.bilibiliMetadata?.seasonId ?? selectedResult?.seasonId ?? item?.season?.bilibiliSeason
+    );
     if (bangumi) {
       result.bangumi = bangumi;
     }
     if (bilibiliMedia) {
       result.bilibiliMedia = bilibiliMedia;
+    }
+    if (bilibiliSeason) {
+      result.bilibiliSeason = bilibiliSeason;
     }
     if (anilist) {
       result.anilist = anilist;
@@ -608,6 +891,7 @@
   function recordIdsForItem(item, selectedResult = null) {
     const externalIds = externalIdsForItem(item, selectedResult);
     const ids = [
+      externalIds.bilibiliSeason ? `bili-ss${externalIds.bilibiliSeason}` : null,
       externalIds.bilibiliMedia ? `bili-${externalIds.bilibiliMedia}` : null,
       externalIds.bangumi ? `bgm-${externalIds.bangumi}` : null,
       externalIds.anilist ? `anilist-${externalIds.anilist}` : null,
@@ -619,6 +903,47 @@
       ids.push(`manual-${slug}-${fnv1a(title)}`.slice(0, 64));
     }
     return [...new Set(ids)];
+  }
+  function seasonKeyFromExternalIds(externalIds = {}) {
+    for (const [source, id] of Object.entries(externalIds)) {
+      if (cleanString(id)) {
+        return `${source}:${cleanString(id)}`;
+      }
+    }
+    return null;
+  }
+  function seasonForItem(item, selectedResult = null) {
+    if (!item) {
+      return null;
+    }
+    const externalIds = externalIdsForItem(item, selectedResult);
+    const bilibiliMetadata = selectedResult?.bilibiliMetadata ?? null;
+    return createSeasonDescriptor({
+      key: cleanString(item.season?.key) || cleanString(item.id) || seasonKeyFromExternalIds(externalIds),
+      title: itemDisplayTitle(item),
+      names: [
+        item.title,
+        ...Array.isArray(item.names) ? item.names : [],
+        bilibiliMetadata?.seasonTitle,
+        bilibiliMetadata?.title
+      ].filter(Boolean),
+      begin: item.begin,
+      year: item.year,
+      season: item.season
+    });
+  }
+  function seasonForRecord(record) {
+    if (!record) {
+      return null;
+    }
+    return createSeasonDescriptor({
+      key: cleanString(record.season?.key) || cleanString(record.id) || seasonKeyFromExternalIds(record.externalIds),
+      title: record.title,
+      names: [record.match?.matchedTitle].filter(Boolean),
+      begin: record.season?.begin ?? record.begin,
+      year: record.season?.year,
+      season: record.season
+    });
   }
   function sanitizeRating(value, fallback = null) {
     const rating = Number(value);
@@ -656,6 +981,7 @@
       throw new Error("无法为没有标题的番剧创建 GitHub 记录");
     }
     const manual = Boolean(selectedResult?.manualSelection);
+    const externalIds = externalIdsForItem(item, selectedResult);
     return {
       $schema: "../../schemas/anime.schema.json",
       schemaVersion: 1,
@@ -665,7 +991,8 @@
       review: cleanString(review).slice(0, MAX_REVIEW_LENGTH),
       coverUrl: normalizeCoverUrl(item?.coverUrl),
       note: "",
-      externalIds: externalIdsForItem(item, selectedResult),
+      externalIds,
+      season: seasonForItem(item, selectedResult),
       match: {
         status: manual ? "manual" : "matched",
         method: matchMethod(selectedResult, aiResult),
@@ -701,13 +1028,148 @@
         now
       });
     }
-    return {
+    const updated = {
       ...existingRecord,
       id: cleanString(existingRecord.id) || id,
       rating: sanitizeRating(rating),
       review: cleanString(review).slice(0, MAX_REVIEW_LENGTH),
       updatedAt: now
     };
+    const season = seasonForItem(item, selectedResult);
+    if (season) {
+      updated.season = season;
+    }
+    return updated;
+  }
+  function normalizeComparable(value) {
+    return normalizeTitle(value);
+  }
+  function titleSimilarity(left, right) {
+    const a = normalizeComparable(left);
+    const b = normalizeComparable(right);
+    if (!a || !b) {
+      return 0;
+    }
+    if (a === b) {
+      return 1;
+    }
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length > b.length ? a : b;
+    if (shorter.length >= 4 && longer.includes(shorter)) {
+      return 0.92;
+    }
+    const leftPairs = /* @__PURE__ */ new Map();
+    for (let index = 0; index < a.length - 1; index += 1) {
+      const pair = a.slice(index, index + 2);
+      leftPairs.set(pair, (leftPairs.get(pair) ?? 0) + 1);
+    }
+    let overlap = 0;
+    for (let index = 0; index < b.length - 1; index += 1) {
+      const pair = b.slice(index, index + 2);
+      const count = leftPairs.get(pair) ?? 0;
+      if (count) {
+        overlap += 1;
+        leftPairs.set(pair, count - 1);
+      }
+    }
+    const total = Math.max(0, a.length - 1) + Math.max(0, b.length - 1);
+    return total ? overlap * 2 / total : 0;
+  }
+  function bestTitleSimilarity(incomingTitles, existingTitles) {
+    let best = 0;
+    for (const incoming of incomingTitles) {
+      for (const existing of existingTitles) {
+        best = Math.max(best, titleSimilarity(incoming, existing));
+      }
+    }
+    return best;
+  }
+  function duplicateCandidate(incoming, existing, score, reason, titleScore) {
+    return {
+      id: cleanString(existing.id) || null,
+      title: itemDisplayTitle(existing) || cleanString(existing.title),
+      season: seasonForRecord(existing),
+      score: Math.round(score * 100) / 100,
+      reason,
+      titleScore: Math.round(titleScore * 100) / 100,
+      updatedAt: cleanString(existing.updatedAt) || null
+    };
+  }
+  function compareRecordDuplicate({
+    item,
+    selectedResult,
+    aiResult,
+    existing
+  }) {
+    const incomingSeason = seasonForItem(item, selectedResult);
+    const existingSeason = seasonForRecord(existing);
+    if (incomingSeason?.number && existingSeason?.number && incomingSeason.number !== existingSeason.number) {
+      return null;
+    }
+    if (incomingSeason?.year && existingSeason?.year && incomingSeason.year !== existingSeason.year) {
+      return null;
+    }
+    const incomingExternalIds = externalIdsForItem(item, selectedResult);
+    const existingExternalIds = existing?.externalIds ?? {};
+    const sharedExternalIds = Object.entries(incomingExternalIds).filter(
+      ([source, id]) => cleanString(id) && cleanString(existingExternalIds[source]) === cleanString(id)
+    );
+    if (sharedExternalIds.length) {
+      return duplicateCandidate(
+        item,
+        existing,
+        1,
+        `相同站点索引：${sharedExternalIds.map(([source, id]) => `${source}:${id}`).join("、")}`,
+        1
+      );
+    }
+    const incomingTitles = [
+      itemDisplayTitle(item),
+      item?.title,
+      ...item?.names ?? [],
+      aiResult?.title,
+      ...aiResult?.alternateTitles ?? []
+    ].map(cleanString).filter(Boolean);
+    const existingTitles = [
+      existing?.title,
+      existing?.match?.matchedTitle
+    ].map(cleanString).filter(Boolean);
+    const titleScore = bestTitleSimilarity(incomingTitles, existingTitles);
+    let score = 0;
+    let reason = "";
+    if (incomingSeason?.key && existingSeason?.key && incomingSeason.key === existingSeason.key) {
+      score = 0.98;
+      reason = "相同季度身份";
+    } else if (incomingSeason?.number && existingSeason?.number && incomingSeason.number === existingSeason.number && titleScore >= 0.86) {
+      score = 0.94;
+      reason = `同一季度：第${incomingSeason.number}季`;
+    } else if (titleScore === 1) {
+      score = 0.86;
+      reason = "标题完全一致，季度信息不足以区分";
+    } else if (titleScore >= 0.9) {
+      score = 0.79;
+      reason = "标题高度相似，季度信息不足以区分";
+    } else if (titleScore >= 0.82) {
+      score = 0.73;
+      reason = "标题较相似，建议人工确认";
+    }
+    return score >= DUPLICATE_SCORE_THRESHOLD ? duplicateCandidate(item, existing, score, reason, titleScore) : null;
+  }
+  async function mapWithConcurrency(values, concurrency, mapper) {
+    const results = new Array(values.length);
+    let nextIndex = 0;
+    const workers = Array.from(
+      { length: Math.min(concurrency, values.length) },
+      async () => {
+        while (nextIndex < values.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          results[index] = await mapper(values[index], index);
+        }
+      }
+    );
+    await Promise.all(workers);
+    return results;
   }
   function encodeBase64Utf8(text) {
     const bytes = new TextEncoder().encode(text);
@@ -791,6 +1253,7 @@
       this.requestText = requestTextImpl;
       this.now = now;
       this.recordCache = /* @__PURE__ */ new Map();
+      this.recordListCache = /* @__PURE__ */ new Map();
     }
     getConfig(override = null) {
       const settings = override ?? this.settingsStore?.get?.()?.github ?? {};
@@ -817,6 +1280,9 @@
     cacheKey(config, id) {
       return `${config.urls.fullName}:${config.branch}:${id}`;
     }
+    listCacheKey(config) {
+      return `${config.urls.fullName}:${config.branch}:${RECORD_DIRECTORY}`;
+    }
     async getRecordById(config, id) {
       const key = this.cacheKey(config, id);
       if (this.recordCache.has(key)) {
@@ -839,6 +1305,91 @@
         }
         throw error;
       }
+    }
+    async listRecordFiles(config, options = {}) {
+      const key = this.listCacheKey(config);
+      const cached = this.recordListCache.get(key);
+      if (!options.force && cached && Date.now() - cached.cachedAt < RECORD_LIST_CACHE_MS) {
+        return cached.files;
+      }
+      const url = `${config.urls.contentsUrl}/${RECORD_DIRECTORY.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(config.branch)}`;
+      let payload;
+      try {
+        payload = await this.requestJson(url, {
+          headers: githubHeaders(config.token),
+          timeout: 2e4
+        });
+      } catch (error) {
+        if (isNotFound(error)) {
+          this.recordListCache.set(key, {
+            files: [],
+            cachedAt: Date.now()
+          });
+          return [];
+        }
+        throw error;
+      }
+      if (!Array.isArray(payload)) {
+        throw new Error("GitHub 记录目录返回了无效内容");
+      }
+      const files = payload.filter(
+        (entry) => entry?.type === "file" && /\.json$/iu.test(String(entry?.name ?? ""))
+      ).map((entry) => ({
+        id: String(entry.name).replace(/\.json$/iu, ""),
+        name: String(entry.name),
+        path: cleanString(entry.path),
+        sha: cleanString(entry.sha)
+      })).filter((entry) => entry.id);
+      this.recordListCache.set(key, {
+        files,
+        cachedAt: Date.now()
+      });
+      return files;
+    }
+    async listRecords(config, options = {}) {
+      const files = await this.listRecordFiles(config, options);
+      const records = await mapWithConcurrency(
+        files,
+        RECORD_FETCH_CONCURRENCY,
+        async (file) => {
+          const parsed = await this.getRecordById(config, file.id);
+          return parsed?.record ? {
+            id: cleanString(parsed.record.id) || file.id,
+            record: parsed.record,
+            path: parsed.path || file.path,
+            sha: parsed.sha || file.sha
+          } : null;
+        }
+      );
+      return records.filter(Boolean);
+    }
+    async inspectDuplicates({
+      item,
+      selectedResult = null,
+      aiResult = null,
+      excludeIds = []
+    }) {
+      const config = this.assertConfigured();
+      if (!item) {
+        return { duplicates: [], scannedCount: 0 };
+      }
+      const excluded = /* @__PURE__ */ new Set([
+        ...recordIdsForItem(item, selectedResult),
+        ...excludeIds.map((id) => cleanString(id)).filter(Boolean)
+      ]);
+      const records = await this.listRecords(config);
+      const duplicates = records.filter(({ id }) => !excluded.has(id)).map(
+        ({ record }) => compareRecordDuplicate({
+          item,
+          selectedResult,
+          aiResult,
+          existing: record
+        })
+      ).filter(Boolean).sort((left, right) => right.score - left.score).slice(0, 8);
+      return {
+        duplicates,
+        scannedCount: records.length
+      };
     }
     async findRecord(item, selectedResult = null) {
       const config = this.assertConfigured();
@@ -871,7 +1422,8 @@
       selectedResult = null,
       aiResult = null,
       rating,
-      review
+      review,
+      allowDuplicates = false
     }) {
       const config = this.assertConfigured();
       const ids = recordIdsForItem(item, selectedResult);
@@ -882,6 +1434,20 @@
         if (existing) {
           existingId = id2;
           break;
+        }
+      }
+      if (!allowDuplicates) {
+        const inspection = await this.inspectDuplicates({
+          item,
+          selectedResult,
+          aiResult,
+          excludeIds: ids
+        });
+        if (inspection.duplicates.length) {
+          throw new DuplicateRecordError(
+            inspection.duplicates,
+            inspection.scannedCount
+          );
         }
       }
       const id = existingId ?? ids[0];
@@ -903,6 +1469,7 @@
             parsed.record = merged;
           }
           this.recordCache.set(this.cacheKey(config, id), parsed);
+          this.recordListCache.delete(this.listCacheKey(config));
           return parsed;
         } catch (error) {
           if (attempt > 0 || !isConflict(error)) {
@@ -1051,123 +1618,6 @@
     }
   }
 
-  // src/core/title-normalize.js
-  var HTML_ENTITIES = {
-    "&amp;": "&",
-    "&apos;": "'",
-    "&#39;": "'",
-    "&quot;": '"',
-    "&lt;": "<",
-    "&gt;": ">",
-    "&nbsp;": " "
-  };
-  var SITE_SUFFIXES = [
-    /\s*[_|｜-]\s*番剧\s*[_|｜-]\s*bilibili\s*[_|｜-]\s*哔哩哔哩.*$/iu,
-    /\s*[_|｜-]\s*哔哩哔哩\s*[_|｜-]\s*bilibili.*$/iu,
-    /\s*[-_|｜]\s*(?:哔哩哔哩|bilibili|Bangumi|番组计划).*$/iu,
-    /\s*[-_|｜]\s*(?:在线观看|免费观看|动漫|动画|番剧).*$/iu
-  ];
-  var NOISE_PATTERNS = [
-    /[【[(（]\s*(?:独家|免费|高清|正版|完整版|在线观看|中文字幕|无修版)[^】\])）]*[】\])）]/giu,
-    /(?:免费)?(?:高清)?(?:完整版)?在线观看/giu,
-    /高清完整版/giu,
-    /更新至\s*(?:第\s*)?\d+\s*(?:集|话|話|期)/giu,
-    /全\s*\d+\s*(?:集|话|話)/giu
-  ];
-  var EPISODE_PATTERNS = [
-    /\s*(?:第\s*)?\d+\s*(?:集|话|話|期)\s*$/iu,
-    /\s*[-_ ]?S\d{1,2}E\d{1,3}\s*$/iu,
-    /\s*[-_ ]?EP?\s*\d{1,4}\s*$/iu
-  ];
-  var SEPARATORS = /\s+[-–—|｜]\s+|\s*[|｜]\s*/u;
-  function replaceHtmlEntities(value) {
-    return value.replace(
-      /&(?:amp|apos|quot|lt|gt|nbsp|#39);/giu,
-      (entity) => HTML_ENTITIES[entity.toLowerCase()] ?? entity
-    );
-  }
-  function cleanDisplayTitle(rawTitle) {
-    if (typeof rawTitle !== "string") {
-      return "";
-    }
-    let title = replaceHtmlEntities(rawTitle).normalize("NFKC").replace(/\u00a0/g, " ").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
-    for (const pattern of SITE_SUFFIXES) {
-      title = title.replace(pattern, "");
-    }
-    for (const pattern of NOISE_PATTERNS) {
-      title = title.replace(pattern, " ");
-    }
-    for (const pattern of EPISODE_PATTERNS) {
-      title = title.replace(pattern, "");
-    }
-    return title.replace(/\s+/g, " ").replace(/^[\s\-–—_:：|｜]+|[\s\-–—_:：|｜]+$/g, "").trim();
-  }
-  function normalizeTitle(rawTitle) {
-    return cleanDisplayTitle(rawTitle).toLocaleLowerCase().replace(/[\p{P}\s]+/gu, "").trim();
-  }
-  function extractTitleVariants(rawTitle, options = {}) {
-    const maxVariants = options.maxVariants ?? 8;
-    const base = cleanDisplayTitle(rawTitle);
-    if (!base) {
-      return [];
-    }
-    const variants = [];
-    const add = (value) => {
-      const cleaned = cleanDisplayTitle(value);
-      const key = normalizeTitle(cleaned);
-      if (cleaned && key && key.length >= 2 && !variants.some((item) => normalizeTitle(item) === key)) {
-        variants.push(cleaned);
-      }
-    };
-    add(base);
-    const bracketMatches = base.matchAll(/[【[(（]([^】\])）]{2,80})[】\])）]/gu);
-    for (const match of bracketMatches) {
-      add(match[1]);
-    }
-    const leadingBracketSuffix = base.match(
-      /^(?:[【[(（][^】\])）]{1,80}[】\])）]\s*)+(.+)$/u
-    );
-    if (leadingBracketSuffix?.[1]) {
-      add(leadingBracketSuffix[1]);
-    }
-    for (const part of base.split(SEPARATORS)) {
-      add(part);
-    }
-    const colonIndex = base.search(/[：:]/u);
-    if (colonIndex > 1) {
-      add(base.slice(0, colonIndex));
-    }
-    return variants.slice(0, maxVariants);
-  }
-  function extractBilibiliIds(input) {
-    const value = typeof input === "string" ? input : String(input?.url ?? "");
-    let url;
-    try {
-      url = new URL(value, "https://www.bilibili.com");
-    } catch {
-      return {};
-    }
-    const mediaId = url.pathname.match(/\/bangumi\/media\/md(\d+)/iu)?.[1] ?? url.searchParams.get("media_id") ?? void 0;
-    const episodeId = url.pathname.match(/\/bangumi\/play\/ep(\d+)/iu)?.[1] ?? url.searchParams.get("ep_id") ?? void 0;
-    const seasonId = url.pathname.match(/\/bangumi\/play\/ss(\d+)/iu)?.[1] ?? url.searchParams.get("season_id") ?? void 0;
-    return {
-      ...mediaId ? { mediaId: String(mediaId) } : {},
-      ...episodeId ? { episodeId: String(episodeId) } : {},
-      ...seasonId ? { seasonId: String(seasonId) } : {}
-    };
-  }
-  function uniqueByTitle(items) {
-    const seen = /* @__PURE__ */ new Set();
-    return items.filter((item) => {
-      const key = normalizeTitle(item.title ?? "");
-      if (!key || seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  }
-
   // src/index/build-index.js
   var INDEX_SCHEMA_VERSION = 1;
   var TRACKED_SITES = /* @__PURE__ */ new Set([
@@ -1262,7 +1712,7 @@
     }
     return `title:${normalizeTitle(names[0] ?? title)}:${year || "unknown"}`;
   }
-  function coerceYear(begin) {
+  function coerceYear2(begin) {
     const match = String(begin ?? "").match(/^(\d{4})/u);
     return match ? Number(match[1]) : null;
   }
@@ -1278,9 +1728,10 @@
       }
       const sites = collectSites(item.sites);
       const begin = String(item.begin ?? "") || null;
-      const year = coerceYear(begin);
+      const year = coerceYear2(begin);
+      const id = stableItemId(title, names, sites, year);
       return {
-        id: stableItemId(title, names, sites, year),
+        id,
         title,
         displayTitle: collectDisplayTitle(item, names),
         names,
@@ -1290,6 +1741,14 @@
         begin,
         year,
         sites,
+        season: createSeasonDescriptor({
+          key: id,
+          title,
+          names,
+          begin,
+          year,
+          season: item.season
+        }),
         coverUrl: collectCoverUrl(item)
       };
     }).filter(Boolean);
@@ -1311,9 +1770,25 @@
     };
   }
   function normalizeIndexPayload(payload, metadata = {}) {
-    if (payload?.schemaVersion === INDEX_SCHEMA_VERSION && Array.isArray(payload.items)) {
+    if (Array.isArray(payload?.items) && indexItemsHaveSearchFields(payload.items)) {
       return {
         ...payload,
+        schemaVersion: INDEX_SCHEMA_VERSION,
+        items: payload.items.map((item) => {
+          if (item.season?.key) {
+            return item;
+          }
+          return {
+            ...item,
+            season: createSeasonDescriptor({
+              key: item.id,
+              title: item.displayTitle || item.title,
+              names: item.names,
+              begin: item.begin,
+              year: item.year
+            })
+          };
+        }),
         source: {
           ...payload.source,
           ...metadata
@@ -4391,7 +4866,7 @@
   ];
 
   // src/ui/panel.css
-  var panel_default = ':host {\n  all: initial;\n  --scout-bg: #f7f7f4;\n  --scout-panel: #ffffff;\n  --scout-ink: #161917;\n  --scout-muted: #66706a;\n  --scout-line: #dfe3df;\n  --scout-accent: #2563eb;\n  --scout-accent-soft: #e8efff;\n  --scout-good: #16845b;\n  --scout-warn: #b66a16;\n  --scout-bad: #c13c3c;\n  --scout-shadow: 0 18px 48px rgb(18 25 21 / 18%);\n  color: var(--scout-ink);\n  font-family:\n    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui,\n    sans-serif;\n  font-size: 14px;\n  line-height: 1.5;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbutton,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}\n\nbutton {\n  color: inherit;\n  -webkit-tap-highlight-color: transparent;\n}\n\n.scout-root {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  z-index: 2147483646;\n}\n\n.scout-launcher {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  display: grid;\n  width: 44px;\n  height: 44px;\n  padding: 0;\n  border: 1px solid rgb(255 255 255 / 22%);\n  border-radius: 9px;\n  background: #17201b;\n  color: #fff;\n  box-shadow: 0 8px 26px rgb(10 15 12 / 28%);\n  cursor: pointer;\n  place-items: center;\n  transition:\n    transform 140ms ease,\n    background 140ms ease,\n    width 140ms ease,\n    height 140ms ease,\n    border-radius 140ms ease;\n}\n\n.scout-launcher:hover {\n  background: #25312a;\n  transform: translateY(-1px);\n}\n\n.scout-launcher:active {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-launcher-label {\n  display: none;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1;\n  writing-mode: vertical-rl;\n}\n\n.scout-launcher.is-side-docked {\n  display: flex;\n  width: 30px;\n  height: 92px;\n  flex-direction: column;\n  gap: 6px;\n  padding: 7px 3px;\n}\n\n.scout-launcher.is-side-docked .lucide {\n  width: 17px;\n  height: 17px;\n  flex: 0 0 auto;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-label {\n  display: block;\n}\n\n.scout-launcher.is-docked-left {\n  border-radius: 0 8px 8px 0;\n}\n\n.scout-launcher.is-docked-right {\n  border-radius: 8px 0 0 8px;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-dot {\n  top: 4px;\n  right: 4px;\n}\n\n.scout-root button:focus-visible,\n.scout-root input:focus-visible,\n.scout-root select:focus-visible,\n.scout-root textarea:focus-visible {\n  outline: 2px solid var(--scout-accent);\n  outline-offset: 2px;\n}\n\n.scout-launcher .lucide {\n  width: 21px;\n  height: 21px;\n}\n\n.scout-launcher-dot {\n  position: absolute;\n  top: -3px;\n  right: -3px;\n  width: 10px;\n  height: 10px;\n  border: 2px solid #fff;\n  border-radius: 999px;\n  background: var(--scout-muted);\n}\n\n.scout-launcher-dot[data-tone="good"] {\n  background: var(--scout-good);\n}\n\n.scout-launcher-dot[data-tone="warn"] {\n  background: var(--scout-warn);\n}\n\n.scout-launcher-dot[data-tone="bad"] {\n  background: var(--scout-bad);\n}\n\n.scout-panel {\n  position: fixed;\n  right: 20px;\n  bottom: 64px;\n  display: flex;\n  overflow: hidden;\n  width: min(390px, calc(100vw - 24px));\n  max-height: min(720px, calc(100vh - 96px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n}\n\n.scout-panel-header {\n  cursor: grab;\n  touch-action: none;\n}\n\n.scout-panel.is-dragging,\n.scout-panel.is-dragging .scout-panel-header {\n  cursor: grabbing;\n  user-select: none;\n}\n\n.scout-panel.is-dragging .scout-panel-header {\n  background: var(--scout-bg);\n}\n\n.scout-drag-indicator {\n  display: inline-grid;\n  width: 24px;\n  height: 30px;\n  flex: 0 0 auto;\n  color: #98a09b;\n  place-items: center;\n}\n\n.scout-drag-indicator .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-dock-button:hover {\n  color: var(--scout-accent);\n}\n\n.scout-settings-backdrop {\n  position: fixed;\n  z-index: 2147483645;\n  inset: 0;\n  background: rgb(12 18 14 / 24%);\n}\n\n.scout-settings-window {\n  position: fixed;\n  top: 50%;\n  left: 50%;\n  z-index: 2147483647;\n  display: flex;\n  overflow: hidden;\n  width: min(430px, calc(100vw - 24px));\n  max-height: min(780px, calc(100vh - 48px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n  transform: translate(-50%, -50%);\n}\n\n.scout-panel[hidden],\n.scout-settings-window[hidden],\n.scout-settings-backdrop[hidden],\n.scout-view[hidden],\n[hidden] {\n  display: none !important;\n}\n\n.scout-header {\n  display: flex;\n  min-height: 54px;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-brand-mark {\n  display: grid;\n  width: 30px;\n  height: 30px;\n  flex: 0 0 auto;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  place-items: center;\n}\n\n.scout-brand-mark .lucide {\n  width: 17px;\n  height: 17px;\n}\n\n.scout-brand {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-brand-title {\n  overflow: hidden;\n  margin: 0;\n  font-size: 14px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1.25;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-brand-state {\n  overflow: hidden;\n  margin: 2px 0 0;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.3;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-icon-button {\n  display: inline-grid;\n  width: 30px;\n  height: 30px;\n  padding: 0;\n  flex: 0 0 auto;\n  border: 1px solid transparent;\n  border-radius: 7px;\n  background: transparent;\n  cursor: pointer;\n  place-items: center;\n}\n\n.scout-icon-button:hover {\n  border-color: var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-icon-button .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-body {\n  overflow: auto;\n  min-height: 0;\n  flex: 1;\n  overscroll-behavior: contain;\n}\n\n.scout-view {\n  padding: 14px;\n}\n\n.scout-result-head {\n  padding: 4px 2px 13px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-result-head.has-cover {\n  display: grid;\n  grid-template-columns: 72px minmax(0, 1fr);\n  gap: 12px;\n  align-items: start;\n}\n\n.scout-result-copy {\n  min-width: 0;\n}\n\n.scout-cover {\n  overflow: hidden;\n  width: 72px;\n  aspect-ratio: 3 / 4;\n  border: 1px solid var(--scout-line);\n  border-radius: 7px;\n  background: var(--scout-bg);\n}\n\n.scout-cover-image {\n  display: block;\n  width: 100%;\n  height: 100%;\n  object-fit: cover;\n}\n\n.scout-eyebrow {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin-bottom: 7px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.02em;\n}\n\n.scout-confidence {\n  display: inline-flex;\n  align-items: center;\n  min-height: 19px;\n  padding: 1px 6px;\n  border-radius: 4px;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n}\n\n.scout-confidence[data-tone="good"] {\n  background: #e5f5ed;\n  color: #116b49;\n}\n\n.scout-confidence[data-tone="warn"] {\n  background: #fff1df;\n  color: #8a4c0a;\n}\n\n.scout-title {\n  margin: 0;\n  font-size: 23px;\n  font-weight: 760;\n  letter-spacing: 0;\n  line-height: 1.2;\n  overflow-wrap: anywhere;\n}\n\n.scout-subtitle {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 12px;\n  overflow-wrap: anywhere;\n}\n\n.scout-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 7px;\n  margin-top: 12px;\n}\n\n.scout-button {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  padding: 5px 10px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: var(--scout-panel);\n  color: var(--scout-ink);\n  font-size: 12px;\n  font-weight: 650;\n  text-decoration: none;\n  cursor: pointer;\n  transition:\n    transform 110ms ease,\n    border-color 110ms ease,\n    background 110ms ease,\n    box-shadow 110ms ease;\n}\n\n.scout-button:hover {\n  background: var(--scout-bg);\n}\n\n.scout-button:active:not(:disabled) {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-button.is-confirmed {\n  animation: scout-confirm 420ms ease;\n}\n\n.scout-button[data-variant="primary"] {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-button[data-variant="primary"]:hover {\n  background: #1d4fd0;\n}\n\n.scout-button:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-button .lucide {\n  width: 14px;\n  height: 14px;\n}\n\n.scout-spin {\n  animation: scout-spin 900ms linear infinite;\n}\n\n.scout-button.is-loading .lucide {\n  animation: scout-spin 900ms linear infinite;\n}\n\n@keyframes scout-confirm {\n  0% {\n    box-shadow: 0 0 0 0 rgb(37 99 235 / 32%);\n  }\n\n  100% {\n    box-shadow: 0 0 0 8px rgb(37 99 235 / 0%);\n  }\n}\n\n@keyframes scout-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n.scout-search {\n  position: relative;\n  margin-top: 12px;\n}\n\n.scout-search .lucide {\n  position: absolute;\n  top: 50%;\n  left: 10px;\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.scout-search input,\n.scout-field input,\n.scout-field select,\n.scout-review {\n  width: 100%;\n  min-height: 34px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: #fff;\n  color: var(--scout-ink);\n}\n\n.scout-search input {\n  padding: 6px 9px 6px 32px;\n}\n\n.scout-field input,\n.scout-field select {\n  padding: 6px 9px;\n}\n\n.scout-field input::placeholder {\n  color: #929a95;\n}\n\n.scout-review {\n  min-height: 82px;\n  margin-top: 10px;\n  padding: 8px 9px;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.scout-review:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.scout-evidence {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 5px;\n  margin-top: 9px;\n}\n\n.scout-evidence-item {\n  display: inline-flex;\n  min-height: 22px;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: var(--scout-bg);\n  color: #4e5752;\n  font-size: 10px;\n  font-weight: 650;\n}\n\n.scout-evidence-item .lucide {\n  width: 12px;\n  height: 12px;\n  color: var(--scout-muted);\n}\n\n.scout-section {\n  padding: 14px 0;\n  border-top: 1px solid var(--scout-line);\n}\n\n.scout-section:first-child {\n  padding-top: 0;\n  border-top: 0;\n}\n\n.scout-section-title {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin: 0 0 10px;\n  font-size: 12px;\n  font-weight: 750;\n  letter-spacing: 0;\n}\n\n.scout-section-title .lucide {\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n}\n\n.scout-list {\n  display: grid;\n  gap: 0;\n  margin: 7px 0 0;\n}\n\n.scout-list-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 7px;\n  border: 0;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  background: transparent;\n  color: var(--scout-ink);\n  font: inherit;\n  text-align: left;\n  transition:\n    transform 100ms ease,\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-list-row:first-child {\n  border-top: 0;\n}\n\nbutton.scout-list-row {\n  cursor: pointer;\n}\n\nbutton.scout-list-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\nbutton.scout-list-row:active {\n  transform: scale(0.988);\n  background: var(--scout-accent-soft);\n}\n\n.scout-list-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #b9caf6;\n}\n\n.scout-list-copy {\n  min-width: 0;\n}\n\n.scout-list-title {\n  overflow: hidden;\n  font-size: 12px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-list-meta {\n  overflow: hidden;\n  margin-top: 2px;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-score {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-row-tail {\n  display: inline-flex;\n  min-width: 48px;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 4px;\n}\n\n.scout-row-check {\n  display: inline-grid;\n  width: 17px;\n  height: 17px;\n  border-radius: 999px;\n  background: var(--scout-accent);\n  color: #fff;\n  opacity: 0;\n  place-items: center;\n  transform: scale(0.7);\n  transition:\n    opacity 120ms ease,\n    transform 120ms ease;\n}\n\n.scout-row-check .lucide {\n  width: 11px;\n  height: 11px;\n  stroke-width: 3;\n}\n\n.scout-list-row.is-selected .scout-row-check {\n  opacity: 1;\n  transform: scale(1);\n}\n\n.scout-suggestions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-suggestion {\n  display: inline-flex;\n  min-height: 28px;\n  max-width: 100%;\n  align-items: center;\n  gap: 6px;\n  padding: 3px 7px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease;\n}\n\n.scout-suggestion:hover {\n  border-color: #bdc7c0;\n  background: var(--scout-bg);\n}\n\n.scout-suggestion:active {\n  transform: translateY(1px) scale(0.985);\n  background: var(--scout-accent-soft);\n}\n\n.scout-suggestion-title {\n  overflow: hidden;\n  max-width: 215px;\n  font-size: 11px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-suggestion-source {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 9px;\n}\n\n.scout-record-head {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-record-head .scout-section-title {\n  flex: 0 0 auto;\n  margin-bottom: 0;\n}\n\n.scout-record-context {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n}\n\n.scout-record-item {\n  min-width: 0;\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-reselect {\n  display: inline-flex;\n  min-height: 24px;\n  flex: 0 0 auto;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-weight: 650;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-reselect:hover {\n  border-color: #b9caf6;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-reselect:active {\n  transform: scale(0.96);\n}\n\n.scout-reselect .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-record:focus {\n  outline: none;\n}\n\n.scout-record-rating-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  margin-top: 11px;\n}\n\n.scout-record-value {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-rating-options {\n  display: grid;\n  grid-template-columns: repeat(10, minmax(0, 1fr));\n  gap: 3px;\n  margin-top: 6px;\n}\n\n.scout-rating-option {\n  display: grid;\n  min-width: 0;\n  height: 29px;\n  padding: 0;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n  place-items: center;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-rating-option:hover:not(:disabled) {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-rating-option:active:not(:disabled) {\n  transform: scale(0.94);\n}\n\n.scout-rating-option.is-selected {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-rating-option:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-record-footer {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  margin-top: 9px;\n}\n\n.scout-record-footer .scout-footer-status {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-record-remote-link {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  margin-top: 9px;\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 650;\n  text-decoration: none;\n}\n\n.scout-record-remote-link:hover {\n  text-decoration: underline;\n}\n\n.scout-record-remote-link .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-empty {\n  padding: 18px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 12px;\n  text-align: center;\n}\n\n.scout-diagnostics {\n  margin-top: 12px;\n  color: var(--scout-muted);\n  font-size: 11px;\n}\n\n.scout-diagnostics summary {\n  cursor: pointer;\n}\n\n.scout-diagnostics ul {\n  margin: 7px 0 0;\n  padding-left: 18px;\n}\n\n.scout-field {\n  display: grid;\n  gap: 5px;\n  margin-top: 10px;\n}\n\n.scout-field:first-child {\n  margin-top: 0;\n}\n\n.scout-field > span,\n.scout-range-label {\n  color: #3d4641;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.scout-field-grid {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 8px;\n}\n\n.scout-switch {\n  display: flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 3px 0;\n  font-size: 12px;\n  font-weight: 650;\n}\n\n.scout-switch input {\n  position: relative;\n  width: 34px;\n  height: 19px;\n  flex: 0 0 auto;\n  appearance: none;\n  border: 1px solid #c6ccc8;\n  border-radius: 999px;\n  background: #dfe3df;\n  cursor: pointer;\n  transition: background 120ms ease;\n}\n\n.scout-switch input::after {\n  position: absolute;\n  top: 2px;\n  left: 2px;\n  width: 13px;\n  height: 13px;\n  border-radius: 999px;\n  background: #fff;\n  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);\n  content: "";\n  transition: transform 120ms ease;\n}\n\n.scout-switch input:checked {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n}\n\n.scout-switch input:checked::after {\n  transform: translateX(15px);\n}\n\n.scout-range-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  margin-top: 12px;\n}\n\n.scout-range-head output {\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-range {\n  width: 100%;\n  margin: 5px 0 0;\n  accent-color: var(--scout-accent);\n}\n\n.scout-note {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-onboarding {\n  margin: 10px 0 12px;\n  padding: 10px 11px;\n  border: 1px solid #cdd9f2;\n  border-radius: 7px;\n  background: #f4f7fd;\n}\n\n.scout-onboarding h4 {\n  margin: 0;\n  color: #26334c;\n  font-size: 11px;\n  font-weight: 750;\n}\n\n.scout-onboarding ol {\n  margin: 7px 0 9px;\n  padding-left: 18px;\n  color: #4e5c72;\n  font-size: 10px;\n  line-height: 1.55;\n}\n\n.scout-onboarding-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-footer {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 10px 14px;\n  border-top: 1px solid var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-footer-status {\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-footer-actions {\n  display: flex;\n  flex: 0 0 auto;\n  gap: 6px;\n}\n\n.scout-toast {\n  position: absolute;\n  right: 10px;\n  bottom: 10px;\n  left: 10px;\n  padding: 8px 10px;\n  border: 1px solid #cfd7d1;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  font-size: 11px;\n  box-shadow: 0 8px 20px rgb(0 0 0 / 20%);\n  animation: scout-toast-in 160ms ease-out;\n  z-index: 1;\n}\n\n@keyframes scout-toast-in {\n  from {\n    opacity: 0;\n    transform: translateY(5px);\n  }\n\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 520px) {\n  .scout-root {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-launcher {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-panel {\n    right: 12px;\n    bottom: 64px;\n    left: 12px;\n    width: auto;\n    max-height: calc(100vh - 84px);\n  }\n\n  .scout-settings-window {\n    width: calc(100vw - 24px);\n    max-height: calc(100vh - 24px);\n  }\n}\n\n@media (prefers-color-scheme: dark) {\n  :host {\n    --scout-bg: #eef0ed;\n    --scout-panel: #ffffff;\n    --scout-ink: #161917;\n    --scout-muted: #66706a;\n    --scout-line: #dfe3df;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  * {\n    scroll-behavior: auto !important;\n    transition: none !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n  }\n}\n';
+  var panel_default = ':host {\n  all: initial;\n  --scout-bg: #f7f7f4;\n  --scout-panel: #ffffff;\n  --scout-ink: #161917;\n  --scout-muted: #66706a;\n  --scout-line: #dfe3df;\n  --scout-accent: #2563eb;\n  --scout-accent-soft: #e8efff;\n  --scout-good: #16845b;\n  --scout-warn: #b66a16;\n  --scout-bad: #c13c3c;\n  --scout-shadow: 0 18px 48px rgb(18 25 21 / 18%);\n  color: var(--scout-ink);\n  font-family:\n    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui,\n    sans-serif;\n  font-size: 14px;\n  line-height: 1.5;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbutton,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}\n\nbutton {\n  color: inherit;\n  -webkit-tap-highlight-color: transparent;\n}\n\n.scout-root {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  z-index: 2147483646;\n}\n\n.scout-launcher {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  display: grid;\n  width: 44px;\n  height: 44px;\n  padding: 0;\n  border: 1px solid rgb(255 255 255 / 22%);\n  border-radius: 9px;\n  background: #17201b;\n  color: #fff;\n  box-shadow: 0 8px 26px rgb(10 15 12 / 28%);\n  cursor: grab;\n  place-items: center;\n  touch-action: none;\n  user-select: none;\n  transition:\n    transform 140ms ease,\n    background 140ms ease,\n    width 140ms ease,\n    height 140ms ease,\n    border-radius 140ms ease;\n}\n\n.scout-launcher:hover {\n  background: #25312a;\n  transform: translateY(-1px);\n}\n\n.scout-launcher:active {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-launcher.is-dragging {\n  cursor: grabbing;\n  transform: none;\n  transition: none;\n}\n\n.scout-launcher-label {\n  display: none;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1;\n  writing-mode: vertical-rl;\n}\n\n.scout-launcher.is-side-docked {\n  display: flex;\n  width: 30px;\n  height: 92px;\n  flex-direction: column;\n  gap: 6px;\n  padding: 7px 3px;\n}\n\n.scout-launcher.is-side-docked .lucide {\n  width: 17px;\n  height: 17px;\n  flex: 0 0 auto;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-label {\n  display: block;\n}\n\n.scout-launcher.is-docked-left {\n  border-radius: 0 8px 8px 0;\n}\n\n.scout-launcher.is-docked-right {\n  border-radius: 8px 0 0 8px;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-dot {\n  top: 4px;\n  right: 4px;\n}\n\n.scout-root button:focus-visible,\n.scout-root input:focus-visible,\n.scout-root select:focus-visible,\n.scout-root textarea:focus-visible {\n  outline: 2px solid var(--scout-accent);\n  outline-offset: 2px;\n}\n\n.scout-launcher .lucide {\n  width: 21px;\n  height: 21px;\n}\n\n.scout-launcher-dot {\n  position: absolute;\n  top: -3px;\n  right: -3px;\n  width: 10px;\n  height: 10px;\n  border: 2px solid #fff;\n  border-radius: 999px;\n  background: var(--scout-muted);\n}\n\n.scout-launcher-dot[data-tone="good"] {\n  background: var(--scout-good);\n}\n\n.scout-launcher-dot[data-tone="warn"] {\n  background: var(--scout-warn);\n}\n\n.scout-launcher-dot[data-tone="bad"] {\n  background: var(--scout-bad);\n}\n\n.scout-panel {\n  position: fixed;\n  right: 20px;\n  bottom: 64px;\n  display: flex;\n  overflow: hidden;\n  width: min(390px, calc(100vw - 24px));\n  max-height: min(720px, calc(100vh - 96px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n}\n\n.scout-panel-header {\n  cursor: grab;\n  touch-action: none;\n}\n\n.scout-panel.is-dragging,\n.scout-panel.is-dragging .scout-panel-header {\n  cursor: grabbing;\n  user-select: none;\n}\n\n.scout-panel.is-dragging .scout-panel-header {\n  background: var(--scout-bg);\n}\n\n.scout-drag-indicator {\n  display: inline-grid;\n  width: 24px;\n  height: 30px;\n  flex: 0 0 auto;\n  color: #98a09b;\n  place-items: center;\n}\n\n.scout-drag-indicator .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-dock-button:hover {\n  color: var(--scout-accent);\n}\n\n.scout-settings-backdrop {\n  position: fixed;\n  z-index: 2147483645;\n  inset: 0;\n  background: rgb(12 18 14 / 24%);\n}\n\n.scout-settings-window {\n  position: fixed;\n  top: 50%;\n  left: 50%;\n  z-index: 2147483647;\n  display: flex;\n  overflow: hidden;\n  width: min(430px, calc(100vw - 24px));\n  max-height: min(780px, calc(100vh - 48px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n  transform: translate(-50%, -50%);\n}\n\n.scout-panel[hidden],\n.scout-settings-window[hidden],\n.scout-settings-backdrop[hidden],\n.scout-view[hidden],\n[hidden] {\n  display: none !important;\n}\n\n.scout-header {\n  display: flex;\n  min-height: 54px;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-brand-mark {\n  display: grid;\n  width: 30px;\n  height: 30px;\n  flex: 0 0 auto;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  place-items: center;\n}\n\n.scout-brand-mark .lucide {\n  width: 17px;\n  height: 17px;\n}\n\n.scout-brand {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-brand-title {\n  overflow: hidden;\n  margin: 0;\n  font-size: 14px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1.25;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-brand-state {\n  overflow: hidden;\n  margin: 2px 0 0;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.3;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-icon-button {\n  display: inline-grid;\n  width: 30px;\n  height: 30px;\n  padding: 0;\n  flex: 0 0 auto;\n  border: 1px solid transparent;\n  border-radius: 7px;\n  background: transparent;\n  cursor: pointer;\n  place-items: center;\n}\n\n.scout-icon-button:hover {\n  border-color: var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-icon-button .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-body {\n  overflow: auto;\n  min-height: 0;\n  flex: 1;\n  overscroll-behavior: contain;\n}\n\n.scout-view {\n  padding: 14px;\n}\n\n.scout-result-head {\n  padding: 4px 2px 13px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-result-head.has-cover {\n  display: grid;\n  grid-template-columns: 72px minmax(0, 1fr);\n  gap: 12px;\n  align-items: start;\n}\n\n.scout-result-copy {\n  min-width: 0;\n}\n\n.scout-cover {\n  overflow: hidden;\n  width: 72px;\n  aspect-ratio: 3 / 4;\n  border: 1px solid var(--scout-line);\n  border-radius: 7px;\n  background: var(--scout-bg);\n}\n\n.scout-cover-image {\n  display: block;\n  width: 100%;\n  height: 100%;\n  object-fit: cover;\n}\n\n.scout-eyebrow {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin-bottom: 7px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.02em;\n}\n\n.scout-confidence {\n  display: inline-flex;\n  align-items: center;\n  min-height: 19px;\n  padding: 1px 6px;\n  border-radius: 4px;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n}\n\n.scout-confidence[data-tone="good"] {\n  background: #e5f5ed;\n  color: #116b49;\n}\n\n.scout-confidence[data-tone="warn"] {\n  background: #fff1df;\n  color: #8a4c0a;\n}\n\n.scout-title {\n  margin: 0;\n  font-size: 23px;\n  font-weight: 760;\n  letter-spacing: 0;\n  line-height: 1.2;\n  overflow-wrap: anywhere;\n}\n\n.scout-subtitle {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 12px;\n  overflow-wrap: anywhere;\n}\n\n.scout-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 7px;\n  margin-top: 12px;\n}\n\n.scout-button {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  padding: 5px 10px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: var(--scout-panel);\n  color: var(--scout-ink);\n  font-size: 12px;\n  font-weight: 650;\n  text-decoration: none;\n  cursor: pointer;\n  transition:\n    transform 110ms ease,\n    border-color 110ms ease,\n    background 110ms ease,\n    box-shadow 110ms ease;\n}\n\n.scout-button:hover {\n  background: var(--scout-bg);\n}\n\n.scout-button:active:not(:disabled) {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-button.is-confirmed {\n  animation: scout-confirm 420ms ease;\n}\n\n.scout-button[data-variant="primary"] {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-button[data-variant="primary"]:hover {\n  background: #1d4fd0;\n}\n\n.scout-button:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-button .lucide {\n  width: 14px;\n  height: 14px;\n}\n\n.scout-spin {\n  animation: scout-spin 900ms linear infinite;\n}\n\n.scout-button.is-loading .lucide {\n  animation: scout-spin 900ms linear infinite;\n}\n\n@keyframes scout-confirm {\n  0% {\n    box-shadow: 0 0 0 0 rgb(37 99 235 / 32%);\n  }\n\n  100% {\n    box-shadow: 0 0 0 8px rgb(37 99 235 / 0%);\n  }\n}\n\n@keyframes scout-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n.scout-search {\n  position: relative;\n  margin-top: 12px;\n}\n\n.scout-search .lucide {\n  position: absolute;\n  top: 50%;\n  left: 10px;\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.scout-search input,\n.scout-field input,\n.scout-field select,\n.scout-review {\n  width: 100%;\n  min-height: 34px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: #fff;\n  color: var(--scout-ink);\n}\n\n.scout-search input {\n  padding: 6px 9px 6px 32px;\n}\n\n.scout-field input,\n.scout-field select {\n  padding: 6px 9px;\n}\n\n.scout-field input::placeholder {\n  color: #929a95;\n}\n\n.scout-review {\n  min-height: 82px;\n  margin-top: 10px;\n  padding: 8px 9px;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.scout-review:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.scout-evidence {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 5px;\n  margin-top: 9px;\n}\n\n.scout-evidence-item {\n  display: inline-flex;\n  min-height: 22px;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: var(--scout-bg);\n  color: #4e5752;\n  font-size: 10px;\n  font-weight: 650;\n}\n\n.scout-evidence-item .lucide {\n  width: 12px;\n  height: 12px;\n  color: var(--scout-muted);\n}\n\n.scout-section {\n  padding: 14px 0;\n  border-top: 1px solid var(--scout-line);\n}\n\n.scout-section:first-child {\n  padding-top: 0;\n  border-top: 0;\n}\n\n.scout-section-title {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin: 0 0 10px;\n  font-size: 12px;\n  font-weight: 750;\n  letter-spacing: 0;\n}\n\n.scout-section-title .lucide {\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n}\n\n.scout-list {\n  display: grid;\n  gap: 0;\n  margin: 7px 0 0;\n}\n\n.scout-list-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 7px;\n  border: 0;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  background: transparent;\n  color: var(--scout-ink);\n  font: inherit;\n  text-align: left;\n  transition:\n    transform 100ms ease,\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-list-row:first-child {\n  border-top: 0;\n}\n\nbutton.scout-list-row {\n  cursor: pointer;\n}\n\nbutton.scout-list-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\nbutton.scout-list-row:active {\n  transform: scale(0.988);\n  background: var(--scout-accent-soft);\n}\n\n.scout-list-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #b9caf6;\n}\n\n.scout-list-copy {\n  min-width: 0;\n}\n\n.scout-list-title {\n  overflow: hidden;\n  font-size: 12px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-list-meta {\n  overflow: hidden;\n  margin-top: 2px;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-score {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-row-tail {\n  display: inline-flex;\n  min-width: 48px;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 4px;\n}\n\n.scout-row-check {\n  display: inline-grid;\n  width: 17px;\n  height: 17px;\n  border-radius: 999px;\n  background: var(--scout-accent);\n  color: #fff;\n  opacity: 0;\n  place-items: center;\n  transform: scale(0.7);\n  transition:\n    opacity 120ms ease,\n    transform 120ms ease;\n}\n\n.scout-row-check .lucide {\n  width: 11px;\n  height: 11px;\n  stroke-width: 3;\n}\n\n.scout-list-row.is-selected .scout-row-check {\n  opacity: 1;\n  transform: scale(1);\n}\n\n.scout-suggestions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-suggestion {\n  display: inline-flex;\n  min-height: 28px;\n  max-width: 100%;\n  align-items: center;\n  gap: 6px;\n  padding: 3px 7px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease;\n}\n\n.scout-suggestion:hover {\n  border-color: #bdc7c0;\n  background: var(--scout-bg);\n}\n\n.scout-suggestion:active {\n  transform: translateY(1px) scale(0.985);\n  background: var(--scout-accent-soft);\n}\n\n.scout-suggestion-title {\n  overflow: hidden;\n  max-width: 215px;\n  font-size: 11px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-suggestion-source {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 9px;\n}\n\n.scout-record-head {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-record-head .scout-section-title {\n  flex: 0 0 auto;\n  margin-bottom: 0;\n}\n\n.scout-record-context {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n}\n\n.scout-record-item {\n  min-width: 0;\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-reselect {\n  display: inline-flex;\n  min-height: 24px;\n  flex: 0 0 auto;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-weight: 650;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-reselect:hover {\n  border-color: #b9caf6;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-reselect:active {\n  transform: scale(0.96);\n}\n\n.scout-reselect .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-record:focus {\n  outline: none;\n}\n\n.scout-record-rating-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  margin-top: 11px;\n}\n\n.scout-record-value {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-rating-options {\n  display: grid;\n  grid-template-columns: repeat(10, minmax(0, 1fr));\n  gap: 3px;\n  margin-top: 6px;\n}\n\n.scout-rating-option {\n  display: grid;\n  min-width: 0;\n  height: 29px;\n  padding: 0;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n  place-items: center;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-rating-option:hover:not(:disabled) {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-rating-option:active:not(:disabled) {\n  transform: scale(0.94);\n}\n\n.scout-rating-option.is-selected {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-rating-option:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-record-footer {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  margin-top: 9px;\n}\n\n.scout-record-footer .scout-footer-status {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-record-remote-link {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  margin-top: 9px;\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 650;\n  text-decoration: none;\n}\n\n.scout-record-remote-link:hover {\n  text-decoration: underline;\n}\n\n.scout-record-remote-link .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-duplicate-warning {\n  margin-top: 10px;\n  padding: 10px;\n  border: 1px solid #e6c77a;\n  border-radius: 7px;\n  background: #fffaf0;\n  color: #5f4917;\n}\n\n.scout-duplicate-heading {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 11px;\n}\n\n.scout-duplicate-heading .lucide {\n  width: 14px;\n  height: 14px;\n  flex: 0 0 auto;\n}\n\n.scout-duplicate-summary {\n  margin: 6px 0 8px;\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-duplicate-list {\n  display: grid;\n  gap: 6px;\n}\n\n.scout-duplicate-row {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 8px;\n  align-items: center;\n  padding-top: 6px;\n  border-top: 1px solid #ead9ad;\n}\n\n.scout-duplicate-copy {\n  display: grid;\n  min-width: 0;\n  gap: 2px;\n}\n\n.scout-duplicate-copy strong,\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-duplicate-copy strong {\n  font-size: 10px;\n}\n\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  color: #80672e;\n  font-size: 9px;\n}\n\n.scout-duplicate-row code {\n  max-width: 110px;\n}\n\n.scout-duplicate-actions {\n  display: flex;\n  justify-content: flex-end;\n  gap: 6px;\n  margin-top: 9px;\n}\n\n.scout-empty {\n  padding: 18px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 12px;\n  text-align: center;\n}\n\n.scout-diagnostics {\n  margin-top: 12px;\n  color: var(--scout-muted);\n  font-size: 11px;\n}\n\n.scout-diagnostics summary {\n  cursor: pointer;\n}\n\n.scout-diagnostics ul {\n  margin: 7px 0 0;\n  padding-left: 18px;\n}\n\n.scout-field {\n  display: grid;\n  gap: 5px;\n  margin-top: 10px;\n}\n\n.scout-field:first-child {\n  margin-top: 0;\n}\n\n.scout-field > span,\n.scout-range-label {\n  color: #3d4641;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.scout-field-grid {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 8px;\n}\n\n.scout-switch {\n  display: flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 3px 0;\n  font-size: 12px;\n  font-weight: 650;\n}\n\n.scout-switch input {\n  position: relative;\n  width: 34px;\n  height: 19px;\n  flex: 0 0 auto;\n  appearance: none;\n  border: 1px solid #c6ccc8;\n  border-radius: 999px;\n  background: #dfe3df;\n  cursor: pointer;\n  transition: background 120ms ease;\n}\n\n.scout-switch input::after {\n  position: absolute;\n  top: 2px;\n  left: 2px;\n  width: 13px;\n  height: 13px;\n  border-radius: 999px;\n  background: #fff;\n  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);\n  content: "";\n  transition: transform 120ms ease;\n}\n\n.scout-switch input:checked {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n}\n\n.scout-switch input:checked::after {\n  transform: translateX(15px);\n}\n\n.scout-range-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  margin-top: 12px;\n}\n\n.scout-range-head output {\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-range {\n  width: 100%;\n  margin: 5px 0 0;\n  accent-color: var(--scout-accent);\n}\n\n.scout-note {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-onboarding {\n  margin: 10px 0 12px;\n  padding: 10px 11px;\n  border: 1px solid #cdd9f2;\n  border-radius: 7px;\n  background: #f4f7fd;\n}\n\n.scout-onboarding h4 {\n  margin: 0;\n  color: #26334c;\n  font-size: 11px;\n  font-weight: 750;\n}\n\n.scout-onboarding ol {\n  margin: 7px 0 9px;\n  padding-left: 18px;\n  color: #4e5c72;\n  font-size: 10px;\n  line-height: 1.55;\n}\n\n.scout-onboarding-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-footer {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 10px 14px;\n  border-top: 1px solid var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-footer-status {\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-footer-actions {\n  display: flex;\n  flex: 0 0 auto;\n  gap: 6px;\n}\n\n.scout-toast {\n  position: absolute;\n  right: 10px;\n  bottom: 10px;\n  left: 10px;\n  padding: 8px 10px;\n  border: 1px solid #cfd7d1;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  font-size: 11px;\n  box-shadow: 0 8px 20px rgb(0 0 0 / 20%);\n  animation: scout-toast-in 160ms ease-out;\n  z-index: 1;\n}\n\n@keyframes scout-toast-in {\n  from {\n    opacity: 0;\n    transform: translateY(5px);\n  }\n\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 520px) {\n  .scout-root {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-launcher {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-panel {\n    right: 12px;\n    bottom: 64px;\n    left: 12px;\n    width: auto;\n    max-height: calc(100vh - 84px);\n  }\n\n  .scout-settings-window {\n    width: calc(100vw - 24px);\n    max-height: calc(100vh - 24px);\n  }\n}\n\n@media (prefers-color-scheme: dark) {\n  :host {\n    --scout-bg: #eef0ed;\n    --scout-panel: #ffffff;\n    --scout-ink: #161917;\n    --scout-muted: #66706a;\n    --scout-line: #dfe3df;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  * {\n    scroll-behavior: auto !important;\n    transition: none !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n  }\n}\n';
 
   // src/ui/panel.js
   var TYPE_LABELS = {
@@ -4584,6 +5059,7 @@
       this.recordRating = null;
       this.recordDirty = false;
       this.recordRemoteRecord = null;
+      this.pendingGithubSave = null;
       this.recordLoadRequestId = 0;
       this.recordSaving = false;
       this.githubConnectionChecking = false;
@@ -4596,6 +5072,8 @@
       this.busy = false;
       this.searchTimer = null;
       this.dragState = null;
+      this.launcherDragState = null;
+      this.suppressLauncherClick = false;
       this.dockedSide = null;
       this.panelHasCustomPosition = false;
     }
@@ -4627,7 +5105,19 @@
             "aria-label": "打开 Bangumi Scout",
             "aria-expanded": "false"
           },
-          on: { click: () => this.toggle() }
+          on: {
+            click: () => {
+              if (this.suppressLauncherClick) {
+                this.suppressLauncherClick = false;
+                return;
+              }
+              this.toggle();
+            },
+            pointerdown: (event) => this.startLauncherDrag(event),
+            pointermove: (event) => this.moveLauncher(event),
+            pointerup: (event) => this.finishLauncherDrag(event),
+            pointercancel: (event) => this.finishLauncherDrag(event)
+          }
         },
         [icon(ScanSearch), this.launcherLabel, this.launcherDot]
       );
@@ -4935,6 +5425,7 @@
           input: () => {
             this.recordDirty = true;
             this.recordStatus.textContent = "有尚未保存的修改";
+            this.clearDuplicateWarning();
           }
         }
       });
@@ -4966,6 +5457,43 @@
         },
         [icon(ExternalLink), "查看 GitHub 记录"]
       );
+      this.duplicateWarningSummary = element("p", {
+        className: "scout-duplicate-summary",
+        text: "仓库中已有相似记录。季度不同或只是同一作品的另一版本时，请取消同步。"
+      });
+      this.duplicateWarningList = element("div", {
+        className: "scout-duplicate-list"
+      });
+      this.cancelDuplicateButton = button(
+        "取消同步",
+        X,
+        () => this.cancelDuplicateSync()
+      );
+      this.confirmDuplicateButton = button(
+        "仍然同步",
+        CloudDownload,
+        () => this.confirmDuplicateSync(),
+        { variant: "primary" }
+      );
+      this.duplicateWarning = element(
+        "div",
+        {
+          className: "scout-duplicate-warning",
+          attrs: { hidden: "", role: "alert" }
+        },
+        [
+          element("div", { className: "scout-duplicate-heading" }, [
+            icon(CircleHelp),
+            element("strong", { text: "发现疑似重复番剧" })
+          ]),
+          this.duplicateWarningSummary,
+          this.duplicateWarningList,
+          element("div", { className: "scout-duplicate-actions" }, [
+            this.cancelDuplicateButton,
+            this.confirmDuplicateButton
+          ])
+        ]
+      );
       this.recordSection = element(
         "section",
         {
@@ -4994,7 +5522,8 @@
             this.saveRecordButton
           ]),
           this.recordNote,
-          this.recordRemoteLink
+          this.recordRemoteLink,
+          this.duplicateWarning
         ]
       );
       this.recordSection.hidden = true;
@@ -5382,7 +5911,7 @@
             this.githubConnectionStatus,
             element("p", {
               className: "scout-note",
-              text: "推荐用模板新建仓库；Fork 会连同上游旧提交一起复制。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。"
+              text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。"
             })
           ]),
           element("footer", { className: "scout-footer" }, [
@@ -5623,7 +6152,11 @@
     }
     setResult(result) {
       this.currentResult = result;
-      this.selectedResult = result.best ? { ...result.best, selectionSource: "automatic" } : null;
+      this.selectedResult = result.best ? {
+        ...result.best,
+        bilibiliMetadata: result.bilibiliMetadata ?? null,
+        selectionSource: "automatic"
+      } : null;
       this.recordDirty = false;
       this.candidateCollapsed = false;
       this.batchCards = [];
@@ -5665,6 +6198,7 @@
         const displayTitle = itemDisplayTitle2(item);
         const alternateNames = item.names.filter((name) => name !== displayTitle).slice(0, 3);
         const metadata = [
+          seasonLabelFromItem(item),
           item.year,
           TYPE_LABELS[item.type] ?? item.type,
           alternateNames.join(" / ")
@@ -5842,8 +6376,10 @@
       if (!row?.item?.id) {
         return;
       }
+      const usesCurrentBilibiliItem = row.item.id === this.currentResult?.best?.item?.id;
       this.selectedResult = {
         ...row,
+        bilibiliMetadata: usesCurrentBilibiliItem ? this.currentResult?.bilibiliMetadata ?? null : null,
         manualSelection: true,
         selectionSource
       };
@@ -5907,6 +6443,7 @@
       }
       this.recordRating = this.recordRating === rating ? null : rating;
       this.recordDirty = true;
+      this.clearDuplicateWarning();
       this.recordStatus.textContent = "有尚未保存的修改";
       this.syncRecordRating();
     }
@@ -5923,6 +6460,7 @@
       const itemChanged = this.recordItem?.id !== item?.id;
       if (itemChanged) {
         this.recordLoadRequestId += 1;
+        this.clearDuplicateWarning();
         this.recordItem = item ?? null;
         this.recordRemoteRecord = null;
         this.setRecordRemoteLink(null);
@@ -5983,6 +6521,12 @@
       this.saveRecordButton.disabled = !enabled || this.recordSaving;
       for (const ratingButton of this.ratingButtons) {
         ratingButton.disabled = !enabled || this.recordSaving;
+      }
+      if (this.cancelDuplicateButton) {
+        this.cancelDuplicateButton.disabled = this.recordSaving;
+      }
+      if (this.confirmDuplicateButton) {
+        this.confirmDuplicateButton.disabled = this.recordSaving;
       }
       if (writable) {
         this.recordNote.textContent = "保存时先写本地草稿，再同步到 GitHub；远端失败不会删除本地内容。";
@@ -6096,19 +6640,32 @@
         this.showToast("本地评分与短评草稿已保存");
         return;
       }
+      const saveRequest = {
+        item,
+        selectedResult,
+        aiResult: this.currentResult?.aiResult ?? null,
+        rating,
+        review
+      };
+      this.pendingGithubSave = saveRequest;
+      await this.syncGithubRecord(saveRequest);
+    }
+    async syncGithubRecord(saveRequest, options = {}) {
+      if (!saveRequest || !this.githubRecords) {
+        return;
+      }
       this.recordSaving = true;
       this.syncRecordGithubState();
-      this.recordStatus.textContent = "本地草稿已保存 · 正在同步到 GitHub";
+      this.recordStatus.textContent = options.allowDuplicates ? "本地草稿已保存 · 已确认重复，正在同步" : "本地草稿已保存 · 正在同步到 GitHub";
       try {
         const remote = await this.githubRecords.saveRecord({
-          item,
-          selectedResult,
-          aiResult: this.currentResult?.aiResult ?? null,
-          rating,
-          review
+          ...saveRequest,
+          allowDuplicates: Boolean(options.allowDuplicates)
         });
         this.recordRemoteRecord = remote;
         this.setRecordRemoteLink(remote);
+        this.pendingGithubSave = null;
+        this.clearDuplicateWarning();
         const syncedAt = remote.record?.updatedAt || this.settingsStore.get().github.lastSyncedAt;
         const updatedSettings = this.settingsStore.update({
           github: {
@@ -6122,12 +6679,67 @@
         )}`;
         this.showToast("评分与短评已保存到 GitHub");
       } catch (error) {
+        if (error instanceof DuplicateRecordError) {
+          this.pendingGithubSave = saveRequest;
+          this.renderDuplicateWarning(error);
+          this.recordStatus.textContent = "本地草稿已保存 · 等待确认疑似重复";
+          this.showToast(error.message);
+          return;
+        }
+        this.pendingGithubSave = null;
+        this.clearDuplicateWarning();
         this.recordStatus.textContent = "本地草稿已保存 · GitHub 同步失败";
         this.showToast(`GitHub 保存失败：${toErrorMessage(error)}`);
       } finally {
         this.recordSaving = false;
         this.syncRecordGithubState();
       }
+    }
+    renderDuplicateWarning(error) {
+      this.duplicateWarningSummary.textContent = `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。不同季度属于不同番剧，请确认后再同步。`;
+      this.duplicateWarningList.replaceChildren();
+      for (const duplicate of error.duplicates) {
+        const season = duplicate.season?.label ? ` · ${duplicate.season.label}` : "";
+        this.duplicateWarningList.append(
+          element("div", { className: "scout-duplicate-row" }, [
+            element("div", { className: "scout-duplicate-copy" }, [
+              element("strong", {
+                text: `${duplicate.title || duplicate.id}${season}`
+              }),
+              element("span", {
+                text: `${duplicate.reason} · ${formatConfidence(
+                  duplicate.score
+                )}`
+              })
+            ]),
+            element("code", { text: duplicate.id })
+          ])
+        );
+      }
+      this.duplicateWarning.hidden = false;
+      this.cancelDuplicateButton.disabled = this.recordSaving;
+      this.confirmDuplicateButton.disabled = this.recordSaving;
+    }
+    clearDuplicateWarning() {
+      if (!this.duplicateWarning) {
+        return;
+      }
+      this.pendingGithubSave = null;
+      this.duplicateWarning.hidden = true;
+      this.duplicateWarningList.replaceChildren();
+    }
+    cancelDuplicateSync() {
+      this.pendingGithubSave = null;
+      this.clearDuplicateWarning();
+      this.recordStatus.textContent = "本地草稿已保留 · 已取消 GitHub 同步";
+      this.showToast("已取消同步，本地草稿仍然保留");
+    }
+    confirmDuplicateSync() {
+      const pending = this.pendingGithubSave;
+      if (!pending || this.recordSaving) {
+        return;
+      }
+      this.syncGithubRecord(pending, { allowDuplicates: true });
     }
     renderDiagnostics(diagnostics) {
       this.diagnosticsList.replaceChildren();
@@ -6308,6 +6920,59 @@
         this.close();
       }
     }
+    startLauncherDrag(event) {
+      if (event.button !== 0) {
+        return;
+      }
+      const rect = this.launcher.getBoundingClientRect();
+      this.launcherDragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        top: rect.top,
+        height: rect.height,
+        moved: false
+      };
+      this.suppressLauncherClick = false;
+      this.launcher.setPointerCapture?.(event.pointerId);
+    }
+    moveLauncher(event) {
+      const drag = this.launcherDragState;
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+      const deltaX = event.clientX - drag.startX;
+      const deltaY = event.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) {
+        return;
+      }
+      drag.moved = true;
+      this.suppressLauncherClick = true;
+      this.launcher.classList.add("is-dragging");
+      const side = event.clientX < window.innerWidth / 2 ? "left" : "right";
+      this.dockedSide = side;
+      this.applyLauncherDock(side, drag.top + deltaY, drag.height);
+      event.preventDefault();
+    }
+    finishLauncherDrag(event) {
+      const drag = this.launcherDragState;
+      if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+      this.launcherDragState = null;
+      this.launcher.classList.remove("is-dragging");
+      if (this.launcher.hasPointerCapture?.(event.pointerId)) {
+        this.launcher.releasePointerCapture(event.pointerId);
+      }
+      if (drag.moved && this.dockedSide) {
+        this.suppressLauncherClick = true;
+        this.applyLauncherDock(
+          this.dockedSide,
+          this.launcher.getBoundingClientRect().top,
+          this.launcher.getBoundingClientRect().height
+        );
+      }
+    }
     startPanelDrag(event) {
       if (event.button !== 0 || event.target?.closest?.("button") || window.matchMedia("(max-width: 520px)").matches) {
         return;
@@ -6405,12 +7070,12 @@
       this.close();
       this.applyLauncherDock(side, top);
     }
-    applyLauncherDock(side, top) {
+    applyLauncherDock(side, top, height = 92) {
       this.launcher.classList.remove("is-docked-left", "is-docked-right");
       this.launcher.classList.add("is-side-docked", `is-docked-${side}`);
       this.launcher.dataset.docked = side;
       this.launcher.style.top = `${Math.round(
-        clampNumber2(top, 8, Math.max(8, window.innerHeight - 80))
+        clampNumber2(top, 8, Math.max(8, window.innerHeight - height - 8))
       )}px`;
       this.launcher.style.bottom = "auto";
       if (side === "left") {
