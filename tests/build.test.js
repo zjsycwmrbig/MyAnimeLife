@@ -9,8 +9,13 @@ import {
   compileRecordValidator,
   createRepositoryContext,
   loadEntries,
+  loadLibrary,
   loadTemplate,
 } from "../scripts/build.mjs";
+import {
+  buildAnimeIndex,
+  serializeJsonl,
+} from "../scripts/library-data.mjs";
 
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -51,9 +56,14 @@ async function createBuildFixture(template) {
       }),
     ),
   );
-  await fs.mkdir(path.join(fixtureRoot, "data", "anime"), {
+  await fs.mkdir(path.join(fixtureRoot, "data", "backups"), {
     recursive: true,
   });
+  await fs.writeFile(path.join(fixtureRoot, "data", "anime.jsonl"), "");
+  await fs.writeFile(
+    path.join(fixtureRoot, "data", "anime-index.jsonl"),
+    "",
+  );
 
   const configPath = path.join(fixtureRoot, "config", "site.json");
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
@@ -61,6 +71,17 @@ async function createBuildFixture(template) {
   await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
   return fixtureRoot;
+}
+
+async function writeLibrary(fixtureRoot, records) {
+  await fs.writeFile(
+    path.join(fixtureRoot, "data", "anime.jsonl"),
+    serializeJsonl(records),
+  );
+  await fs.writeFile(
+    path.join(fixtureRoot, "data", "anime-index.jsonl"),
+    serializeJsonl(buildAnimeIndex(records)),
+  );
 }
 
 test("handles an empty anime library", async () => {
@@ -107,22 +128,17 @@ test("accepts optional season metadata and rejects inconsistent values", async (
   );
 
   const fixtureRoot = await createBuildFixture("default");
-  await fs.writeFile(
-    path.join(fixtureRoot, "data", "anime", `${validRecord.id}.json`),
-    `${JSON.stringify(
-      {
-        ...validRecord,
-        season: {
-          key: "bgm:400602",
-          number: 2,
-          label: null,
-          year: 2026,
-        },
+  await writeLibrary(fixtureRoot, [
+    {
+      ...validRecord,
+      season: {
+        key: "bgm:400602",
+        number: 2,
+        label: null,
+        year: 2026,
       },
-      null,
-      2,
-    )}\n`,
-  );
+    },
+  ]);
   await assert.rejects(
     () => loadEntries(fixtureRoot),
     /season\.number 与 season\.label/u,
@@ -157,10 +173,7 @@ test("ships three independently buildable templates", async () => {
     assert.equal(loaded.manifest.id, template);
 
     const fixtureRoot = await createBuildFixture(template);
-    await fs.writeFile(
-      path.join(fixtureRoot, "data", "anime", `${validRecord.id}.json`),
-      `${JSON.stringify(validRecord, null, 2)}\n`,
-    );
+    await writeLibrary(fixtureRoot, [validRecord]);
 
     const result = await buildSite({
       root: fixtureRoot,
@@ -213,10 +226,7 @@ test("shows the season label on every detail template", async () => {
 
   for (const template of ["default", "compact", "spotlight"]) {
     const fixtureRoot = await createBuildFixture(template);
-    await fs.writeFile(
-      path.join(fixtureRoot, "data", "anime", `${seasonRecord.id}.json`),
-      `${JSON.stringify(seasonRecord, null, 2)}\n`,
-    );
+    await writeLibrary(fixtureRoot, [seasonRecord]);
     await buildSite({
       root: fixtureRoot,
       now: new Date("2026-10-25T12:00:00Z"),

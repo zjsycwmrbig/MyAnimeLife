@@ -5,6 +5,13 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import MarkdownIt from "markdown-it";
 import nunjucks from "nunjucks";
+import {
+  ANIME_INDEX_JSONL_PATH,
+  ANIME_JSONL_PATH,
+  buildAnimeIndex,
+  parseJsonl,
+  sortRecordsById,
+} from "./library-data.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(scriptDirectory, "..");
@@ -149,6 +156,25 @@ export async function compileRecordValidator(root = defaultRoot) {
   };
 }
 
+export async function compileIndexValidator(root = defaultRoot) {
+  const schemaPath = resolveInside(root, "schemas/anime-index.schema.json");
+  const schema = await readJson(schemaPath);
+  const ajv = new Ajv({
+    allErrors: true,
+    strict: true,
+    messages: true,
+  });
+  addFormats(ajv);
+  const validate = ajv.compile(schema);
+
+  return (record, label = "番剧索引") => {
+    if (!validate(record)) {
+      throw new Error(`${label} 未通过 Schema 校验: ${formatAjvErrors(validate.errors)}`);
+    }
+    return record;
+  };
+}
+
 export async function loadSiteConfig(root = defaultRoot) {
   const config = await readJson(resolveInside(root, "config/site.json"));
   if (!config || typeof config !== "object") {
@@ -163,8 +189,23 @@ export async function loadSiteConfig(root = defaultRoot) {
   ) {
     throw new Error("config/site.json 的 template 名称不合法");
   }
-  assertRelativeDirectory(config.dataDirectory, "dataDirectory");
+  assertRelativeDirectory(
+    config.dataFile ?? ANIME_JSONL_PATH,
+    "dataFile",
+  );
+  assertRelativeDirectory(
+    config.indexFile ?? ANIME_INDEX_JSONL_PATH,
+    "indexFile",
+  );
+  assertRelativeDirectory(config.backupDirectory, "backupDirectory");
   assertRelativeDirectory(config.outputDirectory, "outputDirectory");
+  if (
+    !Number.isInteger(config.backupLimit) ||
+    config.backupLimit < 1 ||
+    config.backupLimit > 20
+  ) {
+    throw new Error("config/site.json 的 backupLimit 必须是 1 到 20 的整数");
+  }
 
   return config;
 }
@@ -199,46 +240,24 @@ export async function loadTemplate(root, templateName) {
   };
 }
 
-export async function loadEntries(root = defaultRoot, options = {}) {
-  const config = options.config ?? (await loadSiteConfig(root));
-  const validateRecord =
-    options.validator ?? (await compileRecordValidator(root));
-  const dataDirectory = resolveInside(root, config.dataDirectory);
-  const directoryEntries = await fs.readdir(dataDirectory, {
-    withFileTypes: true,
-  });
-  const files = directoryEntries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right, "zh-CN"));
-
-  if (files.length === 0) {
-    return [];
-  }
-
-  const entries = [];
+function validateRecordCollection(entries, label) {
   const seenIds = new Set();
   const seenExternalIds = new Map();
 
-  for (const fileName of files) {
-    const record = await readJson(path.join(dataDirectory, fileName));
-    validateRecord(record, fileName);
-
-    if (`${record.id}.json` !== fileName) {
-      throw new Error(`${fileName} 的文件名必须与 id 一致: ${record.id}.json`);
-    }
+  for (const [position, record] of entries.entries()) {
+    const recordLabel = `${label} 第 ${position + 1} 条`;
     if (record.title !== record.title.trim()) {
-      throw new Error(`${fileName} 的 title 首尾不能包含空白字符`);
+      throw new Error(`${recordLabel} 的 title 首尾不能包含空白字符`);
     }
     if (new Date(record.updatedAt).getTime() < new Date(record.createdAt).getTime()) {
-      throw new Error(`${fileName} 的 updatedAt 不能早于 createdAt`);
+      throw new Error(`${recordLabel} 的 updatedAt 不能早于 createdAt`);
     }
     if (record.season) {
       const hasSeasonNumber = record.season.number !== null;
       const hasSeasonLabel = Boolean(record.season.label);
       if (hasSeasonNumber !== hasSeasonLabel) {
         throw new Error(
-          `${fileName} 的 season.number 与 season.label 必须同时填写或同时为 null`,
+          `${recordLabel} 的 season.number 与 season.label 必须同时填写或同时为 null`,
         );
       }
     }
@@ -257,11 +276,66 @@ export async function loadEntries(root = defaultRoot, options = {}) {
       }
       seenExternalIds.set(externalKey, record.id);
     }
+  }
+}
 
-    entries.push(record);
+function assertIndexMatchesRecords(records, index) {
+  const expected = buildAnimeIndex(records);
+  const actual = sortRecordsById(index);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      "anime-index.jsonl 与 anime.jsonl 不一致，请运行本地管理页或重新生成索引",
+    );
+  }
+}
+
+export async function loadLibrary(root = defaultRoot, options = {}) {
+  const config = options.config ?? (await loadSiteConfig(root));
+  const validateRecord =
+    options.validator ?? (await compileRecordValidator(root));
+  const validateIndex =
+    options.indexValidator ?? (await compileIndexValidator(root));
+  const dataFile = resolveInside(
+    root,
+    config.dataFile ?? ANIME_JSONL_PATH,
+  );
+  const indexFile = resolveInside(
+    root,
+    config.indexFile ?? ANIME_INDEX_JSONL_PATH,
+  );
+  let dataText;
+  let indexText;
+  try {
+    [dataText, indexText] = await Promise.all([
+      fs.readFile(dataFile, "utf8"),
+      fs.readFile(indexFile, "utf8"),
+    ]);
+  } catch (error) {
+    throw new Error(`无法读取番剧 JSONL 数据: ${error.message}`);
   }
 
-  return entries;
+  const records = parseJsonl(dataText, config.dataFile);
+  const index = parseJsonl(indexText, config.indexFile);
+  for (const [position, record] of records.entries()) {
+    validateRecord(record, `${config.dataFile} 第 ${position + 1} 条`);
+  }
+  for (const [position, entry] of index.entries()) {
+    validateIndex(entry, `${config.indexFile} 第 ${position + 1} 条`);
+  }
+  validateRecordCollection(records, config.dataFile);
+  assertIndexMatchesRecords(records, index);
+
+  return {
+    records,
+    index,
+    dataText,
+    indexText,
+  };
+}
+
+export async function loadEntries(root = defaultRoot, options = {}) {
+  const library = await loadLibrary(root, options);
+  return library.records;
 }
 
 function collectMarkdownText(tokens) {
@@ -451,7 +525,13 @@ export async function buildSite(options = {}) {
   const now = options.now ?? new Date();
   const config = await loadSiteConfig(root);
   const validator = await compileRecordValidator(root);
-  const allEntries = await loadEntries(root, { config, validator });
+  const indexValidator = await compileIndexValidator(root);
+  const libraryData = await loadLibrary(root, {
+    config,
+    validator,
+    indexValidator,
+  });
+  const allEntries = libraryData.records;
   const publicEntries = allEntries.filter((record) => !record.deletedAt);
 
   const template = await loadTemplate(root, config.template);
@@ -502,7 +582,6 @@ export async function buildSite(options = {}) {
   await writeFile(path.join(outputDirectory, "index.html"), indexHtml);
 
   for (const record of records) {
-    const recordPath = `${config.dataDirectory.split(path.sep).join("/")}/${record.id}.json`;
     const detailContext = {
       ...common,
       pageTitle: `${record.title} | ${config.site.title}`,
@@ -512,7 +591,7 @@ export async function buildSite(options = {}) {
       assetRoot: "../../assets/",
       record,
       repositoryEditUrl: repository.url
-        ? `${repository.url}/edit/${repository.branch}/${recordPath}`
+        ? `${repository.url}/edit/${repository.branch}/${config.dataFile}`
         : "",
     };
     const detailHtml = environment.render(
@@ -546,16 +625,13 @@ export async function buildSite(options = {}) {
       language: config.site.language,
     },
     itemCount: records.length,
-    items: records.map((record) => {
-      const { $schema, ...sourceRecord } = publicEntries.find(
-        (entry) => entry.id === record.id,
-      );
-      return {
-        ...sourceRecord,
-        detailPath: record.detailPath,
-        sourceLinks: record.sourceLinks,
-      };
-    }),
+    items: libraryData.index
+      .filter((entry) => !entry.deletedAt)
+      .map((entry) => ({
+        ...entry,
+        detailPath: `anime/${entry.id}/`,
+        sourceLinks: createSourceLinks(entry.externalIds),
+      })),
   };
   await writeFile(
     path.join(outputDirectory, "data/library.json"),

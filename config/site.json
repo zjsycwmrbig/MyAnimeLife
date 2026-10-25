@@ -11,6 +11,9 @@
     "branch": "main"
   },
   "template": "default",
-  "dataDirectory": "data/anime",
+  "dataFile": "data/anime.jsonl",
+  "indexFile": "data/anime-index.jsonl",
+  "backupDirectory": "data/backups",
+  "backupLimit": 5,
   "outputDirectory": "dist"
 }
