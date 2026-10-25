@@ -198,6 +198,61 @@ test("deletes selected records and keeps at most five backup snapshots", async (
   }
 });
 
+test("adds a catalog candidate and rejects duplicate external ids", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    await writeLibrary(fixtureRoot, []);
+    const store = new LibraryAdminStore(fixtureRoot, {
+      now: () => "2026-10-25T13:00:00.000Z",
+    });
+    const catalogItem = {
+      id: "bangumi:400602",
+      title: "葬送のフリーレン",
+      displayTitle: "葬送的芙莉莲",
+      names: ["葬送のフリーレン", "葬送的芙莉莲"],
+      type: "tv",
+      begin: "2023-09-29T15:00:00.000Z",
+      year: 2023,
+      sites: {
+        bangumi: "400602",
+        bilibiliMedia: "292073015",
+      },
+      season: {
+        key: "bangumi:400602",
+        number: 1,
+        label: "第1季",
+        year: 2023,
+      },
+      coverUrl: null,
+    };
+
+    const added = await store.addCatalogRecord(catalogItem, {
+      rating: 9.4,
+      review: "很喜欢",
+    });
+    assert.equal(added.record.id, "bgm-400602");
+    assert.equal(added.record.title, "葬送的芙莉莲");
+    assert.equal(added.record.rating, 9.4);
+    assert.equal((await store.load()).records.length, 1);
+
+    await assert.rejects(
+      () =>
+        store.addCatalogRecord({
+          ...catalogItem,
+          id: "bangumi:alternate",
+          title: "重复条目",
+          displayTitle: "重复条目",
+          sites: { bilibiliMedia: "292073015" },
+        }),
+      (error) =>
+        error.status === 409 && /请勿重复添加/u.test(error.message),
+    );
+    assert.equal((await store.load()).records.length, 1);
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
 test("commits data changes and pushes them to origin", async () => {
   const fixtureRoot = await createFixture();
   const remoteRoot = `${fixtureRoot}-remote.git`;

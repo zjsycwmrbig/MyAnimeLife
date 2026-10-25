@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LibraryAdminStore } from "./admin-store.mjs";
+import { CatalogStore } from "./catalog-store.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(
@@ -10,6 +11,7 @@ const root = path.resolve(
 );
 const adminDirectory = path.join(root, "admin");
 const store = new LibraryAdminStore(root);
+const catalogStore = new CatalogStore(root);
 const host = process.env.ADMIN_HOST || "127.0.0.1";
 const port = Number(process.env.ADMIN_PORT || 4174);
 
@@ -102,6 +104,46 @@ const server = http.createServer(async (request, response) => {
         index: library.index,
         backupLimit: library.config.backupLimit,
         git: await store.gitStatus(),
+      });
+      return;
+    }
+    if (url.pathname === "/api/catalog" && request.method === "GET") {
+      const library = await store.load();
+      const result = await catalogStore.search(
+        {
+          query: url.searchParams.get("q") ?? "",
+          year: url.searchParams.get("year") ?? "",
+          source: url.searchParams.get("source") ?? "",
+          offset: url.searchParams.get("offset") ?? "0",
+          limit: url.searchParams.get("limit") ?? "30",
+          refresh: url.searchParams.get("refresh") === "1",
+        },
+        library.index,
+      );
+      sendJson(response, 200, result);
+      return;
+    }
+    if (
+      url.pathname.startsWith("/api/catalog/") &&
+      request.method === "POST"
+    ) {
+      assertLocalRequest(request);
+      const catalogId = decodeURIComponent(
+        url.pathname.slice("/api/catalog/".length),
+      );
+      const item = await catalogStore.getItem(catalogId);
+      if (!item) {
+        sendJson(response, 404, { error: "没有找到选中的全量索引" });
+        return;
+      }
+      const result = await store.addCatalogRecord(item, await readBody(request));
+      sendJson(response, 201, {
+        record: result.record,
+        records: result.records,
+        index: result.index,
+        backupPath: result.backupPath
+          ? path.relative(root, result.backupPath)
+          : null,
       });
       return;
     }

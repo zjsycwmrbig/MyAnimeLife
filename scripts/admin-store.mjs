@@ -15,6 +15,7 @@ import {
   nextRecordTimestamp,
   serializeJsonl,
 } from "./library-data.mjs";
+import { createRecordFromCatalog } from "./catalog-data.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -208,6 +209,40 @@ export class LibraryAdminStore {
     return {
       ...saved,
       record: updated,
+    };
+  }
+
+  async addCatalogRecord(catalogItem, changes = {}) {
+    const library = await this.load();
+    const now = this.now();
+    const record = createRecordFromCatalog(catalogItem, changes, now);
+    if (library.records.some((entry) => entry.id === record.id)) {
+      const error = new Error(`《${record.title}》已经在当前档案中`);
+      error.status = 409;
+      throw error;
+    }
+
+    const existingByExternalId = new Map();
+    for (const entry of library.records) {
+      for (const [source, id] of Object.entries(entry.externalIds ?? {})) {
+        existingByExternalId.set(`${source}:${id}`, entry);
+      }
+    }
+    for (const [source, id] of Object.entries(record.externalIds)) {
+      const existing = existingByExternalId.get(`${source}:${id}`);
+      if (existing) {
+        const error = new Error(
+          `该索引已存在于《${existing.title}》中，请勿重复添加`,
+        );
+        error.status = 409;
+        throw error;
+      }
+    }
+
+    const saved = await this.writeLibrary([...library.records, record]);
+    return {
+      ...saved,
+      record,
     };
   }
 

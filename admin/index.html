@@ -16,6 +16,12 @@
             <span id="repoStatus">正在读取仓库状态</span>
           </div>
         </div>
+        <nav class="view-switch" aria-label="管理模式">
+          <button class="is-active" data-view="library" type="button">
+            我的记录
+          </button>
+          <button data-view="catalog" type="button">全量索引</button>
+        </nav>
         <div class="topbar-actions">
           <button id="refreshButton" class="button button-quiet" type="button">
             刷新
@@ -26,7 +32,7 @@
         </div>
       </header>
 
-      <main class="workspace">
+      <main id="libraryWorkspace" class="workspace">
         <section class="library-pane" aria-label="番剧列表">
           <div class="library-heading">
             <div>
@@ -160,9 +166,175 @@
           </form>
         </aside>
       </main>
+
+      <main id="catalogWorkspace" class="workspace" hidden>
+        <section class="library-pane" aria-label="全量番剧索引">
+          <div class="library-heading">
+            <div>
+              <p class="eyebrow">CATALOG</p>
+              <h1>发现番剧</h1>
+            </div>
+            <div class="library-counts catalog-counts" aria-live="polite">
+              <strong id="catalogCount">—</strong>
+              <span>条索引</span>
+            </div>
+          </div>
+
+          <div class="catalog-meta">
+            <span id="catalogStatus">首次进入时才加载全量索引</span>
+            <button id="catalogRefresh" class="text-button" type="button">
+              检查索引更新
+            </button>
+          </div>
+
+          <div class="toolbar catalog-toolbar">
+            <label class="search-field">
+              <span class="visually-hidden">搜索全量番剧索引</span>
+              <input
+                id="catalogSearch"
+                type="search"
+                placeholder="搜索中文名、原名或站点 ID"
+                autocomplete="off"
+              />
+            </label>
+            <label class="compact-field">
+              <span>年份</span>
+              <select id="catalogYear">
+                <option value="">全部</option>
+              </select>
+            </label>
+            <label class="compact-field">
+              <span>站点</span>
+              <select id="catalogSource">
+                <option value="">全部</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="catalog-result-bar">
+            <span id="catalogResultLabel">尚未加载</span>
+            <span>选择作品后在右侧直接评价</span>
+          </div>
+
+          <div class="table-wrap catalog-table-wrap">
+            <table class="catalog-table">
+              <thead>
+                <tr>
+                  <th>番剧</th>
+                  <th>年份</th>
+                  <th>索引</th>
+                </tr>
+              </thead>
+              <tbody id="catalogRows"></tbody>
+            </table>
+            <div id="catalogEmpty" class="empty-state" hidden>
+              <strong id="catalogEmptyTitle">没有匹配的索引</strong>
+              <span id="catalogEmptyText">换一个标题或调整筛选条件。</span>
+            </div>
+            <div class="load-more-row">
+              <button
+                id="catalogMoreButton"
+                class="button button-quiet"
+                type="button"
+                hidden
+              >
+                加载更多
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="editor-pane" aria-label="从索引添加记录">
+          <div id="catalogEditorEmpty" class="editor-empty">
+            <span class="editor-empty-mark" aria-hidden="true">＋</span>
+            <strong>从索引选择一部作品</strong>
+            <p>候选会默认显示中文标题，选中后可填写评分与评价。</p>
+          </div>
+
+          <form id="catalogForm" class="editor-form" hidden>
+            <div class="editor-heading">
+              <div>
+                <p class="eyebrow">NEW RECORD</p>
+                <h2 id="catalogEditorTitle">从索引添加</h2>
+              </div>
+              <span id="catalogEditorBadge" class="status-badge">索引候选</span>
+            </div>
+
+            <div class="catalog-preview">
+              <div id="catalogCover" class="catalog-preview-cover">
+                <span id="catalogCoverFallback" aria-hidden="true">Aa</span>
+                <img id="catalogCoverImage" alt="" hidden />
+              </div>
+              <div class="catalog-preview-copy">
+                <strong id="catalogPreviewTitle"></strong>
+                <span id="catalogPreviewOriginal"></span>
+                <span id="catalogPreviewMeta"></span>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>展示标题</span>
+              <input id="catalogTitleInput" maxlength="200" required />
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>评分</span>
+                <input
+                  id="catalogRatingInput"
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  placeholder="未评分"
+                />
+              </label>
+              <div class="field">
+                <span>全量索引 ID</span>
+                <code id="catalogRecordId"></code>
+              </div>
+            </div>
+
+            <label class="field field-grow">
+              <span>评价</span>
+              <textarea
+                id="catalogReviewInput"
+                maxlength="20000"
+                placeholder="写下评价"
+              ></textarea>
+            </label>
+
+            <label class="field">
+              <span>备注</span>
+              <textarea
+                id="catalogNoteInput"
+                maxlength="5000"
+                rows="3"
+                placeholder="内部备注"
+              ></textarea>
+            </label>
+
+            <div class="record-meta">
+              <span id="catalogSourceLabel"></span>
+              <span id="catalogSeasonLabel"></span>
+            </div>
+
+            <div class="editor-actions">
+              <button
+                id="catalogSaveButton"
+                class="button button-primary"
+                type="submit"
+              >
+                添加到我的档案
+              </button>
+            </div>
+          </form>
+        </aside>
+      </main>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./app.js"></script>
+    <script type="module" src="./catalog.js"></script>
   </body>
 </html>

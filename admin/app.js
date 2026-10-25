@@ -492,6 +492,25 @@ elements.refreshButton.addEventListener("click", async () => {
 elements.deleteButton.addEventListener("click", deleteSelected);
 elements.syncButton.addEventListener("click", syncRemote);
 
+window.addEventListener("anime-editor:request-close", (event) => {
+  event.detail.allowed = confirmDiscard();
+});
+
+window.addEventListener("anime-library:changed", async (event) => {
+  try {
+    await loadLibrary({ quiet: true });
+    const recordId = event.detail?.selectId;
+    if (recordId && state.records.some((record) => record.id === recordId)) {
+      state.selectedId = recordId;
+      state.dirty = false;
+      renderRows();
+      renderEditor();
+    }
+  } catch (error) {
+    showToast(error.message, { error: true });
+  }
+});
+
 window.addEventListener("beforeunload", (event) => {
   if (!state.dirty) {
     return;
