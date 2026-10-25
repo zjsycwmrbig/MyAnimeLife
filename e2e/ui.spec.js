@@ -152,6 +152,19 @@ test("closes, drags and docks the recognition panel", async ({ page }) => {
   await expect(launcher).toBeVisible();
   await expect(launcher).toHaveClass(/is-side-docked/);
   await expect(launcher).toHaveClass(/is-docked-right/);
+  const rightDockBox = await launcher.boundingBox();
+  expect(rightDockBox).not.toBeNull();
+  await page.mouse.move(
+    rightDockBox.x + rightDockBox.width / 2,
+    rightDockBox.y + rightDockBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(90, Math.max(50, rightDockBox.y - 70), { steps: 8 });
+  await page.mouse.up();
+  await expect(launcher).toHaveClass(/is-docked-left/);
+  const leftDockBox = await launcher.boundingBox();
+  expect(leftDockBox).not.toBeNull();
+  expect(leftDockBox.x).toBeLessThan(rightDockBox.x - 100);
   await page.screenshot({
     path: "test-results/docked-desktop.png",
   });

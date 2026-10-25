@@ -1,4 +1,6 @@
 import { normalizeCoverUrl } from "./cover-url.js";
+import { createSeasonDescriptor } from "./season.js";
+import { normalizeTitle } from "./title-normalize.js";
 import {
   requestJson,
   requestText,
@@ -16,6 +18,19 @@ export const GITHUB_PAGES_DOCS_URL =
 const API_ROOT = "https://api.github.com";
 const RECORD_DIRECTORY = "data/anime";
 const MAX_REVIEW_LENGTH = 20000;
+const RECORD_LIST_CACHE_MS = 5 * 60 * 1000;
+const RECORD_FETCH_CONCURRENCY = 5;
+const DUPLICATE_SCORE_THRESHOLD = 0.72;
+
+export class DuplicateRecordError extends Error {
+  constructor(duplicates, scannedCount = 0) {
+    super(`发现 ${duplicates.length} 条疑似重复记录，请确认后再同步`);
+    this.name = "DuplicateRecordError";
+    this.code = "DUPLICATE_RECORDS";
+    this.duplicates = duplicates;
+    this.scannedCount = scannedCount;
+  }
+}
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -137,11 +152,19 @@ export function externalIdsForItem(item, selectedResult = null) {
     sites.aniList ?? sites.anilist ?? candidateSites.aniList ?? candidateSites.anilist,
   );
   const mal = cleanString(sites.mal ?? candidateSites.mal);
+  const bilibiliSeason = cleanString(
+    selectedResult?.bilibiliMetadata?.seasonId ??
+      selectedResult?.seasonId ??
+      item?.season?.bilibiliSeason,
+  );
   if (bangumi) {
     result.bangumi = bangumi;
   }
   if (bilibiliMedia) {
     result.bilibiliMedia = bilibiliMedia;
+  }
+  if (bilibiliSeason) {
+    result.bilibiliSeason = bilibiliSeason;
   }
   if (anilist) {
     result.anilist = anilist;
@@ -155,6 +178,9 @@ export function externalIdsForItem(item, selectedResult = null) {
 export function recordIdsForItem(item, selectedResult = null) {
   const externalIds = externalIdsForItem(item, selectedResult);
   const ids = [
+    externalIds.bilibiliSeason
+      ? `bili-ss${externalIds.bilibiliSeason}`
+      : null,
     externalIds.bilibiliMedia
       ? `bili-${externalIds.bilibiliMedia}`
       : null,
@@ -168,6 +194,56 @@ export function recordIdsForItem(item, selectedResult = null) {
     ids.push(`manual-${slug}-${fnv1a(title)}`.slice(0, 64));
   }
   return [...new Set(ids)];
+}
+
+function seasonKeyFromExternalIds(externalIds = {}) {
+  for (const [source, id] of Object.entries(externalIds)) {
+    if (cleanString(id)) {
+      return `${source}:${cleanString(id)}`;
+    }
+  }
+  return null;
+}
+
+export function seasonForItem(item, selectedResult = null) {
+  if (!item) {
+    return null;
+  }
+  const externalIds = externalIdsForItem(item, selectedResult);
+  const bilibiliMetadata = selectedResult?.bilibiliMetadata ?? null;
+  return createSeasonDescriptor({
+    key:
+      cleanString(item.season?.key) ||
+      cleanString(item.id) ||
+      seasonKeyFromExternalIds(externalIds),
+    title: itemDisplayTitle(item),
+    names: [
+      item.title,
+      ...(Array.isArray(item.names) ? item.names : []),
+      bilibiliMetadata?.seasonTitle,
+      bilibiliMetadata?.title,
+    ].filter(Boolean),
+    begin: item.begin,
+    year: item.year,
+    season: item.season,
+  });
+}
+
+export function seasonForRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return createSeasonDescriptor({
+    key:
+      cleanString(record.season?.key) ||
+      cleanString(record.id) ||
+      seasonKeyFromExternalIds(record.externalIds),
+    title: record.title,
+    names: [record.match?.matchedTitle].filter(Boolean),
+    begin: record.season?.begin ?? record.begin,
+    year: record.season?.year,
+    season: record.season,
+  });
 }
 
 function sanitizeRating(value, fallback = null) {
@@ -216,6 +292,7 @@ export function createAnimeRecord({
     throw new Error("无法为没有标题的番剧创建 GitHub 记录");
   }
   const manual = Boolean(selectedResult?.manualSelection);
+  const externalIds = externalIdsForItem(item, selectedResult);
   return {
     $schema: "../../schemas/anime.schema.json",
     schemaVersion: 1,
@@ -225,7 +302,8 @@ export function createAnimeRecord({
     review: cleanString(review).slice(0, MAX_REVIEW_LENGTH),
     coverUrl: normalizeCoverUrl(item?.coverUrl),
     note: "",
-    externalIds: externalIdsForItem(item, selectedResult),
+    externalIds,
+    season: seasonForItem(item, selectedResult),
     match: {
       status: manual ? "manual" : "matched",
       method: matchMethod(selectedResult, aiResult),
@@ -266,13 +344,186 @@ export function mergeAnimeRecord(
     });
   }
 
-  return {
+  const updated = {
     ...existingRecord,
     id: cleanString(existingRecord.id) || id,
     rating: sanitizeRating(rating),
     review: cleanString(review).slice(0, MAX_REVIEW_LENGTH),
     updatedAt: now,
   };
+  const season = seasonForItem(item, selectedResult);
+  if (season) {
+    updated.season = season;
+  }
+  return updated;
+}
+
+function normalizeComparable(value) {
+  return normalizeTitle(value);
+}
+
+function titleSimilarity(left, right) {
+  const a = normalizeComparable(left);
+  const b = normalizeComparable(right);
+  if (!a || !b) {
+    return 0;
+  }
+  if (a === b) {
+    return 1;
+  }
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length >= 4 && longer.includes(shorter)) {
+    return 0.92;
+  }
+
+  const leftPairs = new Map();
+  for (let index = 0; index < a.length - 1; index += 1) {
+    const pair = a.slice(index, index + 2);
+    leftPairs.set(pair, (leftPairs.get(pair) ?? 0) + 1);
+  }
+  let overlap = 0;
+  for (let index = 0; index < b.length - 1; index += 1) {
+    const pair = b.slice(index, index + 2);
+    const count = leftPairs.get(pair) ?? 0;
+    if (count) {
+      overlap += 1;
+      leftPairs.set(pair, count - 1);
+    }
+  }
+  const total = Math.max(0, a.length - 1) + Math.max(0, b.length - 1);
+  return total ? (overlap * 2) / total : 0;
+}
+
+function bestTitleSimilarity(incomingTitles, existingTitles) {
+  let best = 0;
+  for (const incoming of incomingTitles) {
+    for (const existing of existingTitles) {
+      best = Math.max(best, titleSimilarity(incoming, existing));
+    }
+  }
+  return best;
+}
+
+function duplicateCandidate(incoming, existing, score, reason, titleScore) {
+  return {
+    id: cleanString(existing.id) || null,
+    title: itemDisplayTitle(existing) || cleanString(existing.title),
+    season: seasonForRecord(existing),
+    score: Math.round(score * 100) / 100,
+    reason,
+    titleScore: Math.round(titleScore * 100) / 100,
+    updatedAt: cleanString(existing.updatedAt) || null,
+  };
+}
+
+function compareRecordDuplicate({
+  item,
+  selectedResult,
+  aiResult,
+  existing,
+}) {
+  const incomingSeason = seasonForItem(item, selectedResult);
+  const existingSeason = seasonForRecord(existing);
+  if (
+    incomingSeason?.number &&
+    existingSeason?.number &&
+    incomingSeason.number !== existingSeason.number
+  ) {
+    return null;
+  }
+  if (
+    incomingSeason?.year &&
+    existingSeason?.year &&
+    incomingSeason.year !== existingSeason.year
+  ) {
+    return null;
+  }
+
+  const incomingExternalIds = externalIdsForItem(item, selectedResult);
+  const existingExternalIds = existing?.externalIds ?? {};
+  const sharedExternalIds = Object.entries(incomingExternalIds).filter(
+    ([source, id]) =>
+      cleanString(id) &&
+      cleanString(existingExternalIds[source]) === cleanString(id),
+  );
+  if (sharedExternalIds.length) {
+    return duplicateCandidate(
+      item,
+      existing,
+      1,
+      `相同站点索引：${sharedExternalIds
+        .map(([source, id]) => `${source}:${id}`)
+        .join("、")}`,
+      1,
+    );
+  }
+
+  const incomingTitles = [
+    itemDisplayTitle(item),
+    item?.title,
+    ...(item?.names ?? []),
+    aiResult?.title,
+    ...(aiResult?.alternateTitles ?? []),
+  ]
+    .map(cleanString)
+    .filter(Boolean);
+  const existingTitles = [
+    existing?.title,
+    existing?.match?.matchedTitle,
+  ]
+    .map(cleanString)
+    .filter(Boolean);
+  const titleScore = bestTitleSimilarity(incomingTitles, existingTitles);
+  let score = 0;
+  let reason = "";
+
+  if (
+    incomingSeason?.key &&
+    existingSeason?.key &&
+    incomingSeason.key === existingSeason.key
+  ) {
+    score = 0.98;
+    reason = "相同季度身份";
+  } else if (
+    incomingSeason?.number &&
+    existingSeason?.number &&
+    incomingSeason.number === existingSeason.number &&
+    titleScore >= 0.86
+  ) {
+    score = 0.94;
+    reason = `同一季度：第${incomingSeason.number}季`;
+  } else if (titleScore === 1) {
+    score = 0.86;
+    reason = "标题完全一致，季度信息不足以区分";
+  } else if (titleScore >= 0.9) {
+    score = 0.79;
+    reason = "标题高度相似，季度信息不足以区分";
+  } else if (titleScore >= 0.82) {
+    score = 0.73;
+    reason = "标题较相似，建议人工确认";
+  }
+
+  return score >= DUPLICATE_SCORE_THRESHOLD
+    ? duplicateCandidate(item, existing, score, reason, titleScore)
+    : null;
+}
+
+async function mapWithConcurrency(values, concurrency, mapper) {
+  const results = new Array(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function encodeBase64Utf8(text) {
@@ -369,6 +620,7 @@ export class GitHubRecordsService {
     this.requestText = requestTextImpl;
     this.now = now;
     this.recordCache = new Map();
+    this.recordListCache = new Map();
   }
 
   getConfig(override = null) {
@@ -401,6 +653,10 @@ export class GitHubRecordsService {
     return `${config.urls.fullName}:${config.branch}:${id}`;
   }
 
+  listCacheKey(config) {
+    return `${config.urls.fullName}:${config.branch}:${RECORD_DIRECTORY}`;
+  }
+
   async getRecordById(config, id) {
     const key = this.cacheKey(config, id);
     if (this.recordCache.has(key)) {
@@ -426,6 +682,115 @@ export class GitHubRecordsService {
       }
       throw error;
     }
+  }
+
+  async listRecordFiles(config, options = {}) {
+    const key = this.listCacheKey(config);
+    const cached = this.recordListCache.get(key);
+    if (
+      !options.force &&
+      cached &&
+      Date.now() - cached.cachedAt < RECORD_LIST_CACHE_MS
+    ) {
+      return cached.files;
+    }
+
+    const url = `${config.urls.contentsUrl}/${RECORD_DIRECTORY
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/")}?ref=${encodeURIComponent(config.branch)}`;
+    let payload;
+    try {
+      payload = await this.requestJson(url, {
+        headers: githubHeaders(config.token),
+        timeout: 20000,
+      });
+    } catch (error) {
+      if (isNotFound(error)) {
+        this.recordListCache.set(key, {
+          files: [],
+          cachedAt: Date.now(),
+        });
+        return [];
+      }
+      throw error;
+    }
+    if (!Array.isArray(payload)) {
+      throw new Error("GitHub 记录目录返回了无效内容");
+    }
+
+    const files = payload
+      .filter(
+        (entry) =>
+          entry?.type === "file" &&
+          /\.json$/iu.test(String(entry?.name ?? "")),
+      )
+      .map((entry) => ({
+        id: String(entry.name).replace(/\.json$/iu, ""),
+        name: String(entry.name),
+        path: cleanString(entry.path),
+        sha: cleanString(entry.sha),
+      }))
+      .filter((entry) => entry.id);
+    this.recordListCache.set(key, {
+      files,
+      cachedAt: Date.now(),
+    });
+    return files;
+  }
+
+  async listRecords(config, options = {}) {
+    const files = await this.listRecordFiles(config, options);
+    const records = await mapWithConcurrency(
+      files,
+      RECORD_FETCH_CONCURRENCY,
+      async (file) => {
+        const parsed = await this.getRecordById(config, file.id);
+        return parsed?.record
+          ? {
+              id: cleanString(parsed.record.id) || file.id,
+              record: parsed.record,
+              path: parsed.path || file.path,
+              sha: parsed.sha || file.sha,
+            }
+          : null;
+      },
+    );
+    return records.filter(Boolean);
+  }
+
+  async inspectDuplicates({
+    item,
+    selectedResult = null,
+    aiResult = null,
+    excludeIds = [],
+  }) {
+    const config = this.assertConfigured();
+    if (!item) {
+      return { duplicates: [], scannedCount: 0 };
+    }
+    const excluded = new Set([
+      ...recordIdsForItem(item, selectedResult),
+      ...excludeIds.map((id) => cleanString(id)).filter(Boolean),
+    ]);
+    const records = await this.listRecords(config);
+    const duplicates = records
+      .filter(({ id }) => !excluded.has(id))
+      .map(({ record }) =>
+        compareRecordDuplicate({
+          item,
+          selectedResult,
+          aiResult,
+          existing: record,
+        }),
+      )
+      .filter(Boolean)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 8);
+    return {
+      duplicates,
+      scannedCount: records.length,
+    };
   }
 
   async findRecord(item, selectedResult = null) {
@@ -462,6 +827,7 @@ export class GitHubRecordsService {
     aiResult = null,
     rating,
     review,
+    allowDuplicates = false,
   }) {
     const config = this.assertConfigured();
     const ids = recordIdsForItem(item, selectedResult);
@@ -472,6 +838,21 @@ export class GitHubRecordsService {
       if (existing) {
         existingId = id;
         break;
+      }
+    }
+
+    if (!allowDuplicates) {
+      const inspection = await this.inspectDuplicates({
+        item,
+        selectedResult,
+        aiResult,
+        excludeIds: ids,
+      });
+      if (inspection.duplicates.length) {
+        throw new DuplicateRecordError(
+          inspection.duplicates,
+          inspection.scannedCount,
+        );
       }
     }
 
@@ -495,6 +876,7 @@ export class GitHubRecordsService {
           parsed.record = merged;
         }
         this.recordCache.set(this.cacheKey(config, id), parsed);
+        this.recordListCache.delete(this.listCacheKey(config));
         return parsed;
       } catch (error) {
         if (attempt > 0 || !isConflict(error)) {

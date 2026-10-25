@@ -33,7 +33,9 @@ import {
   UPDATE_FREQUENCIES,
 } from "../core/settings.js";
 import { normalizeCoverUrl } from "../core/cover-url.js";
+import { seasonLabelFromItem } from "../core/season.js";
 import {
+  DuplicateRecordError,
   FINE_GRAINED_TOKEN_URL,
   GITHUB_PAGES_DOCS_URL,
   TEMPLATE_GENERATE_URL,
@@ -259,6 +261,7 @@ export class ScoutPanel {
     this.recordRating = null;
     this.recordDirty = false;
     this.recordRemoteRecord = null;
+    this.pendingGithubSave = null;
     this.recordLoadRequestId = 0;
     this.recordSaving = false;
     this.githubConnectionChecking = false;
@@ -271,6 +274,8 @@ export class ScoutPanel {
     this.busy = false;
     this.searchTimer = null;
     this.dragState = null;
+    this.launcherDragState = null;
+    this.suppressLauncherClick = false;
     this.dockedSide = null;
     this.panelHasCustomPosition = false;
   }
@@ -305,7 +310,19 @@ export class ScoutPanel {
           "aria-label": "打开 Bangumi Scout",
           "aria-expanded": "false",
         },
-        on: { click: () => this.toggle() },
+        on: {
+          click: () => {
+            if (this.suppressLauncherClick) {
+              this.suppressLauncherClick = false;
+              return;
+            }
+            this.toggle();
+          },
+          pointerdown: (event) => this.startLauncherDrag(event),
+          pointermove: (event) => this.moveLauncher(event),
+          pointerup: (event) => this.finishLauncherDrag(event),
+          pointercancel: (event) => this.finishLauncherDrag(event),
+        },
       },
       [icon(ScanSearch), this.launcherLabel, this.launcherDot],
     );
@@ -627,6 +644,7 @@ export class ScoutPanel {
         input: () => {
           this.recordDirty = true;
           this.recordStatus.textContent = "有尚未保存的修改";
+          this.clearDuplicateWarning();
         },
       },
     });
@@ -658,6 +676,43 @@ export class ScoutPanel {
       },
       [icon(ExternalLink), "查看 GitHub 记录"],
     );
+    this.duplicateWarningSummary = element("p", {
+      className: "scout-duplicate-summary",
+      text: "仓库中已有相似记录。季度不同或只是同一作品的另一版本时，请取消同步。",
+    });
+    this.duplicateWarningList = element("div", {
+      className: "scout-duplicate-list",
+    });
+    this.cancelDuplicateButton = button(
+      "取消同步",
+      X,
+      () => this.cancelDuplicateSync(),
+    );
+    this.confirmDuplicateButton = button(
+      "仍然同步",
+      CloudDownload,
+      () => this.confirmDuplicateSync(),
+      { variant: "primary" },
+    );
+    this.duplicateWarning = element(
+      "div",
+      {
+        className: "scout-duplicate-warning",
+        attrs: { hidden: "", role: "alert" },
+      },
+      [
+        element("div", { className: "scout-duplicate-heading" }, [
+          icon(CircleHelp),
+          element("strong", { text: "发现疑似重复番剧" }),
+        ]),
+        this.duplicateWarningSummary,
+        this.duplicateWarningList,
+        element("div", { className: "scout-duplicate-actions" }, [
+          this.cancelDuplicateButton,
+          this.confirmDuplicateButton,
+        ]),
+      ],
+    );
     this.recordSection = element(
       "section",
       {
@@ -687,6 +742,7 @@ export class ScoutPanel {
         ]),
         this.recordNote,
         this.recordRemoteLink,
+        this.duplicateWarning,
       ],
     );
     this.recordSection.hidden = true;
@@ -1084,7 +1140,7 @@ export class ScoutPanel {
           this.githubConnectionStatus,
           element("p", {
             className: "scout-note",
-            text: "推荐用模板新建仓库；Fork 会连同上游旧提交一起复制。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。",
+            text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。",
           }),
         ]),
         element("footer", { className: "scout-footer" }, [
@@ -1370,7 +1426,11 @@ export class ScoutPanel {
   setResult(result) {
     this.currentResult = result;
     this.selectedResult = result.best
-      ? { ...result.best, selectionSource: "automatic" }
+      ? {
+          ...result.best,
+          bilibiliMetadata: result.bilibiliMetadata ?? null,
+          selectionSource: "automatic",
+        }
       : null;
     this.recordDirty = false;
     this.candidateCollapsed = false;
@@ -1426,6 +1486,7 @@ export class ScoutPanel {
         .filter((name) => name !== displayTitle)
         .slice(0, 3);
       const metadata = [
+        seasonLabelFromItem(item),
         item.year,
         TYPE_LABELS[item.type] ?? item.type,
         alternateNames.join(" / "),
@@ -1633,8 +1694,13 @@ export class ScoutPanel {
     if (!row?.item?.id) {
       return;
     }
+    const usesCurrentBilibiliItem =
+      row.item.id === this.currentResult?.best?.item?.id;
     this.selectedResult = {
       ...row,
+      bilibiliMetadata: usesCurrentBilibiliItem
+        ? this.currentResult?.bilibiliMetadata ?? null
+        : null,
       manualSelection: true,
       selectionSource,
     };
@@ -1706,6 +1772,7 @@ export class ScoutPanel {
     }
     this.recordRating = this.recordRating === rating ? null : rating;
     this.recordDirty = true;
+    this.clearDuplicateWarning();
     this.recordStatus.textContent = "有尚未保存的修改";
     this.syncRecordRating();
   }
@@ -1727,6 +1794,7 @@ export class ScoutPanel {
     const itemChanged = this.recordItem?.id !== item?.id;
     if (itemChanged) {
       this.recordLoadRequestId += 1;
+      this.clearDuplicateWarning();
       this.recordItem = item ?? null;
       this.recordRemoteRecord = null;
       this.setRecordRemoteLink(null);
@@ -1807,6 +1875,12 @@ export class ScoutPanel {
     this.saveRecordButton.disabled = !enabled || this.recordSaving;
     for (const ratingButton of this.ratingButtons) {
       ratingButton.disabled = !enabled || this.recordSaving;
+    }
+    if (this.cancelDuplicateButton) {
+      this.cancelDuplicateButton.disabled = this.recordSaving;
+    }
+    if (this.confirmDuplicateButton) {
+      this.confirmDuplicateButton.disabled = this.recordSaving;
     }
     if (writable) {
       this.recordNote.textContent =
@@ -1956,19 +2030,35 @@ export class ScoutPanel {
       return;
     }
 
+    const saveRequest = {
+      item,
+      selectedResult,
+      aiResult: this.currentResult?.aiResult ?? null,
+      rating,
+      review,
+    };
+    this.pendingGithubSave = saveRequest;
+    await this.syncGithubRecord(saveRequest);
+  }
+
+  async syncGithubRecord(saveRequest, options = {}) {
+    if (!saveRequest || !this.githubRecords) {
+      return;
+    }
     this.recordSaving = true;
     this.syncRecordGithubState();
-    this.recordStatus.textContent = "本地草稿已保存 · 正在同步到 GitHub";
+    this.recordStatus.textContent = options.allowDuplicates
+      ? "本地草稿已保存 · 已确认重复，正在同步"
+      : "本地草稿已保存 · 正在同步到 GitHub";
     try {
       const remote = await this.githubRecords.saveRecord({
-        item,
-        selectedResult,
-        aiResult: this.currentResult?.aiResult ?? null,
-        rating,
-        review,
+        ...saveRequest,
+        allowDuplicates: Boolean(options.allowDuplicates),
       });
       this.recordRemoteRecord = remote;
       this.setRecordRemoteLink(remote);
+      this.pendingGithubSave = null;
+      this.clearDuplicateWarning();
       const syncedAt =
         remote.record?.updatedAt || this.settingsStore.get().github.lastSyncedAt;
       const updatedSettings = this.settingsStore.update({
@@ -1983,6 +2073,16 @@ export class ScoutPanel {
       )}`;
       this.showToast("评分与短评已保存到 GitHub");
     } catch (error) {
+      if (error instanceof DuplicateRecordError) {
+        this.pendingGithubSave = saveRequest;
+        this.renderDuplicateWarning(error);
+        this.recordStatus.textContent =
+          "本地草稿已保存 · 等待确认疑似重复";
+        this.showToast(error.message);
+        return;
+      }
+      this.pendingGithubSave = null;
+      this.clearDuplicateWarning();
       this.recordStatus.textContent =
         "本地草稿已保存 · GitHub 同步失败";
       this.showToast(`GitHub 保存失败：${toErrorMessage(error)}`);
@@ -1990,6 +2090,60 @@ export class ScoutPanel {
       this.recordSaving = false;
       this.syncRecordGithubState();
     }
+  }
+
+  renderDuplicateWarning(error) {
+    this.duplicateWarningSummary.textContent =
+      `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。` +
+      "不同季度属于不同番剧，请确认后再同步。";
+    this.duplicateWarningList.replaceChildren();
+    for (const duplicate of error.duplicates) {
+      const season = duplicate.season?.label
+        ? ` · ${duplicate.season.label}`
+        : "";
+      this.duplicateWarningList.append(
+        element("div", { className: "scout-duplicate-row" }, [
+          element("div", { className: "scout-duplicate-copy" }, [
+            element("strong", {
+              text: `${duplicate.title || duplicate.id}${season}`,
+            }),
+            element("span", {
+              text: `${duplicate.reason} · ${formatConfidence(
+                duplicate.score,
+              )}`,
+            }),
+          ]),
+          element("code", { text: duplicate.id }),
+        ]),
+      );
+    }
+    this.duplicateWarning.hidden = false;
+    this.cancelDuplicateButton.disabled = this.recordSaving;
+    this.confirmDuplicateButton.disabled = this.recordSaving;
+  }
+
+  clearDuplicateWarning() {
+    if (!this.duplicateWarning) {
+      return;
+    }
+    this.pendingGithubSave = null;
+    this.duplicateWarning.hidden = true;
+    this.duplicateWarningList.replaceChildren();
+  }
+
+  cancelDuplicateSync() {
+    this.pendingGithubSave = null;
+    this.clearDuplicateWarning();
+    this.recordStatus.textContent = "本地草稿已保留 · 已取消 GitHub 同步";
+    this.showToast("已取消同步，本地草稿仍然保留");
+  }
+
+  confirmDuplicateSync() {
+    const pending = this.pendingGithubSave;
+    if (!pending || this.recordSaving) {
+      return;
+    }
+    this.syncGithubRecord(pending, { allowDuplicates: true });
   }
 
   renderDiagnostics(diagnostics) {
@@ -2207,6 +2361,63 @@ export class ScoutPanel {
     }
   }
 
+  startLauncherDrag(event) {
+    if (event.button !== 0) {
+      return;
+    }
+    const rect = this.launcher.getBoundingClientRect();
+    this.launcherDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      top: rect.top,
+      height: rect.height,
+      moved: false,
+    };
+    this.suppressLauncherClick = false;
+    this.launcher.setPointerCapture?.(event.pointerId);
+  }
+
+  moveLauncher(event) {
+    const drag = this.launcherDragState;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) {
+      return;
+    }
+    drag.moved = true;
+    this.suppressLauncherClick = true;
+    this.launcher.classList.add("is-dragging");
+    const side =
+      event.clientX < window.innerWidth / 2 ? "left" : "right";
+    this.dockedSide = side;
+    this.applyLauncherDock(side, drag.top + deltaY, drag.height);
+    event.preventDefault();
+  }
+
+  finishLauncherDrag(event) {
+    const drag = this.launcherDragState;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    this.launcherDragState = null;
+    this.launcher.classList.remove("is-dragging");
+    if (this.launcher.hasPointerCapture?.(event.pointerId)) {
+      this.launcher.releasePointerCapture(event.pointerId);
+    }
+    if (drag.moved && this.dockedSide) {
+      this.suppressLauncherClick = true;
+      this.applyLauncherDock(
+        this.dockedSide,
+        this.launcher.getBoundingClientRect().top,
+        this.launcher.getBoundingClientRect().height,
+      );
+    }
+  }
+
   startPanelDrag(event) {
     if (
       event.button !== 0 ||
@@ -2319,12 +2530,12 @@ export class ScoutPanel {
     this.applyLauncherDock(side, top);
   }
 
-  applyLauncherDock(side, top) {
+  applyLauncherDock(side, top, height = 92) {
     this.launcher.classList.remove("is-docked-left", "is-docked-right");
     this.launcher.classList.add("is-side-docked", `is-docked-${side}`);
     this.launcher.dataset.docked = side;
     this.launcher.style.top = `${Math.round(
-      clampNumber(top, 8, Math.max(8, window.innerHeight - 80)),
+      clampNumber(top, 8, Math.max(8, window.innerHeight - height - 8)),
     )}px`;
     this.launcher.style.bottom = "auto";
     if (side === "left") {

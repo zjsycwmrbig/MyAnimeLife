@@ -55,8 +55,10 @@ button {
   background: #17201b;
   color: #fff;
   box-shadow: 0 8px 26px rgb(10 15 12 / 28%);
-  cursor: pointer;
+  cursor: grab;
   place-items: center;
+  touch-action: none;
+  user-select: none;
   transition:
     transform 140ms ease,
     background 140ms ease,
@@ -72,6 +74,12 @@ button {
 
 .scout-launcher:active {
   transform: translateY(1px) scale(0.98);
+}
+
+.scout-launcher.is-dragging {
+  cursor: grabbing;
+  transform: none;
+  transition: none;
 }
 
 .scout-launcher-label {
@@ -915,6 +923,83 @@ button.scout-list-row:active {
 .scout-record-remote-link .lucide {
   width: 12px;
   height: 12px;
+}
+
+.scout-duplicate-warning {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #e6c77a;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #5f4917;
+}
+
+.scout-duplicate-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.scout-duplicate-heading .lucide {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.scout-duplicate-summary {
+  margin: 6px 0 8px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.scout-duplicate-list {
+  display: grid;
+  gap: 6px;
+}
+
+.scout-duplicate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid #ead9ad;
+}
+
+.scout-duplicate-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.scout-duplicate-copy strong,
+.scout-duplicate-copy span,
+.scout-duplicate-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-duplicate-copy strong {
+  font-size: 10px;
+}
+
+.scout-duplicate-copy span,
+.scout-duplicate-row code {
+  color: #80672e;
+  font-size: 9px;
+}
+
+.scout-duplicate-row code {
+  max-width: 110px;
+}
+
+.scout-duplicate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
 }
 
 .scout-empty {
