@@ -12,6 +12,10 @@ import {
   removeLibraryRecords,
   updateLibraryRecord,
 } from "../scripts/admin-data.mjs";
+import {
+  getTemplateStatus,
+  updateFromTemplate,
+} from "./template-updater.js";
 
 const API_ROOT = "https://api.github.com";
 const RAW_ROOT = "https://raw.githubusercontent.com";
@@ -68,6 +72,17 @@ function base64ToText(value) {
     character.charCodeAt(0),
   );
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
+  }
+  return btoa(binary);
 }
 
 function shortHash(value) {
@@ -139,13 +154,17 @@ export class GitHubClient {
   }
 
   async request(path, options = {}) {
-    assertRepository(this.repository);
+    return this.requestRepository(this.repository, path, options);
+  }
+
+  async requestRepository(repository, path, options = {}) {
+    assertRepository(repository);
     const headers = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       ...(options.headers ?? {}),
     };
-    if (this.token) {
+    if (this.token && options.authenticate !== false) {
       headers.Authorization = `Bearer ${this.token}`;
     }
     if (options.body !== undefined) {
@@ -155,7 +174,7 @@ export class GitHubClient {
     let response;
     try {
       response = await this.fetchImpl(
-        `${API_ROOT}/repos/${this.repository}${path}`,
+        `${API_ROOT}/repos/${repository}${path}`,
         {
           method: options.method ?? "GET",
           headers,
@@ -204,8 +223,17 @@ export class GitHubClient {
   }
 
   async requestRaw(path, ref, allowNotFound = false) {
+    return this.requestRawRepository(
+      this.repository,
+      path,
+      ref,
+      allowNotFound,
+    ).then((result) => (result === null ? null : result.text));
+  }
+
+  async requestRawRepository(repository, path, ref, allowNotFound = false) {
     const response = await this.fetchImpl(
-      `${RAW_ROOT}/${this.repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
+      `${RAW_ROOT}/${repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
       {
         method: "GET",
         headers: { Accept: "text/plain" },
@@ -221,7 +249,25 @@ export class GitHubClient {
         `GitHub 原始文件请求失败 (HTTP ${response.status})${detail ? `：${detail}` : ""}`,
       );
     }
-    return response.text();
+    return { text: await response.text() };
+  }
+
+  async getRawBase64For(repository, path, ref) {
+    const response = await this.fetchImpl(
+      `${RAW_ROOT}/${repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
+      {
+        method: "GET",
+        headers: { Accept: "application/octet-stream" },
+      },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new GitHubApiError(
+        response.status,
+        `GitHub 原始文件请求失败 (HTTP ${response.status})${detail ? `：${detail}` : ""}`,
+      );
+    }
+    return bytesToBase64(new Uint8Array(await response.arrayBuffer()));
   }
 
   async getRepository() {
@@ -229,13 +275,47 @@ export class GitHubClient {
   }
 
   async getRef() {
-    return this.request(
-      `/git/ref/heads/${encodePath(this.branch)}`,
+    return this.getRefFor(this.repository, this.branch);
+  }
+
+  async getRefFor(repository, branch) {
+    return this.requestRepository(
+      repository,
+      `/git/ref/heads/${encodePath(branch)}`,
+      { authenticate: Boolean(this.token) },
     );
   }
 
   async getCommit(commitSha) {
     return this.request(`/git/commits/${encodeURIComponent(commitSha)}`);
+  }
+
+  async getCommitFor(repository, commitSha) {
+    return this.requestRepository(
+      repository,
+      `/git/commits/${encodeURIComponent(commitSha)}`,
+      { authenticate: Boolean(this.token) },
+    );
+  }
+
+  async getTreeFor(repository, treeSha) {
+    const payload = await this.requestRepository(
+      repository,
+      `/git/trees/${encodeURIComponent(treeSha)}?recursive=1`,
+      { authenticate: Boolean(this.token) },
+    );
+    if (payload?.truncated) {
+      throw new Error("模板仓库文件过多，GitHub 返回了不完整的文件树");
+    }
+    return payload;
+  }
+
+  async getBlobFor(repository, blobSha) {
+    return this.requestRepository(
+      repository,
+      `/git/blobs/${encodeURIComponent(blobSha)}`,
+      { authenticate: Boolean(this.token) },
+    );
   }
 
   async getContentAtRef(filePath, ref, allowNotFound = false) {
@@ -346,12 +426,23 @@ export class GitHubClient {
   }
 
   async createBlob(text) {
+    return this.createBlobPayload({
+      content: textToBase64(text),
+      encoding: "base64",
+    });
+  }
+
+  async createBlobBase64(content) {
+    return this.createBlobPayload({
+      content: String(content ?? "").replace(/\s+/gu, ""),
+      encoding: "base64",
+    });
+  }
+
+  async createBlobPayload(body) {
     const payload = await this.request("/git/blobs", {
       method: "POST",
-      body: {
-        content: textToBase64(text),
-        encoding: "base64",
-      },
+      body,
     });
     if (!payload?.sha) {
       throw new Error("GitHub 没有返回 blob SHA");
@@ -576,6 +667,15 @@ export class GitHubAdminStore {
       branch: this.client.branch,
       online: true,
     };
+  }
+
+  async templateStatus() {
+    return getTemplateStatus(this.client);
+  }
+
+  async updateTemplate() {
+    this.requireWriteAccess();
+    return updateFromTemplate(this.client);
   }
 }
 

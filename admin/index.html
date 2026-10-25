@@ -23,6 +23,7 @@
           </button>
           <button data-view="catalog" type="button">全量索引</button>
           <button data-view="duplicates" type="button">重复检查</button>
+          <button data-view="about" type="button">关于我们</button>
         </nav>
         <div class="topbar-actions">
           <button
@@ -72,23 +73,26 @@
           </div>
 
           <div class="selection-bar">
-            <label>
-              <input id="selectAll" type="checkbox" />
+            <div class="selection-main">
+              <label>
+                <input id="selectAll" type="checkbox" />
+                <span>全选本页</span>
+              </label>
               <span id="selectionLabel">未选择</span>
-            </label>
+            </div>
             <button id="deleteButton" class="button button-danger" type="button" disabled>
               删除所选
             </button>
           </div>
 
           <div class="table-wrap">
-            <table>
+            <table class="library-table">
               <thead>
                 <tr>
                   <th class="checkbox-column"></th>
                   <th>番剧</th>
                   <th>评分</th>
-                  <th>更新时间</th>
+                  <th>短评与备注</th>
                 </tr>
               </thead>
               <tbody id="recordRows"></tbody>
@@ -98,6 +102,29 @@
               <span>清除搜索或切换筛选条件。</span>
             </div>
           </div>
+
+          <nav
+            id="libraryPagination"
+            class="pagination"
+            aria-label="我的记录分页"
+            hidden
+          >
+            <span id="libraryPageSummary" class="pagination-summary"></span>
+            <div id="libraryPageButtons" class="pagination-pages"></div>
+            <label class="pagination-size">
+              <span>每页</span>
+              <select id="libraryPageSize">
+                <option value="20">20</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <div class="pagination-step">
+              <button id="libraryPreviousPage" type="button">上一页</button>
+              <button id="libraryNextPage" type="button">下一页</button>
+            </div>
+          </nav>
         </section>
 
         <aside class="editor-pane" aria-label="记录编辑">
@@ -121,32 +148,24 @@
               <input id="titleInput" name="title" maxlength="200" required />
             </label>
 
-            <div class="field-grid">
-              <label class="field">
-                <span>评分</span>
-                <input
-                  id="ratingInput"
-                  name="rating"
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.1"
-                  placeholder="未评分"
-                />
-              </label>
+            <div class="field-grid editor-rating-grid">
+              <div class="field rating-field">
+                <div id="ratingControl"></div>
+              </div>
               <div class="field">
                 <span>索引 ID</span>
                 <code id="recordId"></code>
               </div>
             </div>
 
-            <label class="field field-grow">
-              <span>评价</span>
+            <label class="field review-field">
+              <span>短评 / 评价</span>
               <textarea
                 id="reviewInput"
                 name="review"
+                rows="7"
                 maxlength="20000"
-                placeholder="写下评价"
+                placeholder="写下简短的观看感受或完整评价"
               ></textarea>
             </label>
 
@@ -156,7 +175,7 @@
                 id="noteInput"
                 name="note"
                 maxlength="5000"
-                rows="3"
+                rows="4"
                 placeholder="内部备注"
               ></textarea>
             </label>
@@ -188,6 +207,60 @@
               <span>条索引</span>
             </div>
           </div>
+
+          <details id="catalogSourceSettings" class="catalog-source-settings">
+            <summary>
+              <span class="catalog-source-summary-copy">
+                <span class="eyebrow">索引设置</span>
+                <strong id="catalogSourceSummary">bangumi-data · 当前默认</strong>
+              </span>
+              <span class="catalog-source-summary-note">来源、版本与数据授权</span>
+            </summary>
+            <div class="catalog-source-body">
+              <div class="catalog-source-current">
+                <span>当前索引来源</span>
+                <strong>bangumi-data</strong>
+                <p>
+                  默认使用当前 bangumi-data 全量番剧索引；浏览器会缓存索引，
+                  24 小时内复用，也可以随时手动检查更新。
+                </p>
+              </div>
+              <dl class="catalog-source-details">
+                <div>
+                  <dt>索引版本</dt>
+                  <dd id="catalogSourceVersion">尚未加载</dd>
+                </div>
+                <div>
+                  <dt>最近检查</dt>
+                  <dd id="catalogSourceCheckedAt">尚未加载</dd>
+                </div>
+                <div>
+                  <dt>许可协议</dt>
+                  <dd id="catalogSourceLicense">CC BY 4.0</dd>
+                </div>
+              </dl>
+              <p class="catalog-source-thanks">
+                数据来自 bangumi-data，也感谢 Bangumi、Bilibili、AniList、
+                MyAnimeList 以及所有条目贡献者持续维护公开番剧资料。
+              </p>
+              <div class="catalog-source-links">
+                <a
+                  href="https://github.com/bangumi-data/bangumi-data"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  bangumi-data 项目
+                </a>
+                <a
+                  href="https://creativecommons.org/licenses/by/4.0/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  查看 CC BY 4.0
+                </a>
+              </div>
+            </div>
+          </details>
 
           <div class="catalog-meta">
             <span id="catalogStatus">首次进入时才加载全量索引</span>
@@ -223,6 +296,7 @@
           <div class="catalog-result-bar">
             <span id="catalogResultLabel">尚未加载</span>
             <div class="catalog-selection-tools">
+              <span class="catalog-selection-scope">全选本页</span>
               <strong id="catalogSelectionLabel">已选择 0 部</strong>
               <button id="catalogClearSelection" class="text-button" type="button" disabled>
                 清空
@@ -238,7 +312,7 @@
                     <input
                       id="catalogSelectAll"
                       type="checkbox"
-                      aria-label="选择当前已加载的索引"
+                      aria-label="选择当前页的所有索引"
                     />
                   </th>
                   <th>番剧</th>
@@ -252,17 +326,30 @@
               <strong id="catalogEmptyTitle">没有匹配的索引</strong>
               <span id="catalogEmptyText">换一个标题或调整筛选条件。</span>
             </div>
-            <div class="load-more-row">
-              <button
-                id="catalogMoreButton"
-                class="button button-quiet"
-                type="button"
-                hidden
-              >
-                加载更多
-              </button>
-            </div>
           </div>
+
+          <nav
+            id="catalogPagination"
+            class="pagination"
+            aria-label="全量索引分页"
+            hidden
+          >
+            <span id="catalogPageSummary" class="pagination-summary"></span>
+            <div id="catalogPageButtons" class="pagination-pages"></div>
+            <label class="pagination-size">
+              <span>每页</span>
+              <select id="catalogPageSize">
+                <option value="20">20</option>
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <div class="pagination-step">
+              <button id="catalogPreviousPage" type="button">上一页</button>
+              <button id="catalogNextPage" type="button">下一页</button>
+            </div>
+          </nav>
         </section>
 
         <aside class="editor-pane" aria-label="从索引添加记录">
@@ -282,7 +369,7 @@
             </div>
 
             <div class="catalog-batch-note">
-              评分和评价只作用于各自作品。标题和备注可在“更多选项”中调整。
+              评分、短评和备注会分别保存到各自作品；展示标题可单独展开调整。
             </div>
 
             <div id="catalogSelectionList" class="catalog-selection-list"></div>
@@ -343,6 +430,73 @@
           <div id="duplicateEmpty" class="empty-state" hidden>
             <strong>没有发现重复项</strong>
             <span>精确站点 ID、同季度同名和相似标题会在这里集中显示。</span>
+          </div>
+        </section>
+      </main>
+
+      <main id="aboutWorkspace" class="about-workspace" hidden>
+        <section class="about-page" aria-label="关于 MyAnimeLife">
+          <div class="about-heading">
+            <p class="eyebrow">ABOUT MYANIMELIFE</p>
+            <h1>关于我们</h1>
+            <p>
+              MyAnimeLife 是一个由 GitHub 模板、管理页和油猴脚本组成的番剧档案工具。
+              数据仓库保存你的个人记录，模板仓库持续提供页面和工具更新。
+            </p>
+          </div>
+
+          <div class="about-grid">
+            <section class="about-section">
+              <div class="about-section-heading">
+                <div>
+                  <p class="eyebrow">TEMPLATE UPDATE</p>
+                  <h2>更新管理页</h2>
+                </div>
+                <span id="templateUpdateBadge" class="status-badge">未检查</span>
+              </div>
+              <p class="about-copy">
+                从公开模板仓库读取最新代码，并写入当前数据仓库的分支。更新会保留整个
+                <code>data/</code> 目录，包括番剧记录、索引和备份。
+              </p>
+              <div class="about-repository-list">
+                <div>
+                  <span>模板仓库</span>
+                  <a id="templateRepositoryLink" href="https://github.com/zjsycwmrbig/MyAnimeLife" target="_blank" rel="noreferrer">zjsycwmrbig/MyAnimeLife</a>
+                </div>
+                <div>
+                  <span>当前数据仓库</span>
+                  <strong id="aboutTargetRepository">尚未连接</strong>
+                </div>
+                <div>
+                  <span>模板版本</span>
+                  <strong id="templateCommitLabel">尚未检查</strong>
+                </div>
+              </div>
+              <div class="about-warning">
+                <strong>更新前请确认</strong>
+                <span>
+                  更新会覆盖当前仓库中除 <code>data/</code> 外的全部文件，包括你自行修改的页面、配置、工作流和脚本。
+                  这是一次新的 Git 提交；请先把自己的非数据修改推送或备份，再继续。
+                </span>
+              </div>
+              <p id="templateUpdateStatus" class="about-status" role="status" aria-live="polite"></p>
+              <div class="about-actions">
+                <button id="templateCheckButton" class="button button-quiet" type="button">检查模板更新</button>
+                <button id="templateUpdateButton" class="button button-primary" type="button">拉取最新管理页</button>
+              </div>
+            </section>
+
+            <section class="about-section about-links-section">
+              <p class="eyebrow">PROJECT LINKS</p>
+              <h2>项目与许可</h2>
+              <p class="about-copy">代码、数据格式和使用说明都公开在 GitHub。你可以查看更新记录、提交建议，或从模板创建自己的数据仓库。</p>
+              <div class="about-links">
+                <a href="https://github.com/zjsycwmrbig/MyAnimeLife" target="_blank" rel="noreferrer">打开模板仓库</a>
+                <a href="https://github.com/zjsycwmrbig/MyAnimeLife/blob/main/README.md" target="_blank" rel="noreferrer">阅读使用说明</a>
+                <a href="https://github.com/bangumi-data/bangumi-data" target="_blank" rel="noreferrer">索引来源 bangumi-data</a>
+              </div>
+              <p class="about-license">本项目代码使用 MIT License。个人记录由用户自行维护，公开资料的权利归原始来源及其贡献者所有。</p>
+            </section>
           </div>
         </section>
       </main>

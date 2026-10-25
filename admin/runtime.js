@@ -300,6 +300,14 @@ async function onlineApi(path, options) {
   if (url.pathname === "/api/status" && method === "GET") {
     return store.status();
   }
+  if (url.pathname === "/api/template/status" && method === "GET") {
+    return store.templateStatus();
+  }
+  if (url.pathname === "/api/template/update" && method === "POST") {
+    const result = await store.updateTemplate();
+    invalidateLibraryCache();
+    return result;
+  }
   if (url.pathname === "/api/duplicates" && method === "GET") {
     const library = await githubLibrary(true);
     const groups = findDuplicateGroups(library.records);

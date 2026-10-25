@@ -3,6 +3,13 @@ import {
   getRuntime,
   refreshRuntimeLibrary,
 } from "./runtime.js";
+import { TEMPLATE_REPOSITORY } from "./template-updater.js";
+import {
+  getPaginationState,
+  renderPagination,
+} from "./pagination.js";
+import { createRatingControl } from "./rating-control.js";
+import { resolveCatalogCovers } from "./cover-cache.js";
 
 const MAX_BATCH_SIZE = 100;
 
@@ -13,6 +20,8 @@ const state = {
   busy: false,
   items: [],
   total: 0,
+  page: 1,
+  pageSize: 30,
   query: "",
   year: "",
   source: "",
@@ -27,6 +36,7 @@ const elements = {
   libraryWorkspace: document.querySelector("#libraryWorkspace"),
   catalogWorkspace: document.querySelector("#catalogWorkspace"),
   duplicateWorkspace: document.querySelector("#duplicateWorkspace"),
+  aboutWorkspace: document.querySelector("#aboutWorkspace"),
   catalogSearch: document.querySelector("#catalogSearch"),
   catalogYear: document.querySelector("#catalogYear"),
   catalogSource: document.querySelector("#catalogSource"),
@@ -34,6 +44,10 @@ const elements = {
   catalogRows: document.querySelector("#catalogRows"),
   catalogCount: document.querySelector("#catalogCount"),
   catalogStatus: document.querySelector("#catalogStatus"),
+  catalogSourceSummary: document.querySelector("#catalogSourceSummary"),
+  catalogSourceVersion: document.querySelector("#catalogSourceVersion"),
+  catalogSourceCheckedAt: document.querySelector("#catalogSourceCheckedAt"),
+  catalogSourceLicense: document.querySelector("#catalogSourceLicense"),
   catalogResultLabel: document.querySelector("#catalogResultLabel"),
   catalogSelectionLabel: document.querySelector("#catalogSelectionLabel"),
   catalogClearSelection: document.querySelector("#catalogClearSelection"),
@@ -41,7 +55,12 @@ const elements = {
   catalogEmpty: document.querySelector("#catalogEmpty"),
   catalogEmptyTitle: document.querySelector("#catalogEmptyTitle"),
   catalogEmptyText: document.querySelector("#catalogEmptyText"),
-  catalogMoreButton: document.querySelector("#catalogMoreButton"),
+  catalogPagination: document.querySelector("#catalogPagination"),
+  catalogPageSummary: document.querySelector("#catalogPageSummary"),
+  catalogPageButtons: document.querySelector("#catalogPageButtons"),
+  catalogPageSize: document.querySelector("#catalogPageSize"),
+  catalogPreviousPage: document.querySelector("#catalogPreviousPage"),
+  catalogNextPage: document.querySelector("#catalogNextPage"),
   catalogEditorEmpty: document.querySelector("#catalogEditorEmpty"),
   catalogBatchForm: document.querySelector("#catalogBatchForm"),
   catalogSelectionBadge: document.querySelector("#catalogSelectionBadge"),
@@ -49,11 +68,19 @@ const elements = {
   catalogSaveButton: document.querySelector("#catalogSaveButton"),
   catalogSyncButton: document.querySelector("#catalogSyncButton"),
   toast: document.querySelector("#toast"),
+  templateUpdateBadge: document.querySelector("#templateUpdateBadge"),
+  templateRepositoryLink: document.querySelector("#templateRepositoryLink"),
+  aboutTargetRepository: document.querySelector("#aboutTargetRepository"),
+  templateCommitLabel: document.querySelector("#templateCommitLabel"),
+  templateUpdateStatus: document.querySelector("#templateUpdateStatus"),
+  templateCheckButton: document.querySelector("#templateCheckButton"),
+  templateUpdateButton: document.querySelector("#templateUpdateButton"),
 };
 
 let searchTimer = null;
 let toastTimer = null;
 let requestSequence = 0;
+let templateBusy = false;
 
 function showToast(message, options = {}) {
   clearTimeout(toastTimer);
@@ -101,7 +128,7 @@ function itemMeta(item) {
 function createDraft(item) {
   return {
     title: item.displayTitle,
-    rating: "",
+    rating: null,
     review: "",
     note: "",
   };
@@ -195,6 +222,7 @@ function activateView(view, options = {}) {
   elements.libraryWorkspace.hidden = view !== "library";
   elements.catalogWorkspace.hidden = view !== "catalog";
   elements.duplicateWorkspace.hidden = view !== "duplicates";
+  elements.aboutWorkspace.hidden = view !== "about";
   if (view === "catalog") {
     renderBatchEditor();
     if (!state.catalogLoaded) {
@@ -203,6 +231,89 @@ function activateView(view, options = {}) {
   }
   if (view === "duplicates") {
     window.dispatchEvent(new CustomEvent("anime-duplicates:activate"));
+  }
+  if (view === "about") {
+    renderAbout();
+    checkTemplate(false);
+  }
+}
+
+function renderAbout() {
+  const runtime = getRuntime();
+  elements.templateRepositoryLink.href = `https://github.com/${TEMPLATE_REPOSITORY}`;
+  elements.templateRepositoryLink.textContent = TEMPLATE_REPOSITORY;
+  elements.aboutTargetRepository.textContent = runtime.repository || "尚未连接";
+  const writable = runtime.mode === "github" && runtime.writable;
+  elements.templateCheckButton.disabled = templateBusy;
+  elements.templateUpdateButton.disabled = templateBusy || !writable;
+  if (runtime.mode === "local") {
+    elements.templateUpdateStatus.textContent =
+      "当前是本地管理模式，代码更新请在仓库目录中执行 Git 更新；GitHub Pages 版可以在这里直接拉取。";
+    elements.templateUpdateBadge.textContent = "本地模式";
+  } else if (!runtime.writable) {
+    if (elements.templateCommitLabel.textContent === "尚未检查") {
+      elements.templateUpdateStatus.textContent = "当前为只读模式。填写有 Contents: Read and write 权限的 Token 后才可以更新。";
+      elements.templateUpdateBadge.textContent = "需要 Token";
+    }
+  }
+}
+
+async function checkTemplate(showMessage = true) {
+  if (templateBusy || getRuntime().mode === "local") {
+    renderAbout();
+    return;
+  }
+  templateBusy = true;
+  renderAbout();
+  elements.templateUpdateStatus.textContent = "正在读取模板仓库版本...";
+  try {
+    const status = await api("/api/template/status");
+    elements.templateCommitLabel.textContent = status.commitShort;
+    elements.templateUpdateBadge.textContent = `最新 ${status.commitShort}`;
+    elements.templateUpdateStatus.textContent = `模板 main 分支当前提交为 ${status.commitShort}。确认后可以拉取到当前数据仓库。`;
+    if (showMessage) {
+      showToast(`模板版本 ${status.commitShort}`);
+    }
+  } catch (error) {
+    elements.templateUpdateBadge.textContent = "检查失败";
+    elements.templateUpdateStatus.textContent = error.message;
+    if (showMessage) {
+      showToast(error.message, { error: true });
+    }
+  } finally {
+    templateBusy = false;
+    renderAbout();
+  }
+}
+
+async function updateTemplate() {
+  if (templateBusy || getRuntime().mode === "local" || !getRuntime().writable) {
+    return;
+  }
+  const confirmed = window.confirm(
+    "确定从 MyAnimeLife 模板更新吗？整个 data/ 目录会保留，但其他所有文件会被模板覆盖；你自行修改的页面、配置、工作流和脚本可能丢失。请确认已经备份或推送这些修改。",
+  );
+  if (!confirmed) {
+    return;
+  }
+  templateBusy = true;
+  renderAbout();
+  elements.templateUpdateStatus.textContent = "正在拉取模板文件并创建提交，请不要关闭页面...";
+  try {
+    const result = await api("/api/template/update", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    elements.templateCommitLabel.textContent = result.templateCommit.slice(0, 7);
+    elements.templateUpdateBadge.textContent = `已更新 ${result.commitShort}`;
+    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
+    showToast(`管理页已更新，提交 ${result.commitShort}`, { duration: 7000 });
+  } catch (error) {
+    elements.templateUpdateStatus.textContent = error.message;
+    showToast(error.message, { error: true, duration: 8000 });
+  } finally {
+    templateBusy = false;
+    renderAbout();
   }
 }
 
@@ -372,36 +483,92 @@ function renderSelectionSummary() {
 }
 
 function renderCatalogRows() {
+  const pageInfo = getPaginationState(
+    state.total,
+    state.pageSize,
+    state.page,
+  );
+  state.page = pageInfo.page;
   elements.catalogRows.replaceChildren(...state.items.map(createCatalogRow));
   elements.catalogCount.textContent = state.total
     ? state.total.toLocaleString("zh-CN")
     : "0";
   elements.catalogResultLabel.textContent = state.loading
     ? "正在读取索引"
-    : `匹配 ${state.total.toLocaleString("zh-CN")} 条 · 已显示 ${state.items.length}`;
+    : state.total
+      ? `匹配 ${state.total.toLocaleString("zh-CN")} 条 · 第 ${state.page} / ${pageInfo.pageCount} 页 · 本页 ${state.items.length} 条`
+      : "匹配 0 条";
   elements.catalogEmpty.hidden = state.loading || state.items.length > 0;
-  elements.catalogMoreButton.hidden =
-    state.loading || state.items.length >= state.total;
   if (!state.items.length && !state.loading) {
     elements.catalogEmptyTitle.textContent = "没有匹配的索引";
     elements.catalogEmptyText.textContent = "换一个标题或调整筛选条件。";
   }
+  renderPagination(
+    {
+      nav: elements.catalogPagination,
+      summary: elements.catalogPageSummary,
+      pages: elements.catalogPageButtons,
+      previous: elements.catalogPreviousPage,
+      next: elements.catalogNextPage,
+    },
+    {
+      totalItems: state.total,
+      pageSize: state.pageSize,
+      page: state.page,
+      loading: state.loading,
+      onSelect: (page) => {
+        state.page = page;
+        loadCatalog();
+      },
+    },
+  );
   renderSelectionSummary();
+}
+
+async function hydrateVisibleCovers(sequence) {
+  try {
+    const covers = await resolveCatalogCovers(state.items);
+    if (sequence !== requestSequence || !covers.size) {
+      return;
+    }
+    for (const item of state.items) {
+      const coverUrl = covers.get(item.id);
+      if (coverUrl) {
+        item.coverUrl = coverUrl;
+      }
+    }
+    renderCatalogRows();
+    if (state.selectedItems.size) {
+      renderBatchEditor();
+    }
+  } catch {
+    // A cover service failure leaves the title fallback in place.
+  }
+}
+
+function renderCatalogSource(meta = {}) {
+  const version = meta.version || "未知版本";
+  elements.catalogSourceSummary.textContent = `bangumi-data ${version} · 当前默认`;
+  elements.catalogSourceVersion.textContent = version;
+  elements.catalogSourceCheckedAt.textContent = meta.checkedAt
+    ? formatDate(meta.checkedAt)
+    : "尚未检查";
+  elements.catalogSourceLicense.textContent = meta.license || "CC BY 4.0";
 }
 
 async function loadCatalog(options = {}) {
   state.loading = true;
   const sequence = ++requestSequence;
+  const requestedPage = state.page;
   elements.catalogRefresh.classList.add("is-loading");
   elements.catalogRefresh.disabled = true;
-  elements.catalogMoreButton.disabled = true;
   elements.catalogStatus.textContent =
     "正在检查索引；首次使用需要下载并建立本地缓存";
   renderCatalogRows();
 
-  const offset = options.append ? state.items.length : 0;
+  const offset = (state.page - 1) * state.pageSize;
   const params = new URLSearchParams({
-    limit: "30",
+    limit: String(state.pageSize),
     offset: String(offset),
   });
   if (state.query) {
@@ -422,22 +589,36 @@ async function loadCatalog(options = {}) {
     if (sequence !== requestSequence) {
       return;
     }
+    const pageInfo = getPaginationState(
+      payload.total ?? 0,
+      state.pageSize,
+      requestedPage,
+    );
+    if (requestedPage > pageInfo.pageCount) {
+      state.page = pageInfo.page;
+      state.loading = false;
+      elements.catalogRefresh.classList.remove("is-loading");
+      elements.catalogRefresh.disabled = false;
+      loadCatalog(options);
+      return;
+    }
     state.catalogLoaded = true;
     state.total = payload.total ?? 0;
-    state.items = options.append
-      ? [...state.items, ...(payload.items ?? [])]
-      : payload.items ?? [];
+    state.page = pageInfo.page;
+    state.items = payload.items ?? [];
     populateFacets(payload.facets);
+    renderCatalogSource(payload.meta);
     elements.catalogStatus.textContent = [
-      `bangumi-data ${payload.meta?.version ?? "未知版本"}`,
-      `检查于 ${formatDate(payload.meta?.checkedAt)}`,
-      payload.meta?.license,
+      `已加载第 ${state.page} 页`,
+      `本页 ${state.items.length} 条`,
+      "浏览器本地缓存 24 小时内复用",
     ]
       .filter(Boolean)
       .join(" · ");
     if (options.refresh) {
       showToast("全量索引已检查");
     }
+    void hydrateVisibleCovers(sequence);
   } catch (error) {
     if (sequence !== requestSequence) {
       return;
@@ -454,7 +635,6 @@ async function loadCatalog(options = {}) {
       state.loading = false;
       elements.catalogRefresh.classList.remove("is-loading");
       elements.catalogRefresh.disabled = false;
-      elements.catalogMoreButton.disabled = false;
       renderCatalogRows();
     }
   }
@@ -488,32 +668,26 @@ function createDraftRow(item) {
 
   const fields = document.createElement("div");
   fields.className = "catalog-draft-fields";
-  const ratingLabel = document.createElement("label");
-  ratingLabel.className = "field";
-  const ratingText = document.createElement("span");
-  ratingText.textContent = "评分";
-  const rating = document.createElement("input");
-  rating.type = "number";
-  rating.min = "0";
-  rating.max = "10";
-  rating.step = "0.1";
-  rating.placeholder = "未评分";
-  rating.value = draft.rating;
-  rating.disabled = !getRuntime().writable;
-  rating.addEventListener("input", () => {
-    draft.rating = rating.value;
-    setDirty(true);
+  const ratingField = document.createElement("div");
+  ratingField.className = "field catalog-draft-rating";
+  const ratingControl = createRatingControl({
+    value: draft.rating,
+    disabled: !getRuntime().writable,
+    onChange: (rating) => {
+      draft.rating = rating;
+      setDirty(true);
+    },
   });
-  ratingLabel.append(ratingText, rating);
+  ratingField.append(ratingControl.element);
 
   const reviewLabel = document.createElement("label");
   reviewLabel.className = "field catalog-draft-review";
   const reviewText = document.createElement("span");
-  reviewText.textContent = "评价";
+  reviewText.textContent = "短评 / 评价";
   const review = document.createElement("textarea");
   review.maxLength = 20000;
   review.rows = 3;
-  review.placeholder = "写下这部作品的评价";
+  review.placeholder = "写下简短的观看感受或完整评价";
   review.value = draft.review;
   review.disabled = !getRuntime().writable;
   review.addEventListener("input", () => {
@@ -521,13 +695,30 @@ function createDraftRow(item) {
     setDirty(true);
   });
   reviewLabel.append(reviewText, review);
-  fields.append(ratingLabel, reviewLabel);
+
+  const noteLabel = document.createElement("label");
+  noteLabel.className = "field catalog-draft-note";
+  const noteText = document.createElement("span");
+  noteText.textContent = "备注";
+  const note = document.createElement("textarea");
+  note.maxLength = 5000;
+  note.rows = 2;
+  note.placeholder = "内部备注";
+  note.value = draft.note;
+  note.disabled = !getRuntime().writable;
+  note.addEventListener("input", () => {
+    draft.note = note.value;
+    setDirty(true);
+  });
+  noteLabel.append(noteText, note);
+
+  fields.append(ratingField, reviewLabel, noteLabel);
   section.append(fields);
 
   const details = document.createElement("details");
   details.className = "catalog-draft-extra";
   const summary = document.createElement("summary");
-  summary.textContent = "更多选项";
+  summary.textContent = "自定义展示标题";
   details.append(summary);
 
   const titleLabel = document.createElement("label");
@@ -543,23 +734,7 @@ function createDraftRow(item) {
     setDirty(true);
   });
   titleLabel.append(titleText, titleInput);
-
-  const noteLabel = document.createElement("label");
-  noteLabel.className = "field";
-  const noteText = document.createElement("span");
-  noteText.textContent = "备注";
-  const note = document.createElement("textarea");
-  note.maxLength = 5000;
-  note.rows = 2;
-  note.placeholder = "内部备注";
-  note.value = draft.note;
-  note.disabled = !getRuntime().writable;
-  note.addEventListener("input", () => {
-    draft.note = note.value;
-    setDirty(true);
-  });
-  noteLabel.append(noteText, note);
-  details.append(titleLabel, noteLabel);
+  details.append(titleLabel);
   section.append(details);
 
   const source = document.createElement("span");
@@ -686,10 +861,14 @@ for (const button of elements.switchButtons) {
   });
 }
 
+elements.templateCheckButton.addEventListener("click", () => checkTemplate(true));
+elements.templateUpdateButton.addEventListener("click", updateTemplate);
+
 elements.catalogSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     state.query = elements.catalogSearch.value.trim();
+    state.page = 1;
     loadCatalog();
   }, 260);
 });
@@ -698,6 +877,7 @@ for (const select of [elements.catalogYear, elements.catalogSource]) {
   select.addEventListener("change", () => {
     state.year = elements.catalogYear.value;
     state.source = elements.catalogSource.value;
+    state.page = 1;
     loadCatalog();
   });
 }
@@ -706,8 +886,20 @@ elements.catalogRefresh.addEventListener("click", () => {
   loadCatalog({ refresh: true });
 });
 
-elements.catalogMoreButton.addEventListener("click", () => {
-  loadCatalog({ append: true });
+elements.catalogPageSize.addEventListener("change", () => {
+  state.pageSize = Number(elements.catalogPageSize.value);
+  state.page = 1;
+  loadCatalog();
+});
+
+elements.catalogPreviousPage.addEventListener("click", () => {
+  state.page = Math.max(1, state.page - 1);
+  loadCatalog();
+});
+
+elements.catalogNextPage.addEventListener("click", () => {
+  state.page += 1;
+  loadCatalog();
 });
 
 elements.catalogClearSelection.addEventListener("click", clearSelection);
@@ -763,6 +955,7 @@ window.addEventListener("anime-runtime:changed", () => {
   state.catalogLoaded = false;
   state.items = [];
   state.total = 0;
+  state.page = 1;
   state.facetsLoaded = false;
   for (const select of [elements.catalogYear, elements.catalogSource]) {
     while (select.options.length > 1) {

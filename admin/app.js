@@ -3,6 +3,11 @@ import {
   getRuntime,
   refreshRuntimeLibrary,
 } from "./runtime.js";
+import {
+  getPaginationState,
+  renderPagination,
+} from "./pagination.js";
+import { createRatingControl } from "./rating-control.js";
 
 const state = {
   records: [],
@@ -11,6 +16,8 @@ const state = {
   selectedIds: new Set(),
   query: "",
   filter: "all",
+  page: 1,
+  pageSize: 30,
   dirty: false,
   backupLimit: 5,
   git: null,
@@ -34,7 +41,7 @@ const elements = {
   editorTitle: document.querySelector("#editorTitle"),
   editorBadge: document.querySelector("#editorBadge"),
   titleInput: document.querySelector("#titleInput"),
-  ratingInput: document.querySelector("#ratingInput"),
+  ratingControlMount: document.querySelector("#ratingControl"),
   recordId: document.querySelector("#recordId"),
   reviewInput: document.querySelector("#reviewInput"),
   noteInput: document.querySelector("#noteInput"),
@@ -42,10 +49,21 @@ const elements = {
   updatedLabel: document.querySelector("#updatedLabel"),
   backupLabel: document.querySelector("#backupLabel"),
   saveButton: document.querySelector("#saveButton"),
+  libraryPagination: document.querySelector("#libraryPagination"),
+  libraryPageSummary: document.querySelector("#libraryPageSummary"),
+  libraryPageButtons: document.querySelector("#libraryPageButtons"),
+  libraryPageSize: document.querySelector("#libraryPageSize"),
+  libraryPreviousPage: document.querySelector("#libraryPreviousPage"),
+  libraryNextPage: document.querySelector("#libraryNextPage"),
   toast: document.querySelector("#toast"),
 };
 
 let toastTimer = null;
+const ratingControl = createRatingControl({
+  disabled: !getRuntime().writable,
+  onChange: () => setDirty(true),
+});
+elements.ratingControlMount.append(ratingControl.element);
 
 function showToast(message, options = {}) {
   clearTimeout(toastTimer);
@@ -85,6 +103,10 @@ function sourceText(record) {
   return ids.length ? ids.map(([source, id]) => `${source}:${id}`).join(" · ") : "无站点索引";
 }
 
+function excerpt(value) {
+  return String(value ?? "").replace(/\s+/gu, " ").trim();
+}
+
 function recordMatches(record) {
   if (state.filter === "rated" && record.rating === null) {
     return false;
@@ -111,6 +133,22 @@ function recordMatches(record) {
   return haystack.includes(query);
 }
 
+function filteredRecords() {
+  return state.records
+    .filter(recordMatches)
+    .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+}
+
+function currentPageRecords(records = filteredRecords()) {
+  const info = getPaginationState(
+    records.length,
+    state.pageSize,
+    state.page,
+  );
+  state.page = info.page;
+  return records.slice(info.offset, info.end);
+}
+
 function currentRecord() {
   return state.records.find((record) => record.id === state.selectedId) ?? null;
 }
@@ -118,6 +156,7 @@ function currentRecord() {
 function setBusy(busy) {
   state.busy = busy;
   const writable = getRuntime().writable;
+  ratingControl.setDisabled(busy || !writable);
   for (const button of [elements.refreshButton, elements.syncButton]) {
     button.classList.toggle("is-loading", busy);
     button.disabled = busy;
@@ -156,8 +195,8 @@ function renderSelection() {
   const writable = getRuntime().writable;
   elements.selectionLabel.textContent = count ? `已选择 ${count} 条` : "未选择";
   elements.deleteButton.disabled = state.busy || !writable || count === 0;
-  elements.selectAll.disabled = state.busy || !writable;
-  const visible = state.records.filter(recordMatches);
+  const visible = currentPageRecords();
+  elements.selectAll.disabled = state.busy || !writable || visible.length === 0;
   const selectedVisible = visible.filter((record) =>
     state.selectedIds.has(record.id),
   ).length;
@@ -166,28 +205,14 @@ function renderSelection() {
     selectedVisible > 0 && selectedVisible < visible.length;
 }
 
-function createCell(text, className = "") {
-  const cell = document.createElement("td");
-  if (className) {
-    cell.className = className;
-  }
-  cell.textContent = text;
-  return cell;
-}
-
 function renderRows() {
-  const records = state.records
-    .filter(recordMatches)
-    .sort((left, right) => {
-      const byUpdated =
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-      return byUpdated || left.title.localeCompare(right.title, "zh-CN");
-    });
+  const records = filteredRecords();
+  const pageRecords = currentPageRecords(records);
   elements.recordRows.replaceChildren();
   elements.recordCount.textContent = String(state.records.length);
   elements.emptyState.hidden = records.length > 0;
 
-  for (const record of records) {
+  for (const record of pageRecords) {
     const row = document.createElement("tr");
     row.className = "record-row";
     row.tabIndex = 0;
@@ -238,7 +263,31 @@ function renderRows() {
     }
     ratingCell.append(rating);
     row.append(ratingCell);
-    row.append(createCell(formatDate(record.updatedAt), "updated-cell"));
+
+    const copyCell = document.createElement("td");
+    copyCell.className = "record-copy-cell";
+    const reviewLine = document.createElement("div");
+    reviewLine.className = "record-copy-line";
+    const reviewLabel = document.createElement("span");
+    reviewLabel.className = "record-copy-label";
+    reviewLabel.textContent = "短评";
+    const reviewText = document.createElement("span");
+    reviewText.className = "record-copy-text";
+    reviewText.textContent = excerpt(record.review) || "未填写";
+    reviewText.classList.toggle("is-empty", !excerpt(record.review));
+    reviewLine.append(reviewLabel, reviewText);
+    const noteLine = document.createElement("div");
+    noteLine.className = "record-copy-line";
+    const noteLabel = document.createElement("span");
+    noteLabel.className = "record-copy-label";
+    noteLabel.textContent = "备注";
+    const noteText = document.createElement("span");
+    noteText.className = "record-copy-text";
+    noteText.textContent = excerpt(record.note) || "未填写";
+    noteText.classList.toggle("is-empty", !excerpt(record.note));
+    noteLine.append(noteLabel, noteText);
+    copyCell.append(reviewLine, noteLine);
+    row.append(copyCell);
 
     const selectRecord = () => selectRecordById(record.id);
     row.addEventListener("click", selectRecord);
@@ -250,6 +299,24 @@ function renderRows() {
     });
     elements.recordRows.append(row);
   }
+  renderPagination(
+    {
+      nav: elements.libraryPagination,
+      summary: elements.libraryPageSummary,
+      pages: elements.libraryPageButtons,
+      previous: elements.libraryPreviousPage,
+      next: elements.libraryNextPage,
+    },
+    {
+      totalItems: records.length,
+      pageSize: state.pageSize,
+      page: state.page,
+      onSelect: (page) => {
+        state.page = page;
+        renderRows();
+      },
+    },
+  );
   renderSelection();
 }
 
@@ -271,7 +338,7 @@ function renderEditor() {
   elements.editorBadge.textContent = record.deletedAt ? "已删除" : "已收录";
   elements.editorBadge.classList.toggle("is-deleted", Boolean(record.deletedAt));
   elements.titleInput.value = record.title;
-  elements.ratingInput.value = record.rating === null ? "" : String(record.rating);
+  ratingControl.setValue(record.rating);
   elements.recordId.textContent = record.id;
   elements.reviewInput.value = record.review ?? "";
   elements.noteInput.value = record.note ?? "";
@@ -280,12 +347,12 @@ function renderEditor() {
   elements.backupLabel.textContent = `备份上限 ${state.backupLimit} 个`;
   for (const input of [
     elements.titleInput,
-    elements.ratingInput,
     elements.reviewInput,
     elements.noteInput,
   ]) {
     input.disabled = !writable;
   }
+  ratingControl.setDisabled(state.busy || !writable);
   elements.saveButton.disabled = state.busy || !writable;
   setDirty(false);
 }
@@ -304,6 +371,14 @@ function selectRecordById(recordId) {
   state.selectedId = recordId;
   renderRows();
   renderEditor();
+}
+
+function revealRecordPage(recordId) {
+  const records = filteredRecords();
+  const index = records.findIndex((record) => record.id === recordId);
+  if (index >= 0) {
+    state.page = Math.floor(index / state.pageSize) + 1;
+  }
 }
 
 function applyLibrary(payload) {
@@ -350,7 +425,7 @@ async function saveCurrentRecord() {
       method: "PUT",
       body: JSON.stringify({
         title: elements.titleInput.value,
-        rating: elements.ratingInput.value,
+        rating: ratingControl.getValue(),
         review: elements.reviewInput.value,
         note: elements.noteInput.value,
       }),
@@ -465,12 +540,14 @@ async function syncRemote() {
 
 elements.searchInput.addEventListener("input", () => {
   state.query = elements.searchInput.value;
+  state.page = 1;
   renderRows();
 });
 
 for (const button of elements.filterButtons) {
   button.addEventListener("click", () => {
     state.filter = button.dataset.filter;
+    state.page = 1;
     for (const candidate of elements.filterButtons) {
       candidate.classList.toggle("is-active", candidate === button);
     }
@@ -479,7 +556,7 @@ for (const button of elements.filterButtons) {
 }
 
 elements.selectAll.addEventListener("change", () => {
-  const visible = state.records.filter(recordMatches);
+  const visible = currentPageRecords();
   if (elements.selectAll.checked) {
     for (const record of visible) {
       state.selectedIds.add(record.id);
@@ -494,12 +571,27 @@ elements.selectAll.addEventListener("change", () => {
 
 for (const input of [
   elements.titleInput,
-  elements.ratingInput,
   elements.reviewInput,
   elements.noteInput,
 ]) {
   input.addEventListener("input", () => setDirty(true));
 }
+
+elements.libraryPageSize.addEventListener("change", () => {
+  state.pageSize = Number(elements.libraryPageSize.value);
+  state.page = 1;
+  renderRows();
+});
+
+elements.libraryPreviousPage.addEventListener("click", () => {
+  state.page = Math.max(1, state.page - 1);
+  renderRows();
+});
+
+elements.libraryNextPage.addEventListener("click", () => {
+  state.page += 1;
+  renderRows();
+});
 
 elements.editorForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -537,6 +629,7 @@ window.addEventListener("anime-library:edit", (event) => {
   }
   state.selectedId = recordId;
   state.dirty = false;
+  revealRecordPage(recordId);
   renderRows();
   renderEditor();
 });
@@ -548,6 +641,7 @@ window.addEventListener("anime-library:changed", async (event) => {
     if (recordId && state.records.some((record) => record.id === recordId)) {
       state.selectedId = recordId;
       state.dirty = false;
+      revealRecordPage(recordId);
       renderRows();
       renderEditor();
     }
