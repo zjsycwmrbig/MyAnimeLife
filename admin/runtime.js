@@ -46,7 +46,24 @@ const settings = {
     cleanString(injected.branch) ||
     "main",
 };
-let token = sessionStorage.getItem(TOKEN_KEY) ?? "";
+function readCachedToken() {
+  try {
+    const localToken = cleanString(localStorage.getItem(TOKEN_KEY));
+    if (localToken) {
+      return localToken;
+    }
+    const legacyToken = cleanString(sessionStorage.getItem(TOKEN_KEY));
+    if (legacyToken) {
+      localStorage.setItem(TOKEN_KEY, legacyToken);
+      return legacyToken;
+    }
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+  return "";
+}
+
+let token = readCachedToken();
 let onlineStore = null;
 let catalogStore = null;
 let libraryCache = null;
@@ -191,8 +208,9 @@ async function saveConnection(event) {
     token = nextToken;
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     if (token) {
-      sessionStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(TOKEN_KEY, token);
     } else {
+      localStorage.removeItem(TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_KEY);
     }
     onlineStore = null;
@@ -221,13 +239,14 @@ async function saveConnection(event) {
 
 function disconnectToken() {
   token = "";
+  localStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
   onlineStore = null;
   invalidateLibraryCache();
   elements.tokenInput.value = "";
   elements.connectionDisconnect.hidden = true;
   renderRuntime();
-  setConnectionStatus("已移除本标签页中的 Token，当前切换为只读。", {
+  setConnectionStatus("已移除浏览器本地缓存中的 Token，当前切换为只读。", {
     success: true,
   });
   window.dispatchEvent(

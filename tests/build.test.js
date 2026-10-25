@@ -92,6 +92,34 @@ test("handles an empty anime library", async () => {
   await fs.rm(fixtureRoot, { recursive: true, force: true });
 });
 
+test("upgrades legacy cover URLs and marks Bangumi cover fallbacks", async () => {
+  const fixtureRoot = await createBuildFixture("default");
+  await writeLibrary(fixtureRoot, [
+    {
+      ...validRecord,
+      coverUrl: "http://images.example.test/cover.jpg",
+      externalIds: { bangumi: "400602" },
+    },
+  ]);
+
+  await buildSite({
+    root: fixtureRoot,
+    now: new Date("2026-10-25T12:00:00Z"),
+  });
+  const indexHtml = await fs.readFile(
+    path.join(fixtureRoot, "dist", "index.html"),
+    "utf8",
+  );
+  const libraryJson = await fs.readFile(
+    path.join(fixtureRoot, "dist", "data", "library.json"),
+    "utf8",
+  );
+  assert.match(indexHtml, /src="https:\/\/images\.example\.test\/cover\.jpg"/u);
+  assert.match(indexHtml, /data-bangumi-id="400602"/u);
+  assert.match(libraryJson, /https:\/\/images\.example\.test\/cover\.jpg/u);
+  await fs.rm(fixtureRoot, { recursive: true, force: true });
+});
+
 test("rejects a rating outside the defined range", async () => {
   const validate = await compileRecordValidator(root);
   assert.throws(

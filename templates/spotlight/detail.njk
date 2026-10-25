@@ -13,7 +13,10 @@
     <article class="record-detail">
       <header class="detail-hero">
         <div class="detail-cover-wrap">
-          <div class="detail-cover">
+          <div
+            class="detail-cover"
+            data-bangumi-id="{{ record.externalIds.bangumi or '' }}"
+          >
             <span class="cover-fallback" aria-hidden="true">
               <span>{{ record.title }}</span>
             </span>

@@ -379,6 +379,22 @@ function formatRating(value) {
   return value === null ? "未评分" : Number(value).toFixed(1);
 }
 
+function normalizeCoverUrl(value) {
+  const candidate = String(value ?? "").trim();
+  if (!candidate) {
+    return null;
+  }
+  if (candidate.startsWith("//")) {
+    return `https:${candidate}`;
+  }
+  if (/^http:\/\//iu.test(candidate)) {
+    return candidate.replace(/^http:\/\//iu, "https://");
+  }
+  return /^(?:https:\/\/|data:image\/)/iu.test(candidate)
+    ? candidate
+    : null;
+}
+
 function formatSeasonLabel(record) {
   const label = String(record.season?.label ?? "").trim();
   if (label) {
@@ -412,6 +428,7 @@ function createRecordViewModel(record) {
 
   return {
     ...record,
+    coverUrl: normalizeCoverUrl(record.coverUrl),
     seasonLabel,
     detailPath: `anime/${record.id}/`,
     ratingDisplay: formatRating(record.rating),
@@ -631,6 +648,7 @@ export async function buildSite(options = {}) {
       .filter((entry) => !entry.deletedAt)
       .map((entry) => ({
         ...entry,
+        coverUrl: normalizeCoverUrl(entry.coverUrl),
         detailPath: `anime/${entry.id}/`,
         sourceLinks: createSourceLinks(entry.externalIds),
       })),

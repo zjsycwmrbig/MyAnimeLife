@@ -98,7 +98,10 @@
                 href="./{{ record.detailPath }}"
                 aria-label="查看《{{ record.title }}》"
               >
-                <span class="record-cover">
+                <span
+                  class="record-cover"
+                  data-bangumi-id="{{ record.externalIds.bangumi or '' }}"
+                >
                   <span class="cover-fallback" aria-hidden="true">
                     <span>{{ record.title }}</span>
                   </span>

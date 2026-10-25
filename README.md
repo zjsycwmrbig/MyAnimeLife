@@ -2,6 +2,47 @@
 
 一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
+## 先看效果
+
+MyAnimeLife 把“发现番剧、记录感受、回顾数据”放在同一条流程里。下面的截图来自仓库内的可复现页面和 UI 测试素材：
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/showcase-home.png" alt="番剧档案展示首页" /></td>
+    <td width="50%"><img src="docs/screenshots/showcase-detail.png" alt="番剧详情页" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>展示首页</b><br />封面墙、评分、短评摘要、搜索和筛选</td>
+    <td align="center"><b>详情页</b><br />评分、评价、备注、季度和外部索引</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/showcase-admin-cards.png" alt="管理页索引卡片视图和批量录入" /></td>
+    <td width="50%"><img src="docs/screenshots/showcase-userscript.png" alt="Bangumi Scout 油猴脚本识别界面" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>在线管理页</b><br />索引卡片流、分页、批量评分和评价</td>
+    <td align="center"><b>油猴识别面板</b><br />页面识别、候选匹配和一键保存</td>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/screenshots/showcase-settings.png" alt="Bangumi Scout 设置与 GitHub 仓库引导" width="520" /></p>
+<p align="center"><b>设置与接入引导</b><br />配置个人数据仓库、分支、Token 和 Pages，脚本会逐步检查接入状态。</p>
+
+```mermaid
+flowchart LR
+  A[打开番剧页面] --> B[Bangumi Scout 识别]
+  B --> C{选择候选}
+  C --> D[评分 / 短评 / 备注]
+  D --> E[写入 anime.jsonl]
+  E --> F[重建 anime-index.jsonl]
+  F --> G[GitHub Pages 展示与统计]
+```
+
+> 图片只是展示用的 UI 素材，不包含模板仓库的个人记录。真正使用时，展示页会读取你自己的 `data/anime.jsonl`。
+
 仓库中的数据和模板彼此独立：
 
 ```text
@@ -14,6 +55,7 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 ## 页面能力
 
 - 首页展示全部番剧、封面、评分、评价摘要和匹配状态；没有记录时显示空白引导
+- 封面优先使用记录中的地址；旧的 `http` 地址会在构建时升级为 `https`，缺少封面的 Bangumi 记录会在展示页按需恢复并缓存
 - 支持标题、评价、备注和跨站索引 ID 搜索
 - 支持已评分/未评分筛选，以及更新时间、评分、标题排序
 - 每部番剧有独立详情页
@@ -27,7 +69,9 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
 - 内置三套可切换模板和两份不同职责的说明文档
 
-GitHub Pages 会发布只读展示网站和在线管理页。在线管理页默认允许公开只读浏览；填写只保存在当前标签页内的 GitHub Token 后，可以直接编辑记录并自动创建远端提交，不需要在本地启动服务器。
+完整截图素材位于 [`docs/screenshots/`](docs/screenshots/)，可用于了解展示页、详情页、管理页和油猴脚本的实际界面。
+
+GitHub Pages 会发布只读展示网站和在线管理页。在线管理页默认允许公开只读浏览；填写 GitHub Token 并验证后，Token 会缓存到当前浏览器当前站点，之后可自动填充并直接编辑记录、创建远端提交，不需要在本地启动服务器。
 
 ## 油猴脚本
 
@@ -187,7 +231,7 @@ https://<owner>.github.io/<repository>/admin/
 
 - 公开数据仓库不填写 Token 也能浏览记录、全量索引、重复检查和统计信息。
 - 公开浏览通过 HEAD SHA 从 `raw.githubusercontent.com` 读取配置和 JSONL，只使用两次 GitHub API 调用来确定当前提交和 Git 树。
-- 编辑、批量加入和删除需要 GitHub 细粒度 Token；Token 只保存在当前标签页的 `sessionStorage` 和内存中，不会写入 `localStorage`、URL、日志或仓库文件。关闭标签页后需要重新填写。
+- 编辑、批量加入和删除需要 GitHub 细粒度 Token；验证成功后 Token 会保存在当前浏览器当前站点的 `localStorage` 中，之后打开管理页会自动填充，不会写入 URL、日志或仓库文件。点击“清除 Token”会同时删除本地缓存；请只在自己的设备上使用，并仅授予目标数据仓库的 `Contents: Read and write` 权限。
 - Token 只需对目标数据仓库授予 `Repository permissions > Contents: Read and write`。不需要 Actions、Administration 或其他仓库权限。
 - 每次在线修改都会先读取远端 HEAD，再用 Git Data API 创建 blobs、tree、commit，最后以非强制方式更新分支。数据文件、轻量索引和新备份位于同一个提交中。
 - 如果编辑期间远端分支已有新的提交，更新分支会被拒绝，页面会提示先刷新再重试，不会覆盖其他人的改动。

@@ -151,6 +151,131 @@
     }
   });
 
+  const coverCacheKey = "myanimelife.display-covers.v1";
+  const coverRequests = new Map();
+
+  function normalizeCoverUrl(value) {
+    const candidate = String(value ?? "").trim();
+    if (!candidate) {
+      return null;
+    }
+    if (candidate.startsWith("//")) {
+      return `https:${candidate}`;
+    }
+    if (/^http:\/\//iu.test(candidate)) {
+      return candidate.replace(/^http:\/\//iu, "https://");
+    }
+    return /^(?:https:\/\/|data:image\/)/iu.test(candidate)
+      ? candidate
+      : null;
+  }
+
+  function readCoverCache() {
+    try {
+      const value = JSON.parse(localStorage.getItem(coverCacheKey) ?? "{}");
+      return value && typeof value === "object" ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeCoverCache(cache) {
+    try {
+      localStorage.setItem(coverCacheKey, JSON.stringify(cache));
+    } catch {
+      // Private browsing and full storage should not break the archive page.
+    }
+  }
+
+  function fetchBangumiCover(subjectId) {
+    const id = String(subjectId ?? "").trim();
+    if (!id) {
+      return Promise.resolve(null);
+    }
+    if (!coverRequests.has(id)) {
+      coverRequests.set(
+        id,
+        fetch(`https://api.bgm.tv/v0/subjects/${encodeURIComponent(id)}`, {
+          headers: { Accept: "application/json" },
+          credentials: "omit",
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((payload) =>
+            normalizeCoverUrl(
+              payload?.images?.large ??
+                payload?.images?.common ??
+                payload?.images?.medium,
+            ),
+          )
+          .catch(() => null),
+      );
+    }
+    return coverRequests.get(id);
+  }
+
+  function appendCoverImage(frame, url) {
+    if (!url || frame.querySelector("img")) {
+      return;
+    }
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener(
+      "error",
+      () => frame.classList.add("has-image-error"),
+      { once: true },
+    );
+    frame.classList.remove("has-image-error");
+    frame.append(image);
+  }
+
+  function recoverMissingCovers() {
+    const cache = readCoverCache();
+    const frames = [...
+      document.querySelectorAll(
+        ".record-cover[data-bangumi-id], .detail-cover[data-bangumi-id]",
+      ),
+    ].filter((frame) => frame.dataset.bangumiId && !frame.querySelector("img"));
+
+    const recover = (frame) => {
+      const subjectId = frame.dataset.bangumiId;
+      const cached = normalizeCoverUrl(cache[subjectId]);
+      if (cached) {
+        appendCoverImage(frame, cached);
+        return;
+      }
+      fetchBangumiCover(subjectId).then((url) => {
+        if (!url) {
+          return;
+        }
+        cache[subjectId] = url;
+        writeCoverCache(cache);
+        appendCoverImage(frame, url);
+      });
+    };
+
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) {
+              continue;
+            }
+            observer.unobserve(entry.target);
+            recover(entry.target);
+          }
+        },
+        { rootMargin: "500px 0px" },
+      );
+      frames.forEach((frame) => observer.observe(frame));
+      return;
+    }
+    frames.forEach(recover);
+  }
+
   for (const image of document.querySelectorAll(
     ".record-cover img, .detail-cover img",
   )) {
@@ -162,6 +287,8 @@
       markMissing();
     }
   }
+
+  recoverMissingCovers();
 
   applyState();
 })();
