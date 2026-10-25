@@ -265,6 +265,7 @@ export class ScoutPanel {
     this.recordLoadRequestId = 0;
     this.recordSaving = false;
     this.githubConnectionChecking = false;
+    this.githubTemplateChecking = false;
     this.githubLastSyncedAt = "";
     this.manualSearchRows = [];
     this.candidateCollapsed = false;
@@ -947,6 +948,18 @@ export class ScoutPanel {
       className: "scout-note",
       text: "尚未检查仓库连接。",
     });
+    this.githubTemplateStatus = element("p", {
+      className: "scout-note",
+      attrs: {
+        "aria-live": "polite",
+      },
+      text: "模板状态尚未检查。创建个人仓库前建议先确认。",
+    });
+    this.githubTemplateCheckButton = button(
+      "检查模板",
+      RefreshCw,
+      () => this.runGithubTemplateCheck(),
+    );
     this.githubCheckButton = button(
       "检查连接",
       RefreshCw,
@@ -1088,6 +1101,7 @@ export class ScoutPanel {
               }),
             ]),
             element("div", { className: "scout-onboarding-actions" }, [
+              this.githubTemplateCheckButton,
               element(
                 "a",
                 {
@@ -1125,6 +1139,7 @@ export class ScoutPanel {
                 [icon(CircleHelp), "Pages 帮助"],
               ),
             ]),
+            this.githubTemplateStatus,
           ]),
           this.switchRow("启用 GitHub 同步", this.githubEnabled),
           this.field("仓库地址", this.githubRepositoryUrl),
@@ -1195,6 +1210,9 @@ export class ScoutPanel {
     this.githubConnectionStatus.textContent = this.githubLastSyncedAt
       ? `上次 GitHub 保存：${formatRecordTime(this.githubLastSyncedAt)}`
       : "尚未检查仓库连接。";
+    this.githubTemplateStatus.textContent =
+      "模板状态尚未检查。创建个人仓库前建议先确认。";
+    delete this.githubTemplateStatus.dataset.tone;
     this.syncCustomUrlVisibility();
     this.syncSettingsDisabledState();
     this.syncGithubRepositoryLinks();
@@ -1325,6 +1343,47 @@ export class ScoutPanel {
     this.recordRemoteRecord = null;
     this.setRecordRemoteLink(null);
     this.syncRecordGithubState();
+  }
+
+  async runGithubTemplateCheck() {
+    if (!this.githubRecords || this.githubTemplateChecking) {
+      return;
+    }
+    this.githubTemplateChecking = true;
+    this.githubTemplateCheckButton.classList.add("is-loading");
+    this.githubTemplateCheckButton.disabled = true;
+    this.githubTemplateStatus.textContent = "正在检查公开模板仓库…";
+    delete this.githubTemplateStatus.dataset.tone;
+    try {
+      const result = await this.githubRecords.checkTemplateRepository();
+      if (result.ready && result.defaultBranch === "main") {
+        this.githubTemplateStatus.textContent =
+          `${result.fullName} 已公开并启用 Template · 默认分支 main`;
+        this.githubTemplateStatus.dataset.tone = "good";
+      } else {
+        const issues = [];
+        if (result.private) {
+          issues.push("仓库不是公开状态");
+        }
+        if (!result.isTemplate) {
+          issues.push("尚未启用 Template repository");
+        }
+        if (result.defaultBranch !== "main") {
+          issues.push(`默认分支为 ${result.defaultBranch}`);
+        }
+        this.githubTemplateStatus.textContent =
+          `模板尚未就绪：${issues.join("；")}`;
+        this.githubTemplateStatus.dataset.tone = "bad";
+      }
+    } catch (error) {
+      this.githubTemplateStatus.textContent =
+        `模板检查失败：${toErrorMessage(error)}`;
+      this.githubTemplateStatus.dataset.tone = "bad";
+    } finally {
+      this.githubTemplateChecking = false;
+      this.githubTemplateCheckButton.classList.remove("is-loading");
+      this.githubTemplateCheckButton.disabled = false;
+    }
   }
 
   async runGithubConnectionCheck() {

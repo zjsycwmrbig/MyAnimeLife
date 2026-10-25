@@ -656,3 +656,50 @@ test("reports authorization failures without exposing the token", async () => {
     },
   );
 });
+
+test("checks whether the public onboarding repository is a usable template", async () => {
+  const requests = [];
+  const service = new GitHubRecordsService({
+    requestJsonImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      return {
+        full_name: "example/public-template",
+        private: false,
+        is_template: true,
+        default_branch: "main",
+        html_url: "https://github.com/example/public-template",
+      };
+    },
+  });
+
+  const result = await service.checkTemplateRepository();
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/repos\/.+anime-records-template$/u);
+  assert.equal(requests[0].options.timeout, 20000);
+  assert.deepEqual(result, {
+    fullName: "example/public-template",
+    private: false,
+    isTemplate: true,
+    defaultBranch: "main",
+    ready: true,
+    webUrl: "https://github.com/example/public-template",
+  });
+});
+
+test("marks a repository without template mode as not ready", async () => {
+  const service = new GitHubRecordsService({
+    requestJsonImpl: async () => ({
+      full_name: "example/public-template",
+      private: false,
+      is_template: false,
+      default_branch: "main",
+      html_url: "https://github.com/example/public-template",
+    }),
+  });
+
+  const result = await service.checkTemplateRepository();
+
+  assert.equal(result.ready, false);
+  assert.equal(result.isTemplate, false);
+});

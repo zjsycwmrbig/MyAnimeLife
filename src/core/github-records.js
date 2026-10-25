@@ -20,6 +20,8 @@ import {
 export const TEMPLATE_REPOSITORY = "zjsycwmrbig/anime-records-template";
 export const TEMPLATE_GENERATE_URL =
   `https://github.com/${TEMPLATE_REPOSITORY}/generate`;
+export const TEMPLATE_REPOSITORY_API_URL =
+  `https://api.github.com/repos/${TEMPLATE_REPOSITORY}`;
 export const FINE_GRAINED_TOKEN_URL =
   "https://github.com/settings/personal-access-tokens/new";
 export const GITHUB_PAGES_DOCS_URL =
@@ -1035,6 +1037,25 @@ export class GitHubRecordsService {
       hasToken: Boolean(config.token),
       pagesLibraryUrl: config.urls.pagesLibraryUrl,
       pagesSetupUrl: `${config.urls.webUrl}/settings/pages`,
+    };
+  }
+
+  async checkTemplateRepository() {
+    const repository = await this.requestJson(TEMPLATE_REPOSITORY_API_URL, {
+      timeout: 20000,
+    });
+    const fullName = cleanString(repository.full_name);
+    const publicRepository = repository.private === false;
+    const templateEnabled = repository.is_template === true;
+    return {
+      fullName: fullName || TEMPLATE_REPOSITORY,
+      private: !publicRepository,
+      isTemplate: templateEnabled,
+      defaultBranch: cleanString(repository.default_branch) || "main",
+      ready: publicRepository && templateEnabled,
+      webUrl:
+        cleanString(repository.html_url) ||
+        `https://github.com/${TEMPLATE_REPOSITORY}`,
     };
   }
 }

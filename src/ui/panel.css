@@ -1120,6 +1120,14 @@ button.scout-list-row:active {
   line-height: 1.45;
 }
 
+.scout-note[data-tone="good"] {
+  color: #116b49;
+}
+
+.scout-note[data-tone="bad"] {
+  color: #a13c1d;
+}
+
 .scout-onboarding {
   margin: 10px 0 12px;
   padding: 10px 11px;
