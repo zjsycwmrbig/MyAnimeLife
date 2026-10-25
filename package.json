@@ -13,7 +13,8 @@
     "dev": "npm run build && node scripts/serve.mjs",
     "admin": "node scripts/admin.mjs",
     "test": "node --test",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "template:check": "node scripts/check-public-template.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",

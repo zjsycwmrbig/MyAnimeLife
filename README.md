@@ -31,14 +31,25 @@ GitHub Pages 只发布只读展示网站。管理页不会部署到 Pages，只�
 
 推荐使用 GitHub 的 `Use this template`，不要直接 Fork。模板生成的仓库与上游提交历史无关联，只包含默认分支当前文件，因此不会继承上游历史中的番剧记录。
 
-1. 仓库所有者在上游 `Settings` 中启用 `Template repository`。
-2. 打开仓库页面，点击 `Use this template > Create a new repository`。
-3. 修改新仓库 [`config/site.json`](config/site.json) 中的站点名称和描述。
-4. 新仓库的 `data/anime.jsonl` 与 `data/anime-index.jsonl` 为空。通过油猴脚本保存第一条记录，或按 [`data/README.md`](data/README.md) 手动新增。
-5. 进入新仓库 `Settings > Pages`，把 Source 设置为 `GitHub Actions`。
-6. 推送到 `main` 分支，等待 `Deploy GitHub Pages` 工作流完成。
+1. 仓库所有者在[上游设置](https://github.com/zjsycwmrbig/anime-records-template/settings)中启用 `Template repository`。
+2. 运行 `npm run template:check`，确认公开状态、Template 开关、默认分支和空数据都正确。
+3. 打开仓库页面，点击 `Use this template > Create a new repository`。
+4. 修改新仓库 [`config/site.json`](config/site.json) 中的站点名称和描述。
+5. 新仓库的 `data/anime.jsonl` 与 `data/anime-index.jsonl` 为空。通过油猴脚本保存第一条记录，或按 [`data/README.md`](data/README.md) 手动新增。
+6. 进入新仓库 `Settings > Pages`，把 Source 设置为 `GitHub Actions`。
+7. 推送到 `main` 分支，等待 `Deploy GitHub Pages` 工作流完成。
 
 构建器会自动从 GitHub Actions 环境读取仓库地址，因此详情页能够生成正确的“在 GitHub 编辑数据”链接，不需要在配置中写死用户名。
+
+公开模板仓库必须同时满足以下条件：
+
+- `Visibility` 为 `Public`。
+- `Settings > General > Template repository` 已勾选。
+- 默认分支为 `main`。
+- `data/anime.jsonl`、`data/anime-index.jsonl` 为 0 字节。
+- `data/backups` 中没有 JSON 备份文件。
+
+如果以后给上游增加了其他分支，新用户从模板创建仓库时应保持 `Include all branches` 未勾选。油猴设置中的“检查模板”也会在创建前验证前三项；`npm run template:check` 还会检查数据文件和备份。
 
 ## 模板、Fork 与分支隔离
 
