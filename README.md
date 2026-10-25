@@ -35,20 +35,30 @@ data/anime/*.json + templates/<current>/ = dist/*
 
 构建器会自动从 GitHub Actions 环境读取仓库地址，因此详情页能够生成正确的“在 GitHub 编辑数据”链接，不需要在配置中写死用户名。
 
-## Fork 与记录隔离
+## 模板、Fork 与分支隔离
 
-GitHub Fork 会复制完整提交历史。GitHub 没有“只对 Fork 隐藏 `data/anime/`”的能力，`.gitignore` 不能让已经提交的记录从 Fork 中消失，`.gitattributes export-ignore` 也只会影响源码归档。
+GitHub 不支持只 Fork 某一个分支。Fork 会复制仓库当时可见的全部分支和提交历史；GitHub 也没有“只对 Fork 隐藏 `data/anime/`”的能力。`.gitignore` 不能让已经提交的记录从 Fork 中消失，`.gitattributes export-ignore` 也只会影响源码归档。
 
-因此本项目把“模板生成”作为推荐路径：
+因此本项目把 `Use this template` 作为推荐路径：
 
 - `zjsycwmrbig/anime-records-template` 的 `main` 分支始终保持 `data/anime/` 为空，只保留 `.gitkeep`。
-- 新用户通过 `Use this template` 生成一个提交历史无关联的个人仓库，不继承上游旧提交中的文件。
+- 新用户通过 `Use this template` 生成一个提交历史无关联的个人仓库。生成结果只包含模板默认分支的当前文件，不继承其他分支，也不继承上游旧提交中的记录。
 - 第一条评分或评价只会写进用户自己的个人仓库。
 - 上游部署前会运行空白检查；如果模板仓库误提交了个人记录，发布流程会直接失败。
 - 个人记录不要提交到上游模板，也不需要向上游发 Pull Request。
 - 如果要让同一套模板生成自己的站点，请在自己的个人仓库中录入和维护记录。
 
 当前上游历史曾包含示例记录。最新提交删除这些文件并不会把它们从 Git 历史中移除，所以直接 Fork 仍可能从旧提交恢复它们。若历史中的记录也不应继续公开，需要重建或重写上游仓库历史；已有 Fork 不会因为上游随后删除文件而自动清除旧数据。
+
+如果希望把模板和个人数据放在不同分支，可以采用 `main + records` 组织方式：
+
+1. 先通过 `Use this template` 创建个人仓库，此时默认 `main` 继承空模板。
+2. 从 `main` 新建 `records` 分支，只在 `records` 分支提交 `data/anime/*.json`。
+3. 在仓库 `Settings > General` 中把默认分支切换为 `records`。
+4. 油猴脚本的 GitHub 分支设置填写 `records`。
+5. 保持 `main` 为空，不把个人记录合并回去。
+
+Pages 工作流只在当前默认分支执行，因此把 `records` 设为默认分支后，它才会发布个人站点。分支方案便于保持 `main` 干净，但**不是隐私边界**：公开仓库的所有分支都可被访问，也都会被 Fork 复制。需要真正私密的数据时，必须使用私有仓库，或把数据拆到独立的私有仓库。
 
 如果未来需要让代码公开、记录完全私有，应再拆成“模板仓库 + 独立数据仓库”的双仓库模式。当前版本仍采用单仓库，以换取更简单的模板生成、Token 和 Pages 部署流程。
 
@@ -128,8 +138,15 @@ manual-01jabcdef
   "externalIds": {
     "bangumi": "525565",
     "bilibiliMedia": "292073015",
+    "bilibiliSeason": "129142",
     "anilist": "184951",
     "mal": "60371"
+  },
+  "season": {
+    "key": "bgm:525565",
+    "number": 1,
+    "label": "第1季",
+    "year": 2023
   },
   "match": {
     "status": "matched",
@@ -155,6 +172,7 @@ manual-01jabcdef
 | `coverUrl` | 封面 URL；没有时为 `null` |
 | `note` | 给人看的补充备注，支持 Markdown |
 | `externalIds` | 跨站索引，全部使用字符串 |
+| `season` | 可选季度身份；`number` 与 `label` 必须同时填写或同时为 `null` |
 | `match` | 匹配状态、来源、方式、置信度和原始标题 |
 | `createdAt` | 创建时间，ISO 8601 时间字符串 |
 | `updatedAt` | 最后更新时间，ISO 8601 时间字符串 |
@@ -167,6 +185,7 @@ manual-01jabcdef
 - 文件名是否与 `id` 一致
 - 是否存在重复 `id`
 - 同一个 Bilibili、Bangumi、AniList 或 MAL ID 是否被多条记录占用
+- 季度编号与季度标签是否成对出现
 - JSON 是否符合 Schema
 - 模板声明和入口文件是否完整
 

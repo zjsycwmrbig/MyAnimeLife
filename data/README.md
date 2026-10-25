@@ -23,6 +23,7 @@
 - `review`：个人评价，可使用 Markdown
 - `note`：个人备注，可使用 Markdown
 - `coverUrl`：可选封面链接
+- `season`：可选季度身份，包含稳定的 `key`、季度编号、显示标签和年份
 
 ## 由识别流程维护的字段
 
@@ -31,6 +32,10 @@
 - `externalIds.bilibiliSeason`
 - `externalIds.anilist`
 - `externalIds.mal`
+- `season.key`
+- `season.number`
+- `season.label`
+- `season.year`
 - `match.status`
 - `match.method`
 - `match.source`
@@ -39,6 +44,23 @@
 - `match.matchedAt`
 
 `match` 和 `externalIds` 保持结构化，不要写进 `note`。这样后续油猴脚本可以直接根据站点 ID 查找记录，不需要重新解析文本。
+
+## 季度身份
+
+不同季度是不同番剧记录，`season.number` 和 `season.label` 必须同时填写或同时为 `null`。推荐保留稳定的 `season.key`，通常可以使用记录的 `id` 或稳定站点索引：
+
+```json
+{
+  "season": {
+    "key": "bili-ss129142",
+    "number": 2,
+    "label": "第2季",
+    "year": 2026
+  }
+}
+```
+
+旧记录可以不包含 `season`。构建器会继续接受这类记录，并按“季度未知”处理；油猴脚本在确认匹配后可以补充季度字段。
 
 ## 匹配状态
 
