@@ -213,7 +213,7 @@ export async function loadEntries(root = defaultRoot, options = {}) {
     .sort((left, right) => left.localeCompare(right, "zh-CN"));
 
   if (files.length === 0) {
-    throw new Error(`${config.dataDirectory} 中没有 JSON 记录`);
+    return [];
   }
 
   const entries = [];
@@ -430,10 +430,6 @@ export async function buildSite(options = {}) {
   const validator = await compileRecordValidator(root);
   const allEntries = await loadEntries(root, { config, validator });
   const publicEntries = allEntries.filter((record) => !record.deletedAt);
-
-  if (publicEntries.length === 0) {
-    throw new Error("没有可发布的番剧记录");
-  }
 
   const template = await loadTemplate(root, config.template);
   const repository = createRepositoryContext(config);

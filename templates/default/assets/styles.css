@@ -607,17 +607,36 @@ svg {
   color: var(--muted);
 }
 
-.empty-state button {
+.empty-state button,
+.empty-state-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 38px;
   padding: 0 16px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
   cursor: pointer;
 }
 
-.empty-state button:hover {
+.empty-state button:hover,
+.empty-state-action:hover {
   border-color: var(--ink);
+}
+
+.empty-state--initial {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.empty-state--initial p {
+  max-width: 560px;
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .detail-shell {

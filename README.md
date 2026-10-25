@@ -12,7 +12,7 @@ data/anime/*.json + templates/<current>/ = dist/*
 
 ## 页面能力
 
-- 首页展示全部番剧、封面、评分、评价摘要和匹配状态
+- 首页展示全部番剧、封面、评分、评价摘要和匹配状态；没有记录时显示空白引导
 - 支持标题、评价、备注和跨站索引 ID 搜索
 - 支持已评分/未评分筛选，以及更新时间、评分、标题排序
 - 每部番剧有独立详情页
@@ -26,7 +26,7 @@ data/anime/*.json + templates/<current>/ = dist/*
 
 1. 在 GitHub 创建自己的仓库或直接 Fork 本仓库。
 2. 修改 [`config/site.json`](config/site.json) 中的站点名称和描述。
-3. 将 `data/anime/` 中的示例记录替换为自己的记录。
+3. 模板默认不包含番剧。通过油猴脚本保存第一条记录，或按 [`data/README.md`](data/README.md) 手动新增。
 4. 进入仓库 `Settings > Pages`，把 Source 设置为 `GitHub Actions`。
 5. 推送到 `main` 分支，等待 `Deploy GitHub Pages` 工作流完成。
 
@@ -168,7 +168,7 @@ manual-01jabcdef
 {
   "schemaVersion": 1,
   "generatedAt": "2026-10-25T12:00:00.000Z",
-  "itemCount": 6,
+  "itemCount": 0,
   "items": []
 }
 ```
@@ -216,10 +216,10 @@ manual-01jabcdef
 
 ## 数据源说明
 
-示例记录使用 [`bangumi-data`](https://github.com/bangumi-data/bangumi-data) 风格的中日文标题与跨站 ID。封面链接直接指向 AniList 图片 CDN，不包含在仓库中。
+仓库初始为空，不附带演示番剧或第三方站点数据。油猴脚本完成识别后，会把稳定站点 ID、标题、评分和评价写入 `data/anime/`。
 
 后续如果接入 Bilibili PGC 或 Bangumi API，应将这些访问封装在独立 adapter 中，并进行缓存、限流和失败回退。Bilibili 的 `media_id` 与 `season_id` 必须分别保存。
 
 ## License
 
-仓库代码使用 MIT License。示例番剧名称、封面和元数据归各自权利方所有，仅用于展示数据组织方式。
+仓库代码使用 MIT License。用户自行写入的番剧名称、封面和元数据归各自权利方所有。
