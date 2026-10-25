@@ -1,0 +1,705 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  createAnimeRecord,
+  deriveGithubUrls,
+  externalIdsForItem,
+  GitHubRecordsService,
+  mergeAnimeRecord,
+  parseGithubRepository,
+  recordIdsForItem,
+} from "../src/core/github-records.js";
+import {
+  ANIME_INDEX_JSONL_PATH,
+  ANIME_JSONL_PATH,
+  BACKUP_DIRECTORY,
+  buildAnimeIndex,
+  parseJsonl,
+  serializeJsonl,
+} from "../src/core/record-jsonl.js";
+
+const item = {
+  id: "bangumi:525565",
+  title: "正反対な君と僕",
+  displayTitle: "相反的你和我",
+  names: ["相反的你和我", "正反対な君と僕"],
+  coverUrl: "//i0.hdslb.com/example.jpg",
+  sites: {
+    bangumi: "525565",
+    bilibili: "292073015",
+    mal: "60371",
+  },
+};
+
+const selectedResult = {
+  item,
+  confidence: 1,
+  matchedBy: ["bilibili-id"],
+};
+
+function createGithubMock({
+  records = null,
+  files = {},
+  onPut = null,
+} = {}) {
+  const state = new Map();
+  const calls = [];
+  let revision = 1;
+
+  function fileMetadata(repoPath, text, sha) {
+    return {
+      type: "file",
+      encoding: "base64",
+      content: Buffer.from(text, "utf8").toString("base64"),
+      sha,
+      path: repoPath,
+      html_url:
+        `https://github.com/example/anime-records/blob/main/${repoPath}`,
+    };
+  }
+
+  function nextSha() {
+    revision += 1;
+    return `sha-${revision}`;
+  }
+
+  function setFile(repoPath, text, sha = nextSha()) {
+    const file = {
+      text: String(text ?? ""),
+      sha,
+      path: repoPath,
+      html_url:
+        `https://github.com/example/anime-records/blob/main/${repoPath}`,
+    };
+    state.set(repoPath, file);
+    return file;
+  }
+
+  function setLibrary(nextRecords) {
+    setFile(ANIME_JSONL_PATH, serializeJsonl(nextRecords));
+    setFile(
+      ANIME_INDEX_JSONL_PATH,
+      serializeJsonl(buildAnimeIndex(nextRecords)),
+    );
+  }
+
+  for (const [repoPath, file] of Object.entries(files)) {
+    setFile(repoPath, file.text ?? file, file.sha);
+  }
+  if (records) {
+    setLibrary(records);
+  }
+
+  const api = {
+    state,
+    calls,
+    setFile,
+    setLibrary,
+    requestJson: async (url, options = {}) => {
+      const request = {
+        url,
+        options,
+        method: options.method ?? "GET",
+      };
+      calls.push(request);
+      const pathname = new URL(url).pathname;
+      const marker = "/contents/";
+      const markerIndex = pathname.indexOf(marker);
+      if (markerIndex < 0) {
+        throw new Error(`Unexpected GitHub API URL: ${url}`);
+      }
+      const repoPath = decodeURIComponent(
+        pathname.slice(markerIndex + marker.length),
+      );
+
+      if (request.method === "GET") {
+        if (repoPath === BACKUP_DIRECTORY) {
+          return [...state.values()]
+            .filter((file) => file.path.startsWith(`${BACKUP_DIRECTORY}/`))
+            .map((file) => ({
+              type: "file",
+              name: file.path.split("/").at(-1),
+              path: file.path,
+              sha: file.sha,
+            }));
+        }
+        const file = state.get(repoPath);
+        if (!file) {
+          const error = new Error("HTTP 404 Not Found");
+          error.status = 404;
+          throw error;
+        }
+        return fileMetadata(repoPath, file.text, file.sha);
+      }
+
+      if (request.method === "PUT") {
+        const body = JSON.parse(options.body);
+        if (onPut) {
+          await onPut({
+            api,
+            repoPath,
+            body,
+          });
+        }
+        const current = state.get(repoPath);
+        if (
+          (current && body.sha !== current.sha) ||
+          (!current && body.sha)
+        ) {
+          const error = new Error("HTTP 422 conflict");
+          error.status = 422;
+          throw error;
+        }
+        const text = Buffer.from(body.content, "base64").toString("utf8");
+        const saved = setFile(repoPath, text);
+        const uploaded = fileMetadata(repoPath, text, saved.sha);
+        return {
+          content: {
+            name: repoPath.split("/").at(-1),
+            path: repoPath,
+            sha: saved.sha,
+            html_url: uploaded.html_url,
+          },
+          commit: { sha: `commit-${saved.sha}` },
+        };
+      }
+
+      if (request.method === "DELETE") {
+        const body = JSON.parse(options.body);
+        const current = state.get(repoPath);
+        if (!current || current.sha !== body.sha) {
+          const error = new Error("HTTP 409 conflict");
+          error.status = 409;
+          throw error;
+        }
+        state.delete(repoPath);
+        return { commit: { sha: `commit-delete-${current.sha}` } };
+      }
+
+      throw new Error(`Unsupported GitHub API method: ${request.method}`);
+    },
+  };
+
+  return api;
+}
+
+function createService(requestJson, now = "2026-10-25T09:00:00.000Z") {
+  return new GitHubRecordsService({
+    settingsStore: {
+      get: () => ({
+        github: {
+          enabled: true,
+          repositoryUrl: "example/anime-records",
+          token: "secret-token",
+          branch: "main",
+        },
+      }),
+    },
+    requestJsonImpl: requestJson,
+    now: () => now,
+  });
+}
+
+test("parses GitHub repository forms and rejects unsafe URLs", () => {
+  assert.deepEqual(parseGithubRepository("example/anime-records"), {
+    owner: "example",
+    repo: "anime-records",
+    fullName: "example/anime-records",
+    webUrl: "https://github.com/example/anime-records",
+  });
+  assert.equal(
+    parseGithubRepository(
+      "https://github.com/example/anime-records.git",
+    ).fullName,
+    "example/anime-records",
+  );
+  assert.throws(
+    () => parseGithubRepository("http://github.com/example/anime-records"),
+    /github\.com/u,
+  );
+  assert.throws(
+    () => parseGithubRepository("https://example.com/example/anime-records"),
+    /github\.com/u,
+  );
+  assert.throws(
+    () => parseGithubRepository("https://github.com/example/anime-records/tree/main"),
+    /仓库主页地址/u,
+  );
+});
+
+test("derives API, raw and Pages URLs without wildcard GitHub hosts", () => {
+  const urls = deriveGithubUrls(
+    "https://github.com/example/anime-records",
+    "feature/data",
+  );
+  assert.equal(
+    urls.apiUrl,
+    "https://api.github.com/repos/example/anime-records",
+  );
+  assert.equal(
+    urls.contentsUrl,
+    "https://api.github.com/repos/example/anime-records/contents",
+  );
+  assert.equal(
+    urls.pagesLibraryUrl,
+    "https://example.github.io/anime-records/data/library.json",
+  );
+  assert.equal(
+    urls.rawLibraryUrl,
+    "https://raw.githubusercontent.com/example/anime-records/feature/data/dist/data/library.json",
+  );
+});
+
+test("uses stable site IDs before the manual title hash", () => {
+  assert.deepEqual(externalIdsForItem(item, selectedResult), {
+    bangumi: "525565",
+    bilibiliMedia: "292073015",
+    mal: "60371",
+  });
+  assert.deepEqual(recordIdsForItem(item, selectedResult), [
+    "bili-292073015",
+    "bgm-525565",
+    "mal-60371",
+  ]);
+
+  const manualItem = {
+    title: "没有站点映射的番剧",
+    names: ["没有站点映射的番剧"],
+    sites: {},
+  };
+  const manualIds = recordIdsForItem(manualItem);
+  assert.match(manualIds[0], /^manual-[^/]+-[a-f0-9]{8}$/u);
+  assert.deepEqual(recordIdsForItem(manualItem), manualIds);
+});
+
+test("creates sanitized records and preserves existing fields on merge", () => {
+  const created = createAnimeRecord({
+    item,
+    selectedResult,
+    id: "bili-292073015",
+    rating: 9.26,
+    review: "  很好  ",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+  assert.equal(created.rating, 9.3);
+  assert.equal(created.review, "很好");
+  assert.equal(created.coverUrl, "https://i0.hdslb.com/example.jpg");
+  assert.equal(created.match.method, "site-id");
+
+  const merged = mergeAnimeRecord(
+    {
+      ...created,
+      note: "保留备注",
+      customField: { nested: true },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      item,
+      selectedResult,
+      id: "bili-292073015",
+      rating: 8,
+      review: "新评价",
+      now: "2026-10-25T09:00:00.000Z",
+    },
+  );
+  assert.equal(merged.rating, 8);
+  assert.equal(merged.review, "新评价");
+  assert.equal(merged.note, "保留备注");
+  assert.deepEqual(merged.customField, { nested: true });
+  assert.equal(merged.createdAt, "2026-01-01T00:00:00.000Z");
+  assert.equal(merged.updatedAt, "2026-10-25T09:00:00.000Z");
+});
+
+test("uses the Bilibili season id as the preferred record identity", () => {
+  const selected = {
+    ...selectedResult,
+    bilibiliMetadata: {
+      seasonId: "129142",
+      seasonTitle: "相反的你和我 第2季",
+    },
+  };
+  const created = createAnimeRecord({
+    item,
+    selectedResult: selected,
+    id: "bili-ss129142",
+    rating: 9,
+    review: "第二季",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+
+  assert.equal(created.externalIds.bilibiliSeason, "129142");
+  assert.equal(created.season.number, 2);
+  assert.equal(created.season.label, "第2季");
+  assert.deepEqual(recordIdsForItem(item, selected).slice(0, 2), [
+    "bili-ss129142",
+    "bili-292073015",
+  ]);
+});
+
+test("updates both JSONL files with at most two data-file reads", async () => {
+  const existing = {
+    ...createAnimeRecord({
+      item,
+      selectedResult,
+      id: "bili-292073015",
+      rating: 7,
+      review: "旧评价",
+      now: "2026-10-25T08:00:00.000Z",
+    }),
+    note: "不能丢失",
+  };
+  const originalAnimeText = serializeJsonl([existing]);
+  const originalIndexText = serializeJsonl(buildAnimeIndex([existing]));
+  const api = createGithubMock({ records: [existing] });
+  const service = createService(api.requestJson);
+
+  const saved = await service.saveRecord({
+    item,
+    selectedResult,
+    rating: 9,
+    review: "新评价",
+  });
+
+  assert.equal(saved.record.rating, 9);
+  assert.equal(saved.record.note, "不能丢失");
+  assert.equal(saved.path, ANIME_JSONL_PATH);
+  const dataReads = api.calls.filter(
+    (call) =>
+      call.method === "GET" &&
+      [ANIME_JSONL_PATH, ANIME_INDEX_JSONL_PATH].some((repoPath) =>
+        call.url.includes(`/contents/${repoPath}`),
+      ),
+  );
+  assert.equal(dataReads.length, 2);
+
+  const animePut = api.calls.find(
+    (call) =>
+      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
+  );
+  assert.ok(animePut);
+  assert.equal(animePut.options.headers.Authorization, "Bearer secret-token");
+  const animeBody = JSON.parse(animePut.options.body);
+  assert.equal(animeBody.branch, "main");
+  assert.ok(animeBody.sha);
+  const uploadedRecords = parseJsonl(
+    Buffer.from(animeBody.content, "base64").toString("utf8"),
+    ANIME_JSONL_PATH,
+  );
+  assert.equal(uploadedRecords.length, 1);
+  assert.equal(uploadedRecords[0].rating, 9);
+  assert.equal(uploadedRecords[0].review, "新评价");
+
+  const indexPut = api.calls.find(
+    (call) =>
+      call.method === "PUT" &&
+      call.url.endsWith(`/${ANIME_INDEX_JSONL_PATH}`),
+  );
+  assert.ok(indexPut);
+  const indexBody = JSON.parse(indexPut.options.body);
+  const uploadedIndex = parseJsonl(
+    Buffer.from(indexBody.content, "base64").toString("utf8"),
+    ANIME_INDEX_JSONL_PATH,
+  );
+  assert.deepEqual(uploadedIndex, buildAnimeIndex(uploadedRecords));
+
+  const backupPut = api.calls.find(
+    (call) =>
+      call.method === "PUT" &&
+      call.url.includes(`/${BACKUP_DIRECTORY}/library-`),
+  );
+  assert.ok(backupPut);
+  const backup = JSON.parse(
+    Buffer.from(
+      JSON.parse(backupPut.options.body).content,
+      "base64",
+    ).toString("utf8"),
+  );
+  assert.equal(backup.kind, "anime-library-backup");
+  assert.equal(backup.animeText, originalAnimeText);
+  assert.equal(backup.indexText, originalIndexText);
+});
+
+test("a confirmed edit wins even when the remote timestamp is ahead", async () => {
+  const existing = createAnimeRecord({
+    item,
+    selectedResult,
+    id: "bili-292073015",
+    rating: 7,
+    review: "旧评价",
+    now: "2026-10-25T10:00:00.000Z",
+  });
+  const api = createGithubMock({ records: [existing] });
+  const service = createService(
+    api.requestJson,
+    "2026-10-25T09:00:00.000Z",
+  );
+
+  const saved = await service.saveRecord({
+    item,
+    selectedResult,
+    rating: 9,
+    review: "时钟偏差下的新评价",
+  });
+  const records = parseJsonl(
+    api.state.get(ANIME_JSONL_PATH).text,
+    ANIME_JSONL_PATH,
+  );
+
+  assert.equal(saved.record.rating, 9);
+  assert.equal(records[0].rating, 9);
+  assert.equal(records[0].review, "时钟偏差下的新评价");
+  assert.equal(records[0].updatedAt, "2026-10-25T10:00:00.001Z");
+});
+
+test("refetches both JSONL files and retries once after a conflict", async () => {
+  const first = createAnimeRecord({
+    item,
+    selectedResult,
+    id: "bili-292073015",
+    rating: 6,
+    review: "第一次读取",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+  const remoteChange = {
+    ...first,
+    note: "冲突期间的新备注",
+    updatedAt: "2026-10-25T08:30:00.000Z",
+  };
+  let failFirstAnimePut = true;
+  const api = createGithubMock({
+    records: [first],
+    onPut: async ({ api: currentApi, repoPath }) => {
+      if (repoPath === ANIME_JSONL_PATH && failFirstAnimePut) {
+        failFirstAnimePut = false;
+        currentApi.setLibrary([remoteChange]);
+        const error = new Error("HTTP 422 conflict");
+        error.status = 422;
+        throw error;
+      }
+    },
+  });
+  const service = createService(api.requestJson);
+
+  const saved = await service.saveRecord({
+    item,
+    selectedResult,
+    rating: 10,
+    review: "最终评价",
+  });
+
+  assert.equal(saved.record.note, "冲突期间的新备注");
+  const animePuts = api.calls.filter(
+    (call) =>
+      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
+  );
+  assert.equal(animePuts.length, 2);
+  const firstBody = JSON.parse(animePuts[0].options.body);
+  const secondBody = JSON.parse(animePuts[1].options.body);
+  assert.notEqual(firstBody.sha, secondBody.sha);
+
+  const finalRecords = parseJsonl(
+    api.state.get(ANIME_JSONL_PATH).text,
+    ANIME_JSONL_PATH,
+  );
+  const finalIndex = parseJsonl(
+    api.state.get(ANIME_INDEX_JSONL_PATH).text,
+    ANIME_INDEX_JSONL_PATH,
+  );
+  assert.deepEqual(finalIndex, buildAnimeIndex(finalRecords));
+  assert.equal(finalRecords[0].rating, 10);
+  assert.equal(finalRecords[0].review, "最终评价");
+});
+
+test("keeps only the newest five backup snapshots", async () => {
+  const existing = createAnimeRecord({
+    item,
+    selectedResult,
+    id: "bili-292073015",
+    rating: 7,
+    review: "旧评价",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+  const files = {};
+  for (let index = 1; index <= 5; index += 1) {
+    const name = `library-2026-10-2${index}T00-00-00-000Z-old${index}.json`;
+    files[`${BACKUP_DIRECTORY}/${name}`] =
+      `{"schemaVersion":1,"kind":"anime-library-backup"}\n`;
+  }
+  const api = createGithubMock({ records: [existing], files });
+  const service = createService(api.requestJson);
+
+  await service.saveRecord({
+    item,
+    selectedResult,
+    rating: 8,
+    review: "触发备份",
+  });
+
+  const backups = [...api.state.keys()]
+    .filter((repoPath) => repoPath.startsWith(`${BACKUP_DIRECTORY}/library-`))
+    .sort();
+  assert.equal(backups.length, 5);
+  assert.ok(!backups.some((repoPath) => repoPath.endsWith("old1.json")));
+  assert.ok(backups.some((repoPath) => repoPath.includes("2026-10-25")));
+});
+
+test("suspected duplicates respect season identity and can be confirmed", async () => {
+  const existing = {
+    ...createAnimeRecord({
+      item: {
+        id: "bangumi:old",
+        title: "测试番剧 第二季",
+        displayTitle: "测试番剧 第2季",
+        names: ["测试番剧 第二季"],
+        sites: { bangumi: "100", bilibili: "900" },
+      },
+      id: "bili-900",
+      rating: 8,
+      review: "旧记录",
+      now: "2026-10-25T08:00:00.000Z",
+    }),
+    season: {
+      key: "bili-900",
+      number: 2,
+      label: "第2季",
+      year: 2025,
+    },
+  };
+  const api = createGithubMock({ records: [existing] });
+  const service = createService(api.requestJson);
+  const secondSeason = {
+    id: "bangumi:new",
+    title: "测试番剧 第二季",
+    displayTitle: "测试番剧 第2季",
+    names: ["测试番剧 第二季"],
+    sites: { bangumi: "200", bilibili: "901" },
+    begin: "2025-01-01T00:00:00.000Z",
+  };
+  const selected = {
+    item: secondSeason,
+    bilibiliMetadata: {
+      seasonId: "2901",
+      seasonTitle: "测试番剧 第2季",
+    },
+  };
+
+  const inspection = await service.inspectDuplicates({
+    item: secondSeason,
+    selectedResult: selected,
+  });
+  assert.equal(inspection.duplicates.length, 1);
+  assert.match(inspection.duplicates[0].reason, /同一季度/u);
+
+  await assert.rejects(
+    () =>
+      service.saveRecord({
+        item: secondSeason,
+        selectedResult: selected,
+        rating: 9,
+        review: "新记录",
+      }),
+    (error) => error.code === "DUPLICATE_RECORDS",
+  );
+
+  const saved = await service.saveRecord({
+    item: secondSeason,
+    selectedResult: selected,
+    rating: 9,
+    review: "确认后的新记录",
+    allowDuplicates: true,
+  });
+  assert.equal(saved.id, "bili-ss2901");
+
+  const firstSeason = {
+    ...secondSeason,
+    id: "bangumi:s1",
+    title: "测试番剧 第一季",
+    displayTitle: "测试番剧 第1季",
+    names: ["测试番剧 第一季"],
+  };
+  const differentSeason = await service.inspectDuplicates({
+    item: firstSeason,
+    selectedResult: {
+      item: firstSeason,
+      bilibiliMetadata: { seasonId: "1901" },
+    },
+  });
+  assert.equal(differentSeason.duplicates.length, 0);
+});
+
+test("reports authorization failures without exposing the token", async () => {
+  const token = "github_pat_should_never_appear";
+  const service = new GitHubRecordsService({
+    settingsStore: {
+      get: () => ({
+        github: {
+          enabled: true,
+          repositoryUrl: "example/anime-records",
+          token,
+          branch: "main",
+        },
+      }),
+    },
+    requestJsonImpl: async () => {
+      const error = new Error("HTTP 401 Unauthorized");
+      error.status = 401;
+      throw error;
+    },
+  });
+
+  await assert.rejects(
+    () => service.loadForItem(item, selectedResult),
+    (error) => {
+      assert.match(error.message, /Token.*Contents/u);
+      assert.ok(!error.message.includes(token));
+      return true;
+    },
+  );
+});
+
+test("checks whether the public onboarding repository is a usable template", async () => {
+  const requests = [];
+  const service = new GitHubRecordsService({
+    requestJsonImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      return {
+        full_name: "example/public-template",
+        private: false,
+        is_template: true,
+        default_branch: "main",
+        html_url: "https://github.com/example/public-template",
+      };
+    },
+  });
+
+  const result = await service.checkTemplateRepository();
+
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/repos\/.+anime-records-template$/u);
+  assert.equal(requests[0].options.timeout, 20000);
+  assert.deepEqual(result, {
+    fullName: "example/public-template",
+    private: false,
+    isTemplate: true,
+    defaultBranch: "main",
+    ready: true,
+    webUrl: "https://github.com/example/public-template",
+  });
+});
+
+test("marks a repository without template mode as not ready", async () => {
+  const service = new GitHubRecordsService({
+    requestJsonImpl: async () => ({
+      full_name: "example/public-template",
+      private: false,
+      is_template: false,
+      default_branch: "main",
+      html_url: "https://github.com/example/public-template",
+    }),
+  });
+
+  const result = await service.checkTemplateRepository();
+
+  assert.equal(result.ready, false);
+  assert.equal(result.isTemplate, false);
+});

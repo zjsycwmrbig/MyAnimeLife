@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "id": "custom:example",
+    "name": "example-index",
+    "version": "2026-10-25",
+    "fetchedAt": "2026-10-25T00:00:00.000Z",
+    "license": "CC BY 4.0"
+  },
+  "builtAt": "2026-10-25T00:00:00.000Z",
+  "itemCount": 1,
+  "items": [
+    {
+      "id": "bangumi:525565",
+      "title": "正反対な君と僕",
+      "displayTitle": "相反的你和我",
+      "names": [
+        "正反対な君と僕",
+        "相反的你和我",
+        "正相反的你与我",
+        "You and I Are Polar Opposites"
+      ],
+      "normalizedNames": [
+        "正反対な君と僕",
+        "相反的你和我",
+        "正相反的你与我",
+        "youandiarepolaropposites"
+      ],
+      "searchText": "正反対な君と僕 相反的你和我 正相反的你与我 You and I Are Polar Opposites",
+      "type": "tv",
+      "begin": "2023-01-01T00:00:00.000Z",
+      "year": 2023,
+      "coverUrl": null,
+      "sites": {
+        "bangumi": "525565",
+        "bilibili": "292073015",
+        "mal": "60371"
+      }
+    }
+  ]
+}
