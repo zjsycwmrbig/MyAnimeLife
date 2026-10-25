@@ -271,6 +271,14 @@ export class ScoutPanel {
     this.candidateCollapsed = false;
     this.batchCards = [];
     this.batchRenderTimer = null;
+    this.batchScanRequestId = 0;
+    this.batchSelectedIds = new Set();
+    this.batchVisibleLimit = 50;
+    this.batchLoading = false;
+    this.batchImporting = false;
+    this.batchMessage = "";
+    this.batchDiagnostics = [];
+    this.batchTotal = 0;
     this.coverRequestId = 0;
     this.busy = false;
     this.searchTimer = null;
@@ -572,14 +580,49 @@ export class ScoutPanel {
     );
     this.manualSearchSection.hidden = true;
 
-    this.batchList = element("div", { className: "scout-list" });
-    this.batchTitle = element("span", { text: "当前页面番剧" });
+    this.batchList = element("div", {
+      className: "scout-list scout-batch-list",
+    });
+    this.batchTitle = element("span", { text: "追番列表" });
+    this.batchSelectionSummary = element("span", {
+      className: "scout-batch-summary",
+      text: "已选 0 项",
+    });
+    this.batchStatus = element("p", {
+      className: "scout-batch-status",
+      attrs: { role: "status", "aria-live": "polite" },
+    });
+    this.batchActionNote = element("p", {
+      className: "scout-batch-note",
+      text: "新记录默认未评分、无评价；已存在的番剧会自动跳过。",
+    });
+    this.batchSelectAllButton = button(
+      "全选可导入",
+      Check,
+      () => this.toggleAllBatchCards(),
+    );
+    this.batchImportButton = button(
+      "导入并同步",
+      CloudDownload,
+      () => this.syncSelectedBatchCards(),
+      { variant: "primary", disabled: true },
+    );
+    this.batchImportButtonTextNode = this.batchImportButton.lastChild;
     this.batchSection = element("section", { className: "scout-section" }, [
-      element("h3", { className: "scout-section-title" }, [
-        icon(ScanSearch),
-        this.batchTitle,
+      element("div", { className: "scout-batch-heading" }, [
+        element("h3", { className: "scout-section-title" }, [
+          icon(ScanSearch),
+          this.batchTitle,
+        ]),
+        this.batchSelectionSummary,
       ]),
       this.batchList,
+      this.batchStatus,
+      this.batchActionNote,
+      element("div", { className: "scout-batch-toolbar" }, [
+        this.batchSelectAllButton,
+        this.batchImportButton,
+      ]),
     ]);
     this.batchSection.hidden = true;
 
@@ -1324,6 +1367,12 @@ export class ScoutPanel {
       this.onSettingsSaved?.(settings, previous);
     }
     if (
+      this.currentResult?.context?.pageKind === "bilibili-follow" &&
+      this.batchSection
+    ) {
+      this.renderBatchCards();
+    }
+    if (
       options.reloadGithub !== false &&
       this.recordItem?.id &&
       this.githubRecordConfig(settings)
@@ -1343,6 +1392,12 @@ export class ScoutPanel {
     this.recordRemoteRecord = null;
     this.setRecordRemoteLink(null);
     this.syncRecordGithubState();
+    if (
+      this.currentResult?.context?.pageKind === "bilibili-follow" &&
+      this.batchSection
+    ) {
+      this.renderBatchCards();
+    }
   }
 
   async runGithubTemplateCheck() {
@@ -1494,6 +1549,14 @@ export class ScoutPanel {
     this.recordDirty = false;
     this.candidateCollapsed = false;
     this.batchCards = [];
+    this.batchSelectedIds.clear();
+    this.batchVisibleLimit = 50;
+    this.batchLoading = false;
+    this.batchImporting = false;
+    this.batchMessage = "";
+    this.batchDiagnostics = [];
+    this.batchTotal = 0;
+    this.batchScanRequestId += 1;
     this.renderRecognitionResult(result);
     if (this.rescanButtonTextNode) {
       this.rescanButtonTextNode.textContent = "重新识别";
@@ -2212,82 +2275,264 @@ export class ScoutPanel {
     }
   }
 
+  batchGithubWritable() {
+    const settings = this.settingsStore.get();
+    return Boolean(
+      this.githubRecords &&
+        this.githubRecordConfig(settings) &&
+        String(settings.github?.token ?? "").trim(),
+    );
+  }
+
+  batchImportableCards() {
+    return this.batchCards.filter((card) => card.selectedResult?.item?.id);
+  }
+
+  toggleBatchCard(mediaId, checked) {
+    if (checked) {
+      this.batchSelectedIds.add(String(mediaId));
+    } else {
+      this.batchSelectedIds.delete(String(mediaId));
+    }
+    this.batchMessage = "";
+    this.renderBatchCards();
+  }
+
+  toggleAllBatchCards() {
+    const importableIds = this.batchImportableCards().map((card) =>
+      String(card.mediaId),
+    );
+    const allSelected =
+      importableIds.length > 0 &&
+      importableIds.every((id) => this.batchSelectedIds.has(id));
+    this.batchSelectedIds = allSelected
+      ? new Set()
+      : new Set(importableIds);
+    this.batchMessage = "";
+    this.renderBatchCards();
+  }
+
   renderBatchCards() {
-    const cards = this.batchCards;
-    this.batchSection.hidden = cards.length === 0;
-    this.batchList.replaceChildren();
-    if (!cards.length) {
+    if (this.currentResult?.context?.pageKind !== "bilibili-follow") {
+      this.batchSection.hidden = true;
       return;
     }
 
-    const matched = cards.filter((card) => card.item).length;
-    for (const card of cards.slice(0, 30)) {
-      const selected =
-        Boolean(card.item?.id) && this.selectedResult?.item?.id === card.item.id;
-      const selectable = Boolean(card.item?.id);
-      const displayTitle = card.item
-        ? itemDisplayTitle(card.item)
-        : card.title;
-      this.batchList.append(
-        element(selectable ? "button" : "div", {
-          className: `scout-list-row${selected ? " is-selected" : ""}`,
-          dataset: { itemId: card.item?.id ?? card.mediaId },
-          attrs: selectable
-            ? {
-                type: "button",
-                "aria-pressed": selected ? "true" : "false",
-              }
-            : {},
-          on: selectable
-            ? {
-                click: () =>
-                  this.selectResultRow(
-                    {
-                      item: card.item,
-                      confidence: 1,
-                      matchedBy: ["bilibili-card"],
-                    },
-                    "追番列表",
-                  ),
-              }
-            : {},
-        }, [
-          element("div", { className: "scout-list-copy" }, [
-            element("div", {
-              className: "scout-list-title",
-              text: displayTitle,
-            }),
-            element("div", {
-              className: "scout-list-meta",
-              text: card.item
-                ? [card.item.year, card.item.names.slice(1, 2).join("")]
-                    .filter(Boolean)
-                    .join(" · ")
-                : `Bilibili md${card.mediaId}`,
-            }),
-          ]),
-          element("span", { className: "scout-row-tail" }, [
-            element("span", {
-              className: "scout-score",
-              text: card.item ? "已匹配" : "未命中",
-            }),
-            selectable
-              ? element("span", {
-                  className: "scout-row-check",
-                  attrs: { "aria-hidden": "true" },
-                }, [icon(Check)])
-              : null,
-          ]),
-        ]),
-      );
+    const cards = this.batchCards;
+    const importable = this.batchImportableCards();
+    const importableIds = new Set(importable.map((card) => String(card.mediaId)));
+    for (const mediaId of [...this.batchSelectedIds]) {
+      if (!importableIds.has(mediaId)) {
+        this.batchSelectedIds.delete(mediaId);
+      }
     }
-    this.batchTitle.textContent = `当前页面番剧 (${matched}/${cards.length})`;
+
+    this.batchSection.hidden = false;
+    this.batchList.replaceChildren();
+    const matched = importable.length;
+    const totalSuffix =
+      this.batchTotal > cards.length
+        ? ` · 接口共 ${this.batchTotal} 部`
+        : "";
+    this.batchTitle.textContent = this.batchLoading
+      ? "正在读取追番列表"
+      : `追番列表 (${matched}/${cards.length})${totalSuffix}`;
+    this.batchSelectionSummary.textContent =
+      `已选 ${this.batchSelectedIds.size} 项 · 可导入 ${matched}`;
+
+    if (this.batchLoading) {
+      this.batchList.append(
+        element("p", {
+          className: "scout-batch-message",
+          text: "正在自动读取全部追番，请稍候…",
+        }),
+      );
+    } else if (!cards.length) {
+      this.batchList.append(
+        element("p", {
+          className: "scout-batch-message",
+          text: "没有读取到可导入的追番。",
+        }),
+      );
+    } else {
+      for (const card of cards.slice(0, this.batchVisibleLimit)) {
+        const mediaId = String(card.mediaId);
+        const selectable = Boolean(card.selectedResult?.item?.id);
+        const selected = selectable && this.batchSelectedIds.has(mediaId);
+        const displayTitle = card.item
+          ? itemDisplayTitle(card.item)
+          : card.title;
+        const meta = card.item
+          ? [
+              card.item.year,
+              seasonLabelFromItem(card.item),
+              card.item.names?.find(
+                (name) => name !== itemDisplayTitle(card.item),
+              ),
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : `Bilibili md${card.mediaId} · 索引未命中`;
+        const checkbox = element("input", {
+          className: "scout-batch-checkbox",
+          type: "checkbox",
+          checked: selected,
+          disabled:
+            !selectable || this.batchLoading || this.batchImporting,
+          attrs: {
+            "aria-label": selectable
+              ? `选择 ${displayTitle}`
+              : `${displayTitle} 未命中本地索引`,
+          },
+          on: {
+            change: (event) =>
+              this.toggleBatchCard(mediaId, event.currentTarget.checked),
+          },
+        });
+        this.batchList.append(
+          element(
+            "label",
+            {
+              className:
+                `scout-batch-row${selected ? " is-selected" : ""}` +
+                `${selectable ? "" : " is-unmatched"}`,
+              dataset: {
+                itemId: card.item?.id ?? card.mediaId,
+                mediaId,
+              },
+            },
+            [
+              checkbox,
+              element("div", { className: "scout-list-copy" }, [
+                element("div", {
+                  className: "scout-list-title",
+                  text: displayTitle,
+                }),
+                element("div", {
+                  className: "scout-list-meta",
+                  text: meta,
+                }),
+              ]),
+              element("span", {
+                className: "scout-score",
+                text: selectable ? "可导入" : "未命中",
+              }),
+            ],
+          ),
+        );
+      }
+
+      if (cards.length > this.batchVisibleLimit) {
+        const remaining = cards.length - this.batchVisibleLimit;
+        this.batchList.append(
+          element(
+            "button",
+            {
+              className: "scout-batch-load-more",
+              attrs: { type: "button" },
+              on: {
+                click: () => {
+                  this.batchVisibleLimit += 50;
+                  this.renderBatchCards();
+                },
+              },
+            },
+            [`再显示 ${Math.min(50, remaining)} 项`],
+          ),
+        );
+      }
+    }
+
+    this.batchStatus.textContent = this.batchMessage;
+    this.batchStatus.hidden = !this.batchMessage;
+    const writable = this.batchGithubWritable();
+    this.batchActionNote.textContent = writable
+      ? "新记录默认未评分、无评价；已存在的番剧会自动跳过，并一次写入当前选择。"
+      : "批量同步需要先在设置中连接 GitHub 仓库和 Token。";
+    this.batchActionNote.dataset.tone = writable ? "" : "warn";
+    const allSelected =
+      importable.length > 0 &&
+      importable.every((card) =>
+        this.batchSelectedIds.has(String(card.mediaId)),
+      );
+    this.batchSelectAllButton.disabled =
+      this.batchLoading || this.batchImporting || importable.length === 0;
+    this.batchSelectAllButton.lastChild.textContent = allSelected
+      ? "取消全选"
+      : "全选可导入";
+    this.batchImportButton.disabled =
+      this.batchLoading ||
+      this.batchImporting ||
+      !writable ||
+      this.batchSelectedIds.size === 0;
+    this.batchImportButtonTextNode.textContent = this.batchImporting
+      ? "正在同步"
+      : "导入并同步";
+  }
+
+  async syncSelectedBatchCards() {
+    if (this.batchImporting || !this.githubRecords) {
+      return;
+    }
+    if (!this.batchGithubWritable()) {
+      this.showToast("请先在设置中连接 GitHub 仓库并填写 Token");
+      return;
+    }
+
+    const selectedCards = this.batchImportableCards().filter((card) =>
+      this.batchSelectedIds.has(String(card.mediaId)),
+    );
+    if (!selectedCards.length) {
+      this.showToast("请先选择要导入的追番");
+      return;
+    }
+
+    this.batchImporting = true;
+    this.batchMessage = `正在将 ${selectedCards.length} 项写入 GitHub`;
+    this.renderBatchCards();
+    try {
+      const result = await this.githubRecords.saveRecordsBatch({
+        entries: selectedCards.map((card) => ({
+          item: card.selectedResult.item,
+          selectedResult: card.selectedResult,
+        })),
+      });
+      const syncedAt = new Date().toISOString();
+      const settings = this.settingsStore.get();
+      const updatedSettings = this.settingsStore.update({
+        github: {
+          ...settings.github,
+          lastSyncedAt: syncedAt,
+        },
+      });
+      this.githubLastSyncedAt = updatedSettings.github.lastSyncedAt;
+      this.batchSelectedIds.clear();
+      this.batchMessage =
+        result.imported.length > 0
+          ? `已导入 ${result.imported.length} 条，跳过 ${result.skippedCount} 条`
+          : `选中的 ${result.skippedCount} 条均已存在，没有重复写入`;
+      this.showToast(this.batchMessage);
+    } catch (error) {
+      this.batchMessage = `批量同步失败：${toErrorMessage(error)}`;
+      this.showToast(this.batchMessage);
+    } finally {
+      this.batchImporting = false;
+      this.renderBatchCards();
+    }
   }
 
   scheduleBatchCards() {
     clearTimeout(this.batchRenderTimer);
     this.batchRenderTimer = null;
+    const requestId = ++this.batchScanRequestId;
     this.batchCards = [];
+    this.batchSelectedIds.clear();
+    this.batchVisibleLimit = 50;
+    this.batchLoading = false;
+    this.batchImporting = false;
+    this.batchMessage = "";
+    this.batchDiagnostics = [];
+    this.batchTotal = 0;
     this.batchSection.hidden = true;
     this.batchList.replaceChildren();
     if (this.currentResult?.context?.pageKind !== "bilibili-follow") {
@@ -2295,17 +2540,52 @@ export class ScoutPanel {
     }
 
     const result = this.currentResult;
-    const scan = () => {
+    this.batchLoading = true;
+    this.renderBatchCards();
+    const scan = async () => {
       this.batchRenderTimer = null;
-      if (this.currentResult !== result) {
+      if (
+        requestId !== this.batchScanRequestId ||
+        this.currentResult !== result
+      ) {
         return;
       }
-      this.batchCards = this.onScanCards?.() ?? [];
-      this.renderBatchCards();
+      try {
+        const scanned = await this.onScanCards?.();
+        if (
+          requestId !== this.batchScanRequestId ||
+          this.currentResult !== result
+        ) {
+          return;
+        }
+        const payload = Array.isArray(scanned)
+          ? { cards: scanned, diagnostics: [], total: scanned.length }
+          : scanned ?? {};
+        this.batchCards = Array.isArray(payload.cards) ? payload.cards : [];
+        this.batchTotal = Number(payload.total) || this.batchCards.length;
+        this.batchDiagnostics = (payload.diagnostics ?? []).filter(Boolean);
+        this.batchMessage = this.batchDiagnostics.join("；");
+      } catch (error) {
+        if (requestId !== this.batchScanRequestId) {
+          return;
+        }
+        this.batchCards = [];
+        this.batchMessage = `追番列表读取失败：${toErrorMessage(error)}`;
+      } finally {
+        if (
+          requestId === this.batchScanRequestId &&
+          this.currentResult === result
+        ) {
+          this.batchLoading = false;
+          this.renderBatchCards();
+        }
+      }
     };
 
     if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(scan, { timeout: 600 });
+      this.batchRenderTimer = window.requestIdleCallback(scan, {
+        timeout: 600,
+      });
     } else {
       this.batchRenderTimer = window.setTimeout(scan, 0);
     }

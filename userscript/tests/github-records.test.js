@@ -419,6 +419,95 @@ test("updates both JSONL files with at most two data-file reads", async () => {
   assert.equal(backup.indexText, originalIndexText);
 });
 
+test("batch imports new anime once and preserves existing ratings and reviews", async () => {
+  const existing = createAnimeRecord({
+    item,
+    selectedResult,
+    id: "bili-292073015",
+    rating: 7,
+    review: "已有评价不能被覆盖",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+  const newItem = {
+    id: "bangumi:400602",
+    title: "葬送のフリーレン",
+    displayTitle: "葬送的芙莉莲",
+    names: ["葬送的芙莉莲", "葬送のフリーレン"],
+    coverUrl: "//i0.hdslb.com/bfs/anime/frieren.jpg",
+    sites: {
+      bangumi: "400602",
+      bilibili: "4317671",
+    },
+  };
+  const newSelection = {
+    item: newItem,
+    confidence: 1,
+    matchedBy: ["bilibili-api-id"],
+    bilibiliMetadata: {
+      mediaId: "4317671",
+      seasonId: "129142",
+      title: "葬送的芙莉莲",
+    },
+  };
+  const api = createGithubMock({ records: [existing] });
+  const service = createService(api.requestJson);
+
+  const result = await service.saveRecordsBatch({
+    entries: [
+      { item, selectedResult },
+      { item: newItem, selectedResult: newSelection },
+    ],
+    now: "2026-10-25T09:00:00.000Z",
+  });
+
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.imported[0].id, "bili-ss129142");
+  assert.equal(result.skippedCount, 1);
+  assert.equal(result.scannedCount, 2);
+
+  const dataReads = api.calls.filter(
+    (call) =>
+      call.method === "GET" &&
+      [ANIME_JSONL_PATH, ANIME_INDEX_JSONL_PATH].some((repoPath) =>
+        call.url.includes(`/contents/${repoPath}`),
+      ),
+  );
+  assert.equal(dataReads.length, 2);
+
+  const animePuts = api.calls.filter(
+    (call) =>
+      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
+  );
+  const indexPuts = api.calls.filter(
+    (call) =>
+      call.method === "PUT" &&
+      call.url.endsWith(`/${ANIME_INDEX_JSONL_PATH}`),
+  );
+  assert.equal(animePuts.length, 1);
+  assert.equal(indexPuts.length, 1);
+
+  const records = parseJsonl(
+    api.state.get(ANIME_JSONL_PATH).text,
+    ANIME_JSONL_PATH,
+  );
+  assert.equal(records.length, 2);
+  const preserved = records.find((record) => record.id === "bili-292073015");
+  const imported = records.find((record) => record.id === "bili-ss129142");
+  assert.equal(preserved.rating, 7);
+  assert.equal(preserved.review, "已有评价不能被覆盖");
+  assert.equal(imported.rating, null);
+  assert.equal(imported.review, "");
+  assert.equal(imported.externalIds.bilibiliSeason, "129142");
+  assert.equal(imported.externalIds.bilibiliMedia, "4317671");
+  assert.equal(imported.coverUrl, "https://i0.hdslb.com/bfs/anime/frieren.jpg");
+
+  const index = parseJsonl(
+    api.state.get(ANIME_INDEX_JSONL_PATH).text,
+    ANIME_INDEX_JSONL_PATH,
+  );
+  assert.deepEqual(index, buildAnimeIndex(records));
+});
+
 test("a confirmed edit wins even when the remote timestamp is ahead", async () => {
   const existing = createAnimeRecord({
     item,

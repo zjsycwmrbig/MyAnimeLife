@@ -1,6 +1,13 @@
 import { normalizeCoverUrl } from "../core/cover-url.js";
 import { requestJson } from "../core/network.js";
-import { cleanDisplayTitle, extractTitleVariants } from "../core/title-normalize.js";
+import {
+  cleanDisplayTitle,
+  extractTitleVariants,
+} from "../core/title-normalize.js";
+
+const FOLLOW_PAGE_SIZE = 30;
+const MAX_FOLLOW_ITEMS = 2000;
+const MAX_FOLLOW_PAGES = 100;
 
 export async function fetchBilibiliSeasonMetadata(ids) {
   const queryKey = ids.episodeId ? "ep_id" : ids.seasonId ? "season_id" : null;
@@ -100,4 +107,117 @@ export async function fetchBilibiliShortComments(mediaId, options = {}) {
     throw new Error(response?.message ?? "Bilibili 短评接口未返回数据");
   }
   return parseBilibiliShortComments(response, options.limit ?? 12);
+}
+
+export function parseBilibiliFollowPage(payload) {
+  const data = payload?.data ?? {};
+  const rawItems = Array.isArray(data.list) ? data.list : [];
+  const items = rawItems
+    .map((item) => {
+      const mediaId = String(item?.media_id ?? "").trim();
+      const seasonId = String(item?.season_id ?? "").trim();
+      const title = cleanDisplayTitle(
+        item?.title ?? item?.season_title ?? item?.name,
+      );
+      if (!mediaId) {
+        return null;
+      }
+      return {
+        mediaId,
+        seasonId: seasonId || null,
+        title: title || `Bilibili media ${mediaId}`,
+        coverUrl: normalizeCoverUrl(item?.cover),
+        source: "bilibili-follow-api",
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    items,
+    page: Math.max(1, Number(data.pn) || 1),
+    pageSize:
+      Math.max(1, Number(data.ps) || rawItems.length || FOLLOW_PAGE_SIZE),
+    total: Math.max(0, Number(data.total) || 0),
+  };
+}
+
+export async function fetchBilibiliFollowList(uid, options = {}) {
+  const vmid = String(uid ?? "").trim();
+  if (!/^\d+$/u.test(vmid)) {
+    throw new Error("无法从当前追番页识别用户 UID");
+  }
+
+  const request = options.requestJsonImpl ?? requestJson;
+  const maxItems = Math.max(
+    1,
+    Math.min(MAX_FOLLOW_ITEMS, Number(options.maxItems) || MAX_FOLLOW_ITEMS),
+  );
+  const maxPages = Math.max(
+    1,
+    Math.min(MAX_FOLLOW_PAGES, Number(options.maxPages) || MAX_FOLLOW_PAGES),
+  );
+  const cards = [];
+  const seen = new Set();
+  let page = 1;
+  let total = 0;
+  let reachedEnd = false;
+
+  while (page <= maxPages && cards.length < maxItems) {
+    const endpoint = new URL(
+      "https://api.bilibili.com/x/space/bangumi/follow/list",
+    );
+    endpoint.searchParams.set("type", "1");
+    endpoint.searchParams.set("follow_status", "0");
+    endpoint.searchParams.set("pn", String(page));
+    endpoint.searchParams.set("ps", String(FOLLOW_PAGE_SIZE));
+    endpoint.searchParams.set("vmid", vmid);
+    endpoint.searchParams.set("order", "0");
+
+    const response = await request(endpoint.toString(), {
+      timeout: 20000,
+      headers: {
+        Accept: "application/json",
+        Referer: `https://space.bilibili.com/${vmid}/bangumi`,
+      },
+    });
+    if (response?.code !== 0) {
+      throw new Error(response?.message ?? "Bilibili 追番接口未返回数据");
+    }
+
+    const parsed = parseBilibiliFollowPage(response);
+    total = Math.max(total, parsed.total);
+    for (const card of parsed.items) {
+      if (!seen.has(card.mediaId)) {
+        seen.add(card.mediaId);
+        cards.push(card);
+      }
+      if (cards.length >= maxItems) {
+        break;
+      }
+    }
+
+    const expectedPages = total
+      ? Math.ceil(total / parsed.pageSize)
+      : parsed.items.length >= parsed.pageSize
+        ? page + 1
+        : page;
+    if (
+      !parsed.items.length ||
+      page >= expectedPages ||
+      (total > 0 && seen.size >= total)
+    ) {
+      reachedEnd = true;
+      break;
+    }
+    page += 1;
+  }
+
+  const truncated =
+    !reachedEnd || (total > 0 && cards.length < total);
+  return {
+    cards,
+    total,
+    truncated,
+    fetchedPages: Math.min(page, maxPages),
+  };
 }

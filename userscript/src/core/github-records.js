@@ -206,6 +206,26 @@ export function recordIdsForItem(item, selectedResult = null) {
   return [...new Set(ids)];
 }
 
+function recordIdentityTokens(record) {
+  const externalIds = record?.externalIds ?? {};
+  return [
+    cleanString(record?.id),
+    cleanString(externalIds.bilibiliSeason)
+      ? `bili-ss${cleanString(externalIds.bilibiliSeason)}`
+      : "",
+    cleanString(externalIds.bilibiliMedia)
+      ? `bili-${cleanString(externalIds.bilibiliMedia)}`
+      : "",
+    cleanString(externalIds.bangumi)
+      ? `bgm-${cleanString(externalIds.bangumi)}`
+      : "",
+    cleanString(externalIds.anilist)
+      ? `anilist-${cleanString(externalIds.anilist)}`
+      : "",
+    cleanString(externalIds.mal) ? `mal-${cleanString(externalIds.mal)}` : "",
+  ].filter(Boolean);
+}
+
 function seasonKeyFromExternalIds(externalIds = {}) {
   for (const [source, id] of Object.entries(externalIds)) {
     if (cleanString(id)) {
@@ -257,6 +277,9 @@ export function seasonForRecord(record) {
 }
 
 function sanitizeRating(value, fallback = null) {
+  if (value === null || value === undefined || cleanString(value) === "") {
+    return fallback;
+  }
   const rating = Number(value);
   return Number.isFinite(rating) && rating >= 0 && rating <= 10
     ? Math.round(rating * 10) / 10
@@ -934,6 +957,149 @@ export class GitHubRecordsService {
       }
     }
     throw new Error("GitHub 记录写入冲突，请稍后重试");
+  }
+
+  async saveRecordsBatch({ entries = [], now = this.now() } = {}) {
+    const config = this.assertConfigured();
+    const queued = [];
+    const queuedIds = new Set();
+    let inputDuplicateCount = 0;
+
+    for (const entry of entries) {
+      if (!entry?.item) {
+        continue;
+      }
+      const selectedResult = entry.selectedResult ?? null;
+      const ids = recordIdsForItem(entry.item, selectedResult);
+      if (ids.some((id) => queuedIds.has(id))) {
+        inputDuplicateCount += 1;
+        continue;
+      }
+      for (const id of ids) {
+        queuedIds.add(id);
+      }
+      queued.push({
+        item: entry.item,
+        selectedResult,
+        ids,
+        id: ids[0],
+      });
+    }
+
+    if (!queued.length) {
+      return {
+        imported: [],
+        skippedCount: inputDuplicateCount,
+        scannedCount: 0,
+      };
+    }
+
+    const importedById = new Map();
+    let backupWritten = false;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const library = await this.loadLibrary(config, {
+        force: attempt > 0,
+      });
+      const existingTokens = new Set(
+        library.records.flatMap((record) => recordIdentityTokens(record)),
+      );
+      const added = [];
+      let nextRecords = library.records;
+      for (const entry of queued) {
+        if (entry.ids.some((id) => existingTokens.has(id))) {
+          continue;
+        }
+        const record = createAnimeRecord({
+          item: entry.item,
+          selectedResult: entry.selectedResult,
+          id: entry.id,
+          rating: null,
+          review: "",
+          now,
+        });
+        nextRecords = upsertRecord(nextRecords, record);
+        entry.ids.forEach((id) => existingTokens.add(id));
+        added.push(record);
+      }
+
+      const nextIndex = buildAnimeIndex(nextRecords);
+      const animeText = serializeJsonl(nextRecords);
+      const indexText = serializeJsonl(nextIndex);
+      const changed =
+        animeText !== (library.animeFile.text ?? "") ||
+        indexText !== (library.indexFile.text ?? "");
+
+      if (!changed) {
+        const imported = [...importedById.values()];
+        return {
+          imported,
+          skippedCount:
+            queued.length - imported.length + inputDuplicateCount,
+          scannedCount: library.records.length,
+          records: nextRecords,
+          path: ANIME_JSONL_PATH,
+          htmlUrl: library.animeFile.htmlUrl,
+          sha: library.animeFile.sha,
+        };
+      }
+
+      try {
+        if (
+          !backupWritten &&
+          (library.animeFile.exists || library.indexFile.exists)
+        ) {
+          await this.writeBackupSnapshot(config, library, now);
+          backupWritten = true;
+        }
+        const animeWrite = await this.putContentFile(
+          config,
+          ANIME_JSONL_PATH,
+          animeText,
+          library.animeFile.sha,
+          `chore(data): import ${added.length || queued.length} Bilibili anime`,
+        );
+        for (const record of added) {
+          importedById.set(record.id, {
+            id: record.id,
+            title: record.title,
+            mediaId: cleanString(record.externalIds?.bilibiliMedia),
+          });
+        }
+        const indexWrite = await this.putContentFile(
+          config,
+          ANIME_INDEX_JSONL_PATH,
+          indexText,
+          library.indexFile.sha,
+          `chore(data): refresh index after Bilibili import`,
+        );
+        this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
+        this.cacheWrittenFile(
+          config,
+          ANIME_INDEX_JSONL_PATH,
+          indexText,
+          indexWrite,
+        );
+        const imported = [...importedById.values()];
+        return {
+          imported,
+          skippedCount:
+            queued.length - imported.length + inputDuplicateCount,
+          scannedCount: nextRecords.length,
+          records: nextRecords,
+          path: ANIME_JSONL_PATH,
+          htmlUrl: animeWrite.htmlUrl,
+          sha: animeWrite.sha,
+        };
+      } catch (error) {
+        if (attempt > 0 || !isConflict(error)) {
+          throw error;
+        }
+        this.fileCache.delete(this.fileCacheKey(config, ANIME_JSONL_PATH));
+        this.fileCache.delete(this.fileCacheKey(config, ANIME_INDEX_JSONL_PATH));
+      }
+    }
+    throw new Error("GitHub 批量记录写入冲突，请稍后重试");
   }
 
   cacheWrittenFile(config, filePath, text, payload) {

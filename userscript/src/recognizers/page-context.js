@@ -223,9 +223,78 @@ export function extractTitleMentions(texts) {
   return mentions.slice(0, 16);
 }
 
-function detectPageKind(url) {
-  if (url.hostname.endsWith("bilibili.com")) {
-    if (/\/(?:bangumi\/mine\/follow|bangumi\/mine\/bangumi)/iu.test(url.pathname)) {
+function isBilibiliHost(hostname) {
+  const host = String(hostname ?? "").toLocaleLowerCase();
+  return host === "bilibili.com" || host.endsWith(".bilibili.com");
+}
+
+function numericId(value) {
+  const id = String(value ?? "").trim();
+  return /^\d+$/u.test(id) ? id : null;
+}
+
+function cookieUserId(cookie) {
+  return (
+    String(cookie ?? "").match(/(?:^|;\s*)DedeUserID=(\d+)(?:;|$)/u)?.[1] ??
+    null
+  );
+}
+
+function stateUserId(state) {
+  return [
+    state?.mid,
+    state?.user?.mid,
+    state?.userInfo?.mid,
+    state?.profile?.mid,
+    state?.space?.mid,
+  ]
+    .map(numericId)
+    .find(Boolean) ?? null;
+}
+
+export function extractBilibiliFollowUid(input, options = {}) {
+  let url;
+  try {
+    url = new URL(
+      typeof input === "string"
+        ? input
+        : String(input?.url ?? globalThis.location?.href ?? ""),
+      "https://www.bilibili.com",
+    );
+  } catch {
+    return null;
+  }
+  if (!isBilibiliHost(url.hostname)) {
+    return null;
+  }
+  const pathUid = url.pathname.match(/^\/(\d+)\/bangumi(?:\/|$)/u)?.[1];
+  if (pathUid) {
+    return pathUid;
+  }
+  if (!/^\/bangumi\/mine\/(?:follow|bangumi)(?:\/|$)/u.test(url.pathname)) {
+    return null;
+  }
+  return (
+    cookieUserId(
+      options.cookie ??
+        (typeof document === "undefined" ? "" : document.cookie),
+    ) ??
+    stateUserId(
+      options.initialState ??
+        (typeof globalThis === "undefined"
+          ? null
+          : globalThis.__INITIAL_STATE__),
+    )
+  );
+}
+
+export function detectPageKind(url) {
+  if (isBilibiliHost(url.hostname)) {
+    if (
+      /^\/(?:\d+\/bangumi|bangumi\/mine\/(?:follow|bangumi))(?:\/|$)/iu.test(
+        url.pathname,
+      )
+    ) {
       return "bilibili-follow";
     }
     if (/\/bangumi\/media\/md\d+/iu.test(url.pathname)) {
@@ -269,6 +338,7 @@ export function createPageContext(options = {}) {
     commentMentions,
     titleMentions: [...new Set([...summaryMentions, ...commentMentions])],
     bilibiliIds: extractBilibiliIds(location.href),
+    bilibiliFollowUid: extractBilibiliFollowUid(location.href),
   };
 }
 
@@ -373,6 +443,7 @@ export function collectBilibiliCards(limit = 100) {
       "h1, h2, h3, h4, [class*='title'], [title]",
     );
     const imageAlt = container?.querySelector("img[alt]")?.getAttribute("alt");
+    const image = container?.querySelector("img");
     const title =
       cleanDisplayTitle(
         textOf(titleNode) ||
@@ -385,6 +456,11 @@ export function collectBilibiliCards(limit = 100) {
       cards.set(mediaId, {
         mediaId,
         title,
+        coverUrl:
+          image?.currentSrc ||
+          image?.getAttribute("src") ||
+          image?.getAttribute("data-src") ||
+          null,
         source: "bilibili-dom",
       });
     }

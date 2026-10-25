@@ -1,4 +1,16 @@
 import { test, expect } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+
+const previewPort = process.env.PLAYWRIGHT_PORT || "4175";
+const followPagePath = fileURLToPath(
+  new URL("../demo/follow.html", import.meta.url),
+);
+const previewMockPath = fileURLToPath(
+  new URL("../demo/preview-mock.js", import.meta.url),
+);
+const userscriptPath = fileURLToPath(
+  new URL("../dist/anime-index.user.js", import.meta.url),
+);
 
 async function configureGithub(page, host, token = "preview-token") {
   await page.evaluate(() => window.BangumiScout.openSettings());
@@ -22,6 +34,25 @@ async function configureGithub(page, host, token = "preview-token") {
 async function recognizeCurrentPage(host) {
   await host.getByRole("button", { name: "识别当前页" }).click();
   await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
+}
+
+async function routeBilibiliFollowPage(page) {
+  await page.route(/^http:\/\/space\.bilibili\.com:\d+\//u, async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === "/123/bangumi") {
+      await route.fulfill({ path: followPagePath });
+      return;
+    }
+    if (pathname === "/preview-mock.js") {
+      await route.fulfill({ path: previewMockPath });
+      return;
+    }
+    if (pathname === "/anime-index.user.js") {
+      await route.fulfill({ path: userscriptPath });
+      return;
+    }
+    await route.fulfill({ status: 404, body: "Not found" });
+  });
 }
 
 test("recognizes only after a click and opens separate extension settings", async ({
@@ -173,6 +204,107 @@ test("closes, drags and docks the recognition panel", async ({ page }) => {
   await expect(panel).toBeVisible();
   await expect(launcher).toBeHidden();
   await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
+});
+
+test("loads every Bilibili follow page and batch imports selected anime once", async ({
+  page,
+}) => {
+  await routeBilibiliFollowPage(page);
+  await page.goto(
+    `http://space.bilibili.com:${previewPort}/123/bangumi`,
+    { waitUntil: "networkidle" },
+  );
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  const host = page.locator("#bangumi-scout-host");
+  await expect(host.locator(".scout-panel")).toBeHidden();
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests.filter(({ url }) =>
+          url.includes("/x/space/bangumi/follow/list"),
+        ).length,
+    ),
+  ).toBe(0);
+
+  await configureGithub(page, host);
+  await page.evaluate(() => window.BangumiScout.open());
+  await host.getByRole("button", { name: "识别当前页" }).click();
+
+  const batchRows = host.locator(".scout-batch-row");
+  await expect(batchRows).toHaveCount(2);
+  await expect(batchRows.nth(0)).toContainText("相反的你和我");
+  await expect(batchRows.nth(1)).toContainText("葬送的芙莉莲");
+  await expect(host.locator(".scout-batch-summary")).toHaveText(
+    "已选 0 项 · 可导入 2",
+  );
+
+  const followRequests = await page.evaluate(() =>
+    window.__previewRequests.filter(({ url }) =>
+      url.includes("/x/space/bangumi/follow/list"),
+    ),
+  );
+  expect(followRequests).toHaveLength(1);
+  expect(followRequests[0].url).toContain("pn=1");
+  expect(followRequests[0].url).toContain("ps=30");
+  expect(followRequests[0].url).toContain("vmid=123");
+
+  await host.getByRole("button", { name: "全选可导入" }).click();
+  await expect(host.locator(".scout-batch-summary")).toHaveText(
+    "已选 2 项 · 可导入 2",
+  );
+  await host.getByRole("button", { name: "导入并同步" }).click();
+  await expect(host.locator(".scout-batch-status")).toHaveText(
+    "已导入 1 条，跳过 1 条",
+  );
+
+  const putRequests = await page.evaluate(() =>
+    window.__previewRequests.filter(
+      (request) =>
+        request.method === "PUT" &&
+        request.url.startsWith(
+          "https://api.github.com/repos/preview-user/anime-records/contents/",
+        ),
+    ),
+  );
+  expect(
+    putRequests.filter((request) =>
+      request.url.endsWith("/data/anime.jsonl"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    putRequests.filter((request) =>
+      request.url.endsWith("/data/anime-index.jsonl"),
+    ),
+  ).toHaveLength(1);
+
+  const animePut = putRequests.find((request) =>
+    request.url.endsWith("/data/anime.jsonl"),
+  );
+  const body = JSON.parse(animePut.data);
+  const records = await page.evaluate((content) => {
+    const binary = atob(content.replace(/\s+/gu, ""));
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    return new TextDecoder()
+      .decode(bytes)
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+  }, body.content);
+  expect(records).toHaveLength(2);
+  expect(
+    records.find((record) => record.id === "bili-292073015"),
+  ).toMatchObject({
+    rating: 8,
+    review: "这条评价来自预览 GitHub 仓库。",
+  });
+  expect(records.find((record) => record.id === "bili-ss209901")).toMatchObject({
+    rating: null,
+    review: "",
+    title: "葬送的芙莉莲",
+  });
 });
 
 test("saves DeepSeek settings and performs a manual AI identification", async ({

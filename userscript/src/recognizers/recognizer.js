@@ -1,10 +1,12 @@
 import {
   collectBilibiliCards,
   createPageContext,
+  extractBilibiliFollowUid,
   extractTitleCandidates,
   extractTitleMentions,
 } from "./page-context.js";
 import {
+  fetchBilibiliFollowList,
   fetchBilibiliSeasonMetadata,
   fetchBilibiliShortComments,
 } from "./bilibili.js";
@@ -273,16 +275,110 @@ export class AnimeRecognizer {
     return this.indexService.getSearch().search(query, options);
   }
 
-  scanBilibiliCards(limit = 100) {
-    return collectBilibiliCards(limit).map((card) => {
-      const item = this.indexService
-        .getSearch()
-        .findBySiteId("bilibili", card.mediaId);
-      return {
-        ...card,
-        item,
-        confidence: item ? 1 : 0,
-      };
-    });
+  async scanBilibiliCards(limit = 2000, options = {}) {
+    const diagnostics = [];
+    const domCards = collectBilibiliCards(limit);
+    const followUid = extractBilibiliFollowUid(location.href);
+    let apiResult = null;
+
+    if (followUid && options.includeBilibiliApi !== false) {
+      try {
+        apiResult = await fetchBilibiliFollowList(followUid, {
+          maxItems: limit,
+          requestJsonImpl: options.requestJsonImpl,
+        });
+        diagnostics.push(
+          `Bilibili 追番：读取 ${apiResult.cards.length}/${apiResult.total} 部`,
+        );
+        if (apiResult.truncated) {
+          diagnostics.push(
+            `追番数量超过单次上限，仅载入前 ${apiResult.cards.length} 部`,
+          );
+        }
+      } catch (error) {
+        diagnostics.push(`Bilibili 追番接口：${error.message}，已改用页面扫描`);
+      }
+    } else if (!followUid) {
+      diagnostics.push("未取得 Bilibili UID，已使用当前页面已加载的追番卡片");
+    }
+
+    const cards = new Map();
+    for (const card of apiResult?.cards ?? []) {
+      cards.set(card.mediaId, card);
+    }
+    for (const card of domCards) {
+      if (!cards.has(card.mediaId)) {
+        cards.set(card.mediaId, card);
+      }
+    }
+
+    const search = this.indexService.getSearch();
+    return {
+      cards: [...cards.values()].slice(0, limit).map((card) => {
+        const exactItem = search.findBySiteId("bilibili", card.mediaId);
+        if (exactItem) {
+          const item = {
+            ...exactItem,
+            coverUrl: exactItem.coverUrl || card.coverUrl || null,
+          };
+          return {
+            ...card,
+            item,
+            confidence: 1,
+            selectedResult: {
+              item,
+              confidence: 1,
+              matchedBy: [
+                card.source === "bilibili-follow-api"
+                  ? "bilibili-api-id"
+                  : "bilibili-id",
+              ],
+              bilibiliMetadata: {
+                mediaId: card.mediaId,
+                seasonId: card.seasonId,
+                title: card.title,
+                names: [card.title],
+                coverUrl: card.coverUrl || null,
+              },
+            },
+          };
+        }
+
+        const titleMatch = search.search(card.title, { limit: 3 })[0];
+        if (titleMatch?.confidence >= 0.7) {
+          const item = {
+            ...titleMatch.item,
+            coverUrl: titleMatch.item.coverUrl || card.coverUrl || null,
+          };
+          return {
+            ...card,
+            item,
+            confidence: titleMatch.confidence,
+            selectedResult: {
+              ...titleMatch,
+              item,
+              bilibiliMetadata: {
+                mediaId: card.mediaId,
+                seasonId: card.seasonId,
+                title: card.title,
+                names: [card.title],
+                coverUrl: card.coverUrl || null,
+              },
+            },
+          };
+        }
+
+        return {
+          ...card,
+          item: null,
+          confidence: 0,
+          selectedResult: null,
+        };
+      }),
+      diagnostics,
+      source: apiResult ? "bilibili-follow-api" : "bilibili-dom",
+      total: apiResult?.total ?? domCards.length,
+      truncated: Boolean(apiResult?.truncated),
+    };
   }
 }

@@ -155,7 +155,34 @@
         } else if (url.hostname === "cdn.jsdelivr.net") {
           responseText = JSON.stringify(fixtureIndex);
         } else if (url.hostname === "api.bilibili.com") {
-          if (url.pathname === "/pgc/review/short/list") {
+          if (url.pathname === "/x/space/bangumi/follow/list") {
+            responseText = JSON.stringify({
+              code: 0,
+              data: {
+                pn: Number(url.searchParams.get("pn")) || 1,
+                ps: 30,
+                total: 2,
+                list: [
+                  {
+                    media_id: 292073015,
+                    season_id: 129142,
+                    title: "相反的你和我",
+                    season_title: "相反的你和我",
+                    cover:
+                      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 400'%3E%3Crect width='300' height='400' fill='%23f4c86a'/%3E%3C/svg%3E",
+                  },
+                  {
+                    media_id: 4317671,
+                    season_id: 209901,
+                    title: "葬送的芙莉莲",
+                    season_title: "葬送的芙莉莲",
+                    cover:
+                      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 400'%3E%3Crect width='300' height='400' fill='%2367829b'/%3E%3C/svg%3E",
+                  },
+                ],
+              },
+            });
+          } else if (url.pathname === "/pgc/review/short/list") {
             responseText = JSON.stringify({
               code: 0,
               data: {

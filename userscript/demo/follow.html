@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>我的追番_bilibili_哔哩哔哩</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f6f7f8;
+        color: #18191c;
+        font-family:
+          "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      header {
+        display: flex;
+        height: 58px;
+        align-items: center;
+        padding: 0 28px;
+        border-bottom: 1px solid #e3e5e7;
+        background: #fff;
+        font-weight: 700;
+      }
+      main {
+        max-width: 1080px;
+        margin: 30px auto;
+        padding: 0 24px;
+      }
+      h1 {
+        font-size: 26px;
+      }
+      .follow-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .follow-card {
+        min-height: 180px;
+        padding: 16px;
+        border: 1px solid #e3e5e7;
+        border-radius: 8px;
+        background: #fff;
+      }
+      @media (max-width: 700px) {
+        .follow-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>bilibili 番剧</header>
+    <main>
+      <h1>我的追番</h1>
+      <div class="follow-grid">
+        <article class="follow-card">相反的你和我</article>
+        <article class="follow-card">葬送的芙莉莲</article>
+      </div>
+    </main>
+    <script src="/preview-mock.js"></script>
+    <script src="/anime-index.user.js"></script>
+  </body>
+</html>

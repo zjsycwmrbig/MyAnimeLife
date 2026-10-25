@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractTitleMentions } from "../src/recognizers/page-context.js";
+import {
+  detectPageKind,
+  extractBilibiliFollowUid,
+  extractTitleMentions,
+} from "../src/recognizers/page-context.js";
 
 test("extracts title mentions from synopsis and comments", () => {
   const mentions = extractTitleMentions([
@@ -23,4 +27,47 @@ test("deduplicates mentions and ignores generic phrases", () => {
   ]);
 
   assert.deepEqual(mentions, ["相反的你和我"]);
+});
+
+test("recognizes Bilibili follow routes and extracts their user id", () => {
+  assert.equal(
+    detectPageKind(new URL("https://space.bilibili.com/123/bangumi")),
+    "bilibili-follow",
+  );
+  assert.equal(
+    detectPageKind(
+      new URL("https://www.bilibili.com/bangumi/mine/follow"),
+    ),
+    "bilibili-follow",
+  );
+  assert.equal(
+    extractBilibiliFollowUid("https://space.bilibili.com/123/bangumi"),
+    "123",
+  );
+});
+
+test("falls back to Bilibili login cookies or initial state for the user id", () => {
+  const mine = "https://www.bilibili.com/bangumi/mine/follow";
+
+  assert.equal(
+    extractBilibiliFollowUid(mine, {
+      cookie: "theme=light; DedeUserID=456; SESSDATA=secret",
+    }),
+    "456",
+  );
+  assert.equal(
+    extractBilibiliFollowUid(mine, {
+      cookie: "",
+      initialState: { userInfo: { mid: 789 } },
+    }),
+    "789",
+  );
+  assert.equal(extractBilibiliFollowUid(mine, { cookie: "" }), null);
+});
+
+test("does not treat lookalike Bilibili hosts as Bilibili pages", () => {
+  const lookalike = new URL("https://evilbilibili.com/123/bangumi");
+
+  assert.equal(detectPageKind(lookalike), "generic");
+  assert.equal(extractBilibiliFollowUid(lookalike.toString()), null);
 });

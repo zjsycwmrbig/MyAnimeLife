@@ -59,13 +59,8 @@ async function bootstrap() {
     onClearIndex: async () => {
       await indexService.clearCache();
     },
-    onScanCards: () =>
-      recognizer.scanBilibiliCards().map((card) => ({
-        ...card,
-        item:
-          card.item ??
-          indexService.getSearch().findBySiteId("bilibili", card.mediaId),
-      })),
+    onScanCards: (options = {}) =>
+      recognizer.scanBilibiliCards(2000, options),
   });
   panel.mount();
 
