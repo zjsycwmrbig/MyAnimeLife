@@ -26,6 +26,11 @@ const rawIndex = {
       },
       type: "tv",
       begin: "2023-09-29T00:00:00.000Z",
+      season: {
+        number: 1,
+        label: "第1季",
+        year: 2023,
+      },
       sites: [
         { site: "bangumi", id: "400602" },
         { site: "bilibili", id: "4317671" },
@@ -47,6 +52,9 @@ test("builds a compact searchable index", () => {
   assert.equal(slim.items[0].title, "正反対な君と僕");
   assert.equal(slim.items[0].displayTitle, "相反的你和我");
   assert.ok(slim.items[0].normalizedNames.includes("相反的你和我"));
+  assert.equal(slim.items[1].season.number, 1);
+  assert.equal(slim.items[1].season.label, "第1季");
+  assert.equal(slim.items[1].season.year, 2023);
 });
 
 test("exact site ids take precedence over title ambiguity", () => {

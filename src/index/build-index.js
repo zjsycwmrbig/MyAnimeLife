@@ -1,4 +1,5 @@
 import { normalizeCoverUrl } from "../core/cover-url.js";
+import { createSeasonDescriptor } from "../core/season.js";
 import { normalizeTitle } from "../core/title-normalize.js";
 
 export const INDEX_SCHEMA_VERSION = 1;
@@ -127,8 +128,9 @@ export function buildSlimIndex(raw, metadata = {}) {
       const sites = collectSites(item.sites);
       const begin = String(item.begin ?? "") || null;
       const year = coerceYear(begin);
+      const id = stableItemId(title, names, sites, year);
       return {
-        id: stableItemId(title, names, sites, year),
+        id,
         title,
         displayTitle: collectDisplayTitle(item, names),
         names,
@@ -138,6 +140,14 @@ export function buildSlimIndex(raw, metadata = {}) {
         begin,
         year,
         sites,
+        season: createSeasonDescriptor({
+          key: id,
+          title,
+          names,
+          begin,
+          year,
+          season: item.season,
+        }),
         coverUrl: collectCoverUrl(item),
       };
     })
@@ -163,11 +173,27 @@ export function buildSlimIndex(raw, metadata = {}) {
 
 export function normalizeIndexPayload(payload, metadata = {}) {
   if (
-    payload?.schemaVersion === INDEX_SCHEMA_VERSION &&
-    Array.isArray(payload.items)
+    Array.isArray(payload?.items) &&
+    indexItemsHaveSearchFields(payload.items)
   ) {
     return {
       ...payload,
+      schemaVersion: INDEX_SCHEMA_VERSION,
+      items: payload.items.map((item) => {
+        if (item.season?.key) {
+          return item;
+        }
+        return {
+          ...item,
+          season: createSeasonDescriptor({
+            key: item.id,
+            title: item.displayTitle || item.title,
+            names: item.names,
+            begin: item.begin,
+            year: item.year,
+          }),
+        };
+      }),
       source: {
         ...payload.source,
         ...metadata,
