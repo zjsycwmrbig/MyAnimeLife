@@ -22,6 +22,7 @@ const state = {
   total: 0,
   page: 1,
   pageSize: 30,
+  layout: "list",
   query: "",
   year: "",
   source: "",
@@ -42,6 +43,8 @@ const elements = {
   catalogSource: document.querySelector("#catalogSource"),
   catalogRefresh: document.querySelector("#catalogRefresh"),
   catalogRows: document.querySelector("#catalogRows"),
+  catalogTable: document.querySelector("#catalogTable"),
+  catalogCards: document.querySelector("#catalogCards"),
   catalogCount: document.querySelector("#catalogCount"),
   catalogStatus: document.querySelector("#catalogStatus"),
   catalogSourceSummary: document.querySelector("#catalogSourceSummary"),
@@ -59,6 +62,7 @@ const elements = {
   catalogPageSummary: document.querySelector("#catalogPageSummary"),
   catalogPageButtons: document.querySelector("#catalogPageButtons"),
   catalogPageSize: document.querySelector("#catalogPageSize"),
+  catalogPageSizeCustom: document.querySelector("#catalogPageSizeCustom"),
   catalogPreviousPage: document.querySelector("#catalogPreviousPage"),
   catalogNextPage: document.querySelector("#catalogNextPage"),
   catalogEditorEmpty: document.querySelector("#catalogEditorEmpty"),
@@ -336,13 +340,34 @@ function populateFacets(facets) {
   state.facetsLoaded = true;
 }
 
-function createCover(item) {
+function createLoadingSvg() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("catalog-cover-loader");
+  svg.setAttribute("viewBox", "0 0 32 32");
+  svg.setAttribute("aria-hidden", "true");
+  const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  circle.setAttribute("cx", "16");
+  circle.setAttribute("cy", "16");
+  circle.setAttribute("r", "10");
+  circle.setAttribute("fill", "none");
+  circle.setAttribute("stroke", "currentColor");
+  circle.setAttribute("stroke-width", "3");
+  circle.setAttribute("stroke-linecap", "round");
+  circle.setAttribute("stroke-dasharray", "42 21");
+  svg.append(circle);
+  return svg;
+}
+
+function createCover(item, options = {}) {
   const cover = document.createElement("span");
   cover.className = "catalog-row-cover";
   const fallback = document.createElement("span");
   fallback.className = "catalog-row-fallback";
   fallback.textContent = [...item.displayTitle][0] ?? "A";
   cover.append(fallback);
+  if (options.loading) {
+    cover.append(createLoadingSvg());
+  }
   if (item.coverUrl) {
     const image = document.createElement("img");
     image.src = item.coverUrl;
@@ -375,10 +400,72 @@ function toggleSelection(item) {
     }
     state.selectedItems.set(item.id, item);
     state.drafts.set(item.id, createDraft(item));
+    void hydrateSelectedCover(item);
   }
   state.dirty = false;
   renderCatalogRows();
   renderBatchEditor();
+}
+
+function createCatalogCard(item) {
+  const card = document.createElement("article");
+  card.className = "catalog-card";
+  card.tabIndex = 0;
+  card.classList.toggle("is-selected", state.selectedItems.has(item.id));
+  card.classList.toggle("is-owned", Boolean(item.ownedRecordId));
+
+  card.append(createCover(item, {
+    loading: Boolean(item.sites?.bangumi && !item.coverUrl && !item.coverResolved),
+  }));
+
+  const body = document.createElement("div");
+  body.className = "catalog-card-body";
+  const top = document.createElement("div");
+  top.className = "catalog-card-top";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = state.selectedItems.has(item.id);
+  checkbox.disabled = Boolean(item.ownedRecordId) || !getRuntime().writable;
+  checkbox.setAttribute(
+    "aria-label",
+    item.ownedRecordId ? `${item.displayTitle} 已收录` : `选择 ${item.displayTitle}`,
+  );
+  checkbox.addEventListener("click", (event) => event.stopPropagation());
+  checkbox.addEventListener("change", () => toggleSelection(item));
+  top.append(checkbox);
+  if (item.ownedRecordId) {
+    const owned = document.createElement("span");
+    owned.className = "owned-badge";
+    owned.textContent = "已收录";
+    top.append(owned);
+  }
+  body.append(top);
+
+  const title = document.createElement("h3");
+  title.textContent = item.displayTitle;
+  body.append(title);
+  const alternate = item.title !== item.displayTitle
+    ? item.title
+    : item.names.find((name) => name !== item.displayTitle) ?? "";
+  const subtitle = document.createElement("span");
+  subtitle.className = "catalog-card-subtitle";
+  subtitle.textContent = alternate;
+  body.append(subtitle);
+  const meta = document.createElement("span");
+  meta.className = "catalog-card-meta";
+  meta.textContent = itemMeta(item);
+  body.append(meta);
+  card.append(body);
+
+  const select = () => toggleSelection(item);
+  card.addEventListener("click", select);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      select();
+    }
+  });
+  return card;
 }
 
 function createCatalogRow(item) {
@@ -409,7 +496,9 @@ function createCatalogRow(item) {
   titleCell.className = "catalog-title-cell";
   const work = document.createElement("div");
   work.className = "catalog-work";
-  work.append(createCover(item));
+  work.append(createCover(item, {
+    loading: Boolean(item.sites?.bangumi && !item.coverUrl && !item.coverResolved),
+  }));
   const copy = document.createElement("div");
   copy.className = "catalog-work-copy";
   const titleLine = document.createElement("div");
@@ -488,8 +577,16 @@ function renderCatalogRows() {
     state.pageSize,
     state.page,
   );
+  elements.catalogTable.hidden = state.layout !== "list";
+  elements.catalogCards.hidden = state.layout !== "cards";
   state.page = pageInfo.page;
-  elements.catalogRows.replaceChildren(...state.items.map(createCatalogRow));
+  elements.catalogRows.replaceChildren(
+    ...(state.layout === "list" ? state.items.map(createCatalogRow) : []),
+  );
+  elements.catalogCards.replaceChildren();
+  if (state.layout === "cards") {
+    elements.catalogCards.append(...state.items.map(createCatalogCard));
+  }
   elements.catalogCount.textContent = state.total
     ? state.total.toLocaleString("zh-CN")
     : "0";
@@ -528,13 +625,16 @@ function renderCatalogRows() {
 async function hydrateVisibleCovers(sequence) {
   try {
     const covers = await resolveCatalogCovers(state.items);
-    if (sequence !== requestSequence || !covers.size) {
+    if (sequence !== requestSequence) {
       return;
     }
     for (const item of state.items) {
       const coverUrl = covers.get(item.id);
       if (coverUrl) {
         item.coverUrl = coverUrl;
+      }
+      if (item.sites?.bangumi && !item.coverUrl) {
+        item.coverResolved = true;
       }
     }
     renderCatalogRows();
@@ -543,6 +643,23 @@ async function hydrateVisibleCovers(sequence) {
     }
   } catch {
     // A cover service failure leaves the title fallback in place.
+  }
+}
+
+async function hydrateSelectedCover(item) {
+  if (item.coverUrl || !item.sites?.bangumi) {
+    return;
+  }
+  try {
+    const covers = await resolveCatalogCovers([item]);
+    item.coverUrl = covers.get(item.id) ?? item.coverUrl;
+    item.coverResolved = true;
+    if (state.selectedItems.has(item.id)) {
+      renderCatalogRows();
+      renderBatchEditor();
+    }
+  } catch {
+    item.coverResolved = true;
   }
 }
 
@@ -648,7 +765,9 @@ function createDraftRow(item) {
 
   const heading = document.createElement("div");
   heading.className = "catalog-draft-heading";
-  heading.append(createCover(item));
+  heading.append(createCover(item, {
+    loading: Boolean(item.sites?.bangumi && !item.coverUrl && !item.coverResolved),
+  }));
   const copy = document.createElement("div");
   copy.className = "catalog-draft-copy";
   const title = document.createElement("strong");
@@ -745,7 +864,7 @@ function createDraftRow(item) {
 }
 
 function renderBatchEditor() {
-  const items = [...state.selectedItems.values()];
+  const items = [...state.selectedItems.values()].reverse();
   elements.catalogEditorEmpty.hidden = items.length > 0;
   elements.catalogBatchForm.hidden = items.length === 0;
   if (!items.length) {
@@ -887,10 +1006,40 @@ elements.catalogRefresh.addEventListener("click", () => {
 });
 
 elements.catalogPageSize.addEventListener("change", () => {
-  state.pageSize = Number(elements.catalogPageSize.value);
+  if (elements.catalogPageSize.value === "custom") {
+    elements.catalogPageSizeCustom.hidden = false;
+    elements.catalogPageSizeCustom.value = String(state.pageSize);
+    elements.catalogPageSizeCustom.focus();
+  } else {
+    elements.catalogPageSizeCustom.hidden = true;
+    state.pageSize = Number(elements.catalogPageSize.value);
+  }
   state.page = 1;
   loadCatalog();
 });
+
+elements.catalogPageSizeCustom.addEventListener("change", () => {
+  const pageSize = Number(elements.catalogPageSizeCustom.value);
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 200) {
+    showToast("自定义每页数量必须是 1 到 200 的整数", { error: true });
+    elements.catalogPageSizeCustom.value = String(state.pageSize);
+    return;
+  }
+  state.pageSize = pageSize;
+  state.page = 1;
+  loadCatalog();
+});
+
+for (const button of document.querySelectorAll('[data-layout-target="catalog"]')) {
+  button.addEventListener("click", () => {
+    state.layout = button.dataset.layout;
+    for (const candidate of document.querySelectorAll('[data-layout-target="catalog"]')) {
+      candidate.classList.toggle("is-active", candidate === button);
+      candidate.setAttribute("aria-pressed", String(candidate === button));
+    }
+    renderCatalogRows();
+  });
+}
 
 elements.catalogPreviousPage.addEventListener("click", () => {
   state.page = Math.max(1, state.page - 1);
@@ -915,6 +1064,7 @@ elements.catalogSelectAll.addEventListener("change", () => {
       if (!state.selectedItems.has(item.id)) {
         state.selectedItems.set(item.id, item);
         state.drafts.set(item.id, createDraft(item));
+        void hydrateSelectedCover(item);
       }
     }
   } else {

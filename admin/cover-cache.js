@@ -1,6 +1,7 @@
 const DATABASE_NAME = "myanimelife-catalog-covers";
 const STORE_NAME = "covers";
 const MISS_TTL = 7 * 24 * 60 * 60 * 1000;
+const inFlight = new Map();
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -106,6 +107,14 @@ async function fetchBangumiCover(subjectId) {
   }
 }
 
+function fetchCachedBangumiCover(subjectId) {
+  const key = clean(subjectId);
+  if (!inFlight.has(key)) {
+    inFlight.set(key, fetchBangumiCover(key).finally(() => inFlight.delete(key)));
+  }
+  return inFlight.get(key);
+}
+
 function createLimiter(limit) {
   let active = 0;
   const queue = [];
@@ -142,7 +151,7 @@ export async function resolveCatalogCovers(items) {
   const updates = new Map();
   await Promise.all(
     pending.map(({ item, key }) => limiter(async () => {
-      const coverUrl = await fetchBangumiCover(item.sites.bangumi);
+      const coverUrl = await fetchCachedBangumiCover(item.sites.bangumi);
       updates.set(key, { coverUrl, checkedAt: Date.now() });
     })),
   );

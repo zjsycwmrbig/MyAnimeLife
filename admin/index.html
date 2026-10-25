@@ -49,9 +49,15 @@
               <p class="eyebrow">LIBRARY</p>
               <h1>番剧数据</h1>
             </div>
-            <div class="library-counts" aria-live="polite">
-              <strong id="recordCount">0</strong>
-              <span>条记录</span>
+            <div class="heading-tools">
+              <div class="library-counts" aria-live="polite">
+                <strong id="recordCount">0</strong>
+                <span>条记录</span>
+              </div>
+              <div class="layout-switch" role="group" aria-label="我的记录视图">
+                <button class="is-active" data-layout-target="library" data-layout="list" type="button">列表</button>
+                <button data-layout-target="library" data-layout="cards" type="button">卡片</button>
+              </div>
             </div>
           </div>
 
@@ -86,7 +92,7 @@
           </div>
 
           <div class="table-wrap">
-            <table class="library-table">
+            <table id="libraryTable" class="library-table">
               <thead>
                 <tr>
                   <th class="checkbox-column"></th>
@@ -97,6 +103,7 @@
               </thead>
               <tbody id="recordRows"></tbody>
             </table>
+            <div id="recordCards" class="record-card-grid" hidden></div>
             <div id="emptyState" class="empty-state" hidden>
               <strong>没有匹配的记录</strong>
               <span>清除搜索或切换筛选条件。</span>
@@ -114,11 +121,14 @@
             <label class="pagination-size">
               <span>每页</span>
               <select id="libraryPageSize">
+                <option value="10">10</option>
                 <option value="20">20</option>
                 <option value="30" selected>30</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
+                <option value="custom">自定义</option>
               </select>
+              <input id="libraryPageSizeCustom" class="pagination-custom-size" type="number" min="1" max="200" step="1" value="30" aria-label="我的记录自定义每页数量" hidden />
             </label>
             <div class="pagination-step">
               <button id="libraryPreviousPage" type="button">上一页</button>
@@ -202,9 +212,15 @@
               <p class="eyebrow">CATALOG</p>
               <h1>发现番剧</h1>
             </div>
-            <div class="library-counts catalog-counts" aria-live="polite">
-              <strong id="catalogCount">—</strong>
-              <span>条索引</span>
+            <div class="heading-tools">
+              <div class="library-counts catalog-counts" aria-live="polite">
+                <strong id="catalogCount">—</strong>
+                <span>条索引</span>
+              </div>
+              <div class="layout-switch" role="group" aria-label="全量索引视图">
+                <button class="is-active" data-layout-target="catalog" data-layout="list" type="button">列表</button>
+                <button data-layout-target="catalog" data-layout="cards" type="button">卡片</button>
+              </div>
             </div>
           </div>
 
@@ -305,7 +321,7 @@
           </div>
 
           <div class="table-wrap catalog-table-wrap">
-            <table class="catalog-table">
+            <table id="catalogTable" class="catalog-table">
               <thead>
                 <tr>
                   <th class="checkbox-column">
@@ -322,6 +338,7 @@
               </thead>
               <tbody id="catalogRows"></tbody>
             </table>
+            <div id="catalogCards" class="catalog-card-grid" hidden></div>
             <div id="catalogEmpty" class="empty-state" hidden>
               <strong id="catalogEmptyTitle">没有匹配的索引</strong>
               <span id="catalogEmptyText">换一个标题或调整筛选条件。</span>
@@ -339,11 +356,14 @@
             <label class="pagination-size">
               <span>每页</span>
               <select id="catalogPageSize">
+                <option value="10">10</option>
                 <option value="20">20</option>
                 <option value="30" selected>30</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
+                <option value="custom">自定义</option>
               </select>
+              <input id="catalogPageSizeCustom" class="pagination-custom-size" type="number" min="1" max="200" step="1" value="30" aria-label="全量索引自定义每页数量" hidden />
             </label>
             <div class="pagination-step">
               <button id="catalogPreviousPage" type="button">上一页</button>

@@ -254,6 +254,41 @@ textarea:focus-visible,
   gap: 24px;
 }
 
+.heading-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.layout-switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.layout-switch button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.layout-switch button:hover {
+  color: var(--ink);
+}
+
+.layout-switch button.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgb(24 33 47 / 12%);
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--accent);
@@ -667,6 +702,21 @@ h2 {
   height: 100%;
   inset: 0;
   object-fit: cover;
+}
+
+.catalog-cover-loader {
+  position: absolute;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  animation: cover-spin 900ms linear infinite;
+}
+
+@keyframes cover-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .catalog-work-copy {
@@ -1185,6 +1235,154 @@ th:nth-child(4) {
   box-shadow: inset 3px 0 var(--accent);
 }
 
+.record-card-grid,
+.catalog-card-grid {
+  padding-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.record-card,
+.catalog-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.record-card:hover,
+.catalog-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 8px 20px rgb(24 33 47 / 9%);
+  transform: translateY(-1px);
+}
+
+.record-card:focus-visible,
+.catalog-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.record-card.is-selected,
+.catalog-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.catalog-card.is-owned {
+  border-color: #c8ddd5;
+  background: #f4faf7;
+}
+
+.record-card-cover,
+.catalog-card > .catalog-row-cover {
+  position: relative;
+  width: 100%;
+  height: auto;
+  flex: 0 0 auto;
+  aspect-ratio: 3 / 4;
+  display: grid;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #e8ecef;
+  color: var(--ink-soft);
+  place-items: center;
+}
+
+.catalog-card > .catalog-row-cover {
+  min-height: 210px;
+}
+
+.record-card-cover::after,
+.catalog-card > .catalog-row-cover::after {
+  position: absolute;
+  content: "";
+  inset: 0;
+  background: linear-gradient(180deg, transparent 58%, rgb(24 33 47 / 24%));
+  pointer-events: none;
+}
+
+.record-card-cover img,
+.catalog-card > .catalog-row-cover img {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  object-fit: cover;
+}
+
+.record-card-fallback {
+  font-family: Georgia, serif;
+  font-size: 42px;
+}
+
+.record-card-body,
+.catalog-card-body {
+  min-width: 0;
+  padding: 11px 12px 13px;
+  display: grid;
+  gap: 6px;
+}
+
+.record-card-top,
+.catalog-card-top {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.record-card h3,
+.catalog-card h3 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-card-meta,
+.catalog-card-meta,
+.catalog-card-subtitle {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-card-copy {
+  min-width: 0;
+  margin: 2px 0 0;
+  display: grid;
+  gap: 2px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.record-card-copy strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.record-card-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .record-row td {
   padding: 13px 10px;
   vertical-align: middle;
@@ -1604,6 +1802,18 @@ th:nth-child(4) {
   padding: 0 22px 0 7px;
 }
 
+.pagination-custom-size {
+  width: 68px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .pagination-step {
   display: flex;
   gap: 4px;
@@ -2015,6 +2225,22 @@ th:nth-child(4) {
 
   .library-pane {
     padding: 20px 14px;
+  }
+
+  .library-heading {
+    align-items: flex-start;
+  }
+
+  .heading-tools {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .record-card-grid,
+  .catalog-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    gap: 10px;
   }
 
   .toolbar {

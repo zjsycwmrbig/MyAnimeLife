@@ -18,6 +18,7 @@ const state = {
   filter: "all",
   page: 1,
   pageSize: 30,
+  layout: "list",
   dirty: false,
   backupLimit: 5,
   git: null,
@@ -34,7 +35,9 @@ const elements = {
   selectAll: document.querySelector("#selectAll"),
   selectionLabel: document.querySelector("#selectionLabel"),
   deleteButton: document.querySelector("#deleteButton"),
+  libraryTable: document.querySelector("#libraryTable"),
   recordRows: document.querySelector("#recordRows"),
+  recordCards: document.querySelector("#recordCards"),
   emptyState: document.querySelector("#emptyState"),
   editorEmpty: document.querySelector("#editorEmpty"),
   editorForm: document.querySelector("#editorForm"),
@@ -53,6 +56,7 @@ const elements = {
   libraryPageSummary: document.querySelector("#libraryPageSummary"),
   libraryPageButtons: document.querySelector("#libraryPageButtons"),
   libraryPageSize: document.querySelector("#libraryPageSize"),
+  libraryPageSizeCustom: document.querySelector("#libraryPageSizeCustom"),
   libraryPreviousPage: document.querySelector("#libraryPreviousPage"),
   libraryNextPage: document.querySelector("#libraryNextPage"),
   toast: document.querySelector("#toast"),
@@ -205,14 +209,103 @@ function renderSelection() {
     selectedVisible > 0 && selectedVisible < visible.length;
 }
 
+function createRecordCard(record) {
+  const card = document.createElement("article");
+  card.className = "record-card";
+  card.tabIndex = 0;
+  card.dataset.id = record.id;
+  if (record.id === state.selectedId) {
+    card.classList.add("is-selected");
+  }
+
+  const cover = document.createElement("div");
+  cover.className = "record-card-cover";
+  const fallback = document.createElement("span");
+  fallback.className = "record-card-fallback";
+  fallback.textContent = [...record.title][0] ?? "A";
+  cover.append(fallback);
+  if (record.coverUrl) {
+    const image = document.createElement("img");
+    image.src = record.coverUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => image.remove(), { once: true });
+    cover.append(image);
+  }
+  card.append(cover);
+
+  const body = document.createElement("div");
+  body.className = "record-card-body";
+  const top = document.createElement("div");
+  top.className = "record-card-top";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = state.selectedIds.has(record.id);
+  checkbox.disabled = !getRuntime().writable;
+  checkbox.setAttribute("aria-label", `选择 ${record.title}`);
+  checkbox.addEventListener("click", (event) => event.stopPropagation());
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) {
+      state.selectedIds.add(record.id);
+    } else {
+      state.selectedIds.delete(record.id);
+    }
+    renderSelection();
+    renderRows();
+  });
+  top.append(checkbox);
+  const rating = document.createElement("span");
+  rating.className = "rating-value";
+  rating.textContent = record.rating === null ? "未评分" : `${Number(record.rating).toFixed(1)} 分`;
+  rating.classList.toggle("is-empty", record.rating === null);
+  top.append(rating);
+  body.append(top);
+
+  const title = document.createElement("h3");
+  title.textContent = record.title;
+  body.append(title);
+  const meta = document.createElement("span");
+  meta.className = "record-card-meta";
+  meta.textContent = [seasonText(record), sourceText(record)].filter(Boolean).join(" · ");
+  body.append(meta);
+
+  for (const [label, value] of [["短评", record.review], ["备注", record.note]]) {
+    const line = document.createElement("p");
+    line.className = "record-card-copy";
+    const labelElement = document.createElement("strong");
+    labelElement.textContent = label;
+    const text = document.createElement("span");
+    text.textContent = excerpt(value) || "未填写";
+    text.classList.toggle("is-empty", !excerpt(value));
+    line.append(labelElement, text);
+    body.append(line);
+  }
+  card.append(body);
+
+  const selectRecord = () => selectRecordById(record.id);
+  card.addEventListener("click", selectRecord);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectRecord();
+    }
+  });
+  return card;
+}
+
 function renderRows() {
   const records = filteredRecords();
   const pageRecords = currentPageRecords(records);
+  elements.libraryTable.hidden = state.layout !== "list";
+  elements.recordCards.hidden = state.layout !== "cards";
   elements.recordRows.replaceChildren();
+  elements.recordCards.replaceChildren();
   elements.recordCount.textContent = String(state.records.length);
   elements.emptyState.hidden = records.length > 0;
 
-  for (const record of pageRecords) {
+  for (const record of state.layout === "list" ? pageRecords : []) {
     const row = document.createElement("tr");
     row.className = "record-row";
     row.tabIndex = 0;
@@ -298,6 +391,9 @@ function renderRows() {
       }
     });
     elements.recordRows.append(row);
+  }
+  if (state.layout === "cards") {
+    elements.recordCards.append(...pageRecords.map(createRecordCard));
   }
   renderPagination(
     {
@@ -578,10 +674,40 @@ for (const input of [
 }
 
 elements.libraryPageSize.addEventListener("change", () => {
-  state.pageSize = Number(elements.libraryPageSize.value);
+  if (elements.libraryPageSize.value === "custom") {
+    elements.libraryPageSizeCustom.hidden = false;
+    elements.libraryPageSizeCustom.value = String(state.pageSize);
+    elements.libraryPageSizeCustom.focus();
+  } else {
+    elements.libraryPageSizeCustom.hidden = true;
+    state.pageSize = Number(elements.libraryPageSize.value);
+  }
   state.page = 1;
   renderRows();
 });
+
+elements.libraryPageSizeCustom.addEventListener("change", () => {
+  const pageSize = Number(elements.libraryPageSizeCustom.value);
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 200) {
+    showToast("自定义每页数量必须是 1 到 200 的整数", { error: true });
+    elements.libraryPageSizeCustom.value = String(state.pageSize);
+    return;
+  }
+  state.pageSize = pageSize;
+  state.page = 1;
+  renderRows();
+});
+
+for (const button of document.querySelectorAll('[data-layout-target="library"]')) {
+  button.addEventListener("click", () => {
+    state.layout = button.dataset.layout;
+    for (const candidate of document.querySelectorAll('[data-layout-target="library"]')) {
+      candidate.classList.toggle("is-active", candidate === button);
+      candidate.setAttribute("aria-pressed", String(candidate === button));
+    }
+    renderRows();
+  });
+}
 
 elements.libraryPreviousPage.addEventListener("click", () => {
   state.page = Math.max(1, state.page - 1);
