@@ -156,13 +156,17 @@ export async function fetchBilibiliFollowList(uid, options = {}) {
     1,
     Math.min(MAX_FOLLOW_PAGES, Number(options.maxPages) || MAX_FOLLOW_PAGES),
   );
+  const concurrency = Math.max(
+    1,
+    Math.min(4, Number(options.concurrency) || 3),
+  );
   const cards = [];
   const seen = new Set();
-  let page = 1;
   let total = 0;
   let reachedEnd = false;
+  let fetchedPages = 0;
 
-  while (page <= maxPages && cards.length < maxItems) {
+  const fetchPage = async (page) => {
     const endpoint = new URL(
       "https://api.bilibili.com/x/space/bangumi/follow/list",
     );
@@ -183,8 +187,11 @@ export async function fetchBilibiliFollowList(uid, options = {}) {
     if (response?.code !== 0) {
       throw new Error(response?.message ?? "Bilibili 追番接口未返回数据");
     }
+    fetchedPages = Math.max(fetchedPages, page);
+    return parseBilibiliFollowPage(response);
+  };
 
-    const parsed = parseBilibiliFollowPage(response);
+  const appendPage = (parsed) => {
     total = Math.max(total, parsed.total);
     for (const card of parsed.items) {
       if (!seen.has(card.mediaId)) {
@@ -195,29 +202,66 @@ export async function fetchBilibiliFollowList(uid, options = {}) {
         break;
       }
     }
-
-    const expectedPages = total
-      ? Math.ceil(total / parsed.pageSize)
-      : parsed.items.length >= parsed.pageSize
-        ? page + 1
-        : page;
-    if (
-      !parsed.items.length ||
-      page >= expectedPages ||
-      (total > 0 && seen.size >= total)
-    ) {
+    if (total > 0 && seen.size >= total) {
       reachedEnd = true;
-      break;
     }
-    page += 1;
+    if (parsed.items.length < parsed.pageSize) {
+      reachedEnd = true;
+    }
+    options.onProgress?.({
+      phase: "fetch",
+      fetchedPages,
+      page: parsed.page,
+      itemCount: cards.length,
+      total,
+    });
+    return parsed;
+  };
+
+  const firstPage = appendPage(await fetchPage(1));
+  let expectedPages = total
+    ? Math.ceil(total / firstPage.pageSize)
+    : firstPage.items.length >= firstPage.pageSize
+      ? maxPages
+      : 1;
+  expectedPages = Math.min(expectedPages, maxPages);
+
+  let nextPage = 2;
+  while (
+    nextPage <= expectedPages &&
+    cards.length < maxItems &&
+    !reachedEnd
+  ) {
+    const pageNumbers = [];
+    for (
+      let page = nextPage;
+      page <= expectedPages &&
+      page < nextPage + concurrency &&
+      cards.length < maxItems;
+      page += 1
+    ) {
+      pageNumbers.push(page);
+    }
+    const parsedPages = await Promise.all(pageNumbers.map(fetchPage));
+    for (const parsed of parsedPages) {
+      appendPage(parsed);
+      if (!parsed.items.length) {
+        expectedPages = Math.min(expectedPages, parsed.page);
+        reachedEnd = true;
+        break;
+      }
+      if (cards.length >= maxItems) {
+        break;
+      }
+    }
+    nextPage += pageNumbers.length;
   }
 
-  const truncated =
-    !reachedEnd || (total > 0 && cards.length < total);
+  const truncated = total > 0 ? cards.length < total : !reachedEnd;
   return {
     cards,
     total,
     truncated,
-    fetchedPages: Math.min(page, maxPages),
+    fetchedPages,
   };
 }

@@ -1867,11 +1867,14 @@ ${indexText}`);
         headers: githubHeaders(config.token),
         timeout: 2e4
       });
+      const permissions = repository.permissions ?? null;
+      const canWrite = typeof permissions?.push === "boolean" ? permissions.push : null;
       return {
         fullName: cleanString2(repository.full_name) || config.urls.fullName,
         defaultBranch: cleanString2(repository.default_branch) || "main",
         private: Boolean(repository.private),
-        permissions: repository.permissions ?? null,
+        permissions,
+        canWrite,
         hasToken: Boolean(config.token),
         pagesLibraryUrl: config.urls.pagesLibraryUrl,
         pagesSetupUrl: `${config.urls.webUrl}/settings/pages`
@@ -3723,6 +3726,20 @@ ${indexText}`);
     }
     return index;
   }
+  function makeInitialIndex(items) {
+    const index = /* @__PURE__ */ new Map();
+    for (const item of items) {
+      const initials = new Set(
+        (item.normalizedNames ?? []).map((name) => String(name ?? "").slice(0, 1)).filter(Boolean)
+      );
+      for (const initial of initials) {
+        const bucket = index.get(initial) ?? [];
+        bucket.push(item);
+        index.set(initial, bucket);
+      }
+    }
+    return index;
+  }
   function makeResult(item, score, matchedBy) {
     return {
       item,
@@ -3736,6 +3753,7 @@ ${indexText}`);
       this.items = Array.isArray(items) ? items : [];
       this.threshold = options.threshold ?? 0.42;
       this.exactIndex = makeExactIndex(this.items);
+      this.initialIndex = makeInitialIndex(this.items);
       this.siteIndex = makeSiteIndex(this.items);
       this.fuse = null;
       this.fuseOptions = {
@@ -3780,7 +3798,8 @@ ${indexText}`);
         results.set(item.id, makeResult(item, 0, "exact"));
       }
       if (normalizedQuery.length >= 2) {
-        for (const item of this.items) {
+        const candidates = this.initialIndex.get(normalizedQuery.slice(0, 1)) ?? this.items;
+        for (const item of candidates) {
           const keys = item.normalizedNames ?? [];
           if (keys.some(
             (key) => key.length >= normalizedQuery.length && (key.startsWith(normalizedQuery) || key.includes(normalizedQuery))
@@ -3791,17 +3810,19 @@ ${indexText}`);
           }
         }
       }
-      const fuse = this.getFuse();
-      if (fuse.options.threshold !== threshold) {
-        fuse.options.threshold = threshold;
-      }
-      for (const result of fuse.search(originalQuery, { limit: limit * 2 })) {
-        const existing = results.get(result.item.id);
-        if (!existing || result.score < existing.score) {
-          results.set(
-            result.item.id,
-            makeResult(result.item, result.score ?? 1, "fuzzy")
-          );
+      if (options.fuzzy !== false) {
+        const fuse = this.getFuse();
+        if (fuse.options.threshold !== threshold) {
+          fuse.options.threshold = threshold;
+        }
+        for (const result of fuse.search(originalQuery, { limit: limit * 2 })) {
+          const existing = results.get(result.item.id);
+          if (!existing || result.score < existing.score) {
+            results.set(
+              result.item.id,
+              makeResult(result.item, result.score ?? 1, "fuzzy")
+            );
+          }
         }
       }
       return [...results.values()].sort((left, right) => left.score - right.score).slice(0, limit);
@@ -4622,12 +4643,16 @@ ${indexText}`);
       1,
       Math.min(MAX_FOLLOW_PAGES, Number(options.maxPages) || MAX_FOLLOW_PAGES)
     );
+    const concurrency = Math.max(
+      1,
+      Math.min(4, Number(options.concurrency) || 3)
+    );
     const cards = [];
     const seen = /* @__PURE__ */ new Set();
-    let page = 1;
     let total = 0;
     let reachedEnd = false;
-    while (page <= maxPages && cards.length < maxItems) {
+    let fetchedPages = 0;
+    const fetchPage = async (page) => {
       const endpoint = new URL(
         "https://api.bilibili.com/x/space/bangumi/follow/list"
       );
@@ -4647,7 +4672,10 @@ ${indexText}`);
       if (response?.code !== 0) {
         throw new Error(response?.message ?? "Bilibili 追番接口未返回数据");
       }
-      const parsed = parseBilibiliFollowPage(response);
+      fetchedPages = Math.max(fetchedPages, page);
+      return parseBilibiliFollowPage(response);
+    };
+    const appendPage = (parsed) => {
       total = Math.max(total, parsed.total);
       for (const card of parsed.items) {
         if (!seen.has(card.mediaId)) {
@@ -4658,19 +4686,50 @@ ${indexText}`);
           break;
         }
       }
-      const expectedPages = total ? Math.ceil(total / parsed.pageSize) : parsed.items.length >= parsed.pageSize ? page + 1 : page;
-      if (!parsed.items.length || page >= expectedPages || total > 0 && seen.size >= total) {
+      if (total > 0 && seen.size >= total) {
         reachedEnd = true;
-        break;
       }
-      page += 1;
+      if (parsed.items.length < parsed.pageSize) {
+        reachedEnd = true;
+      }
+      options.onProgress?.({
+        phase: "fetch",
+        fetchedPages,
+        page: parsed.page,
+        itemCount: cards.length,
+        total
+      });
+      return parsed;
+    };
+    const firstPage = appendPage(await fetchPage(1));
+    let expectedPages = total ? Math.ceil(total / firstPage.pageSize) : firstPage.items.length >= firstPage.pageSize ? maxPages : 1;
+    expectedPages = Math.min(expectedPages, maxPages);
+    let nextPage = 2;
+    while (nextPage <= expectedPages && cards.length < maxItems && !reachedEnd) {
+      const pageNumbers = [];
+      for (let page = nextPage; page <= expectedPages && page < nextPage + concurrency && cards.length < maxItems; page += 1) {
+        pageNumbers.push(page);
+      }
+      const parsedPages = await Promise.all(pageNumbers.map(fetchPage));
+      for (const parsed of parsedPages) {
+        appendPage(parsed);
+        if (!parsed.items.length) {
+          expectedPages = Math.min(expectedPages, parsed.page);
+          reachedEnd = true;
+          break;
+        }
+        if (cards.length >= maxItems) {
+          break;
+        }
+      }
+      nextPage += pageNumbers.length;
     }
-    const truncated = !reachedEnd || total > 0 && cards.length < total;
+    const truncated = total > 0 ? cards.length < total : !reachedEnd;
     return {
       cards,
       total,
       truncated,
-      fetchedPages: Math.min(page, maxPages)
+      fetchedPages
     };
   }
 
@@ -4766,6 +4825,10 @@ ${indexText}`);
 
   // src/recognizers/recognizer.js
   var MAX_REGEX_INDEX_QUERIES = 8;
+  var BATCH_MATCH_CHUNK_SIZE = 40;
+  function yieldToEventLoop() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
   function mergeResult(results, result, extra) {
     const existing = results.get(result.item.id);
     if (!existing) {
@@ -4997,11 +5060,21 @@ ${indexText}`);
       const domCards = collectBilibiliCards(limit);
       const followUid = extractBilibiliFollowUid(location.href);
       let apiResult = null;
+      const reportProgress = (progress) => {
+        try {
+          options.onProgress?.(progress);
+        } catch {
+        }
+      };
       if (followUid && options.includeBilibiliApi !== false) {
         try {
           apiResult = await fetchBilibiliFollowList(followUid, {
             maxItems: limit,
-            requestJsonImpl: options.requestJsonImpl
+            requestJsonImpl: options.requestJsonImpl,
+            onProgress: (progress) => reportProgress({
+              ...progress,
+              phase: "fetch"
+            })
           });
           diagnostics.push(
             `Bilibili 追番：读取 ${apiResult.cards.length}/${apiResult.total} 部`
@@ -5027,41 +5100,55 @@ ${indexText}`);
         }
       }
       const search2 = this.indexService.getSearch();
-      return {
-        cards: [...cards.values()].slice(0, limit).map((card) => {
-          const exactItem = search2.findBySiteId("bilibili", card.mediaId);
-          if (exactItem) {
-            const item = {
-              ...exactItem,
-              coverUrl: exactItem.coverUrl || card.coverUrl || null
-            };
-            return {
-              ...card,
+      const sourceCards = [...cards.values()].slice(0, limit);
+      const processedCards = [];
+      let matchedCount = 0;
+      reportProgress({
+        phase: "matching",
+        processed: 0,
+        totalItems: sourceCards.length,
+        matched: 0,
+        cards: []
+      });
+      for (let index = 0; index < sourceCards.length; index += 1) {
+        const card = sourceCards[index];
+        const exactItem = search2.findBySiteId("bilibili", card.mediaId);
+        let processedCard = null;
+        if (exactItem) {
+          const item = {
+            ...exactItem,
+            coverUrl: exactItem.coverUrl || card.coverUrl || null
+          };
+          processedCard = {
+            ...card,
+            item,
+            confidence: 1,
+            selectedResult: {
               item,
               confidence: 1,
-              selectedResult: {
-                item,
-                confidence: 1,
-                matchedBy: [
-                  card.source === "bilibili-follow-api" ? "bilibili-api-id" : "bilibili-id"
-                ],
-                bilibiliMetadata: {
-                  mediaId: card.mediaId,
-                  seasonId: card.seasonId,
-                  title: card.title,
-                  names: [card.title],
-                  coverUrl: card.coverUrl || null
-                }
+              matchedBy: [
+                card.source === "bilibili-follow-api" ? "bilibili-api-id" : "bilibili-id"
+              ],
+              bilibiliMetadata: {
+                mediaId: card.mediaId,
+                seasonId: card.seasonId,
+                title: card.title,
+                names: [card.title],
+                coverUrl: card.coverUrl || null
               }
-            };
-          }
-          const titleMatch = search2.search(card.title, { limit: 3 })[0];
+            }
+          };
+        } else {
+          const titleMatch = search2.search(card.title, {
+            limit: 1,
+            fuzzy: false
+          })[0];
           if (titleMatch?.confidence >= 0.7) {
             const item = {
               ...titleMatch.item,
               coverUrl: titleMatch.item.coverUrl || card.coverUrl || null
             };
-            return {
+            processedCard = {
               ...card,
               item,
               confidence: titleMatch.confidence,
@@ -5077,14 +5164,35 @@ ${indexText}`);
                 }
               }
             };
+          } else {
+            processedCard = {
+              ...card,
+              item: null,
+              confidence: 0,
+              selectedResult: null
+            };
           }
-          return {
-            ...card,
-            item: null,
-            confidence: 0,
-            selectedResult: null
-          };
-        }),
+        }
+        processedCards.push(processedCard);
+        if (processedCard.selectedResult) {
+          matchedCount += 1;
+        }
+        const processed = index + 1;
+        if (processed % BATCH_MATCH_CHUNK_SIZE === 0 || processed === sourceCards.length) {
+          reportProgress({
+            phase: "matching",
+            processed,
+            totalItems: sourceCards.length,
+            matched: matchedCount,
+            cards: processedCards.slice()
+          });
+          if (processed < sourceCards.length) {
+            await yieldToEventLoop();
+          }
+        }
+      }
+      return {
+        cards: processedCards,
         diagnostics,
         source: apiResult ? "bilibili-follow-api" : "bilibili-dom",
         total: apiResult?.total ?? domCards.length,
@@ -5450,7 +5558,7 @@ ${indexText}`);
   ];
 
   // src/ui/panel.css
-  var panel_default = ':host {\n  all: initial;\n  --scout-bg: #f7f7f4;\n  --scout-panel: #ffffff;\n  --scout-ink: #161917;\n  --scout-muted: #66706a;\n  --scout-line: #dfe3df;\n  --scout-accent: #2563eb;\n  --scout-accent-soft: #e8efff;\n  --scout-good: #16845b;\n  --scout-warn: #b66a16;\n  --scout-bad: #c13c3c;\n  --scout-shadow: 0 18px 48px rgb(18 25 21 / 18%);\n  color: var(--scout-ink);\n  font-family:\n    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui,\n    sans-serif;\n  font-size: 14px;\n  line-height: 1.5;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbutton,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}\n\nbutton {\n  color: inherit;\n  -webkit-tap-highlight-color: transparent;\n}\n\n.scout-root {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  z-index: 2147483646;\n}\n\n.scout-launcher {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  display: grid;\n  width: 44px;\n  height: 44px;\n  padding: 0;\n  border: 1px solid rgb(255 255 255 / 22%);\n  border-radius: 9px;\n  background: #17201b;\n  color: #fff;\n  box-shadow: 0 8px 26px rgb(10 15 12 / 28%);\n  cursor: grab;\n  place-items: center;\n  touch-action: none;\n  user-select: none;\n  transition:\n    transform 140ms ease,\n    background 140ms ease,\n    width 140ms ease,\n    height 140ms ease,\n    border-radius 140ms ease;\n}\n\n.scout-launcher:hover {\n  background: #25312a;\n  transform: translateY(-1px);\n}\n\n.scout-launcher:active {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-launcher.is-dragging {\n  cursor: grabbing;\n  transform: none;\n  transition: none;\n}\n\n.scout-launcher-label {\n  display: none;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1;\n  writing-mode: vertical-rl;\n}\n\n.scout-launcher.is-side-docked {\n  display: flex;\n  width: 30px;\n  height: 92px;\n  flex-direction: column;\n  gap: 6px;\n  padding: 7px 3px;\n}\n\n.scout-launcher.is-side-docked .lucide {\n  width: 17px;\n  height: 17px;\n  flex: 0 0 auto;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-label {\n  display: block;\n}\n\n.scout-launcher.is-docked-left {\n  border-radius: 0 8px 8px 0;\n}\n\n.scout-launcher.is-docked-right {\n  border-radius: 8px 0 0 8px;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-dot {\n  top: 4px;\n  right: 4px;\n}\n\n.scout-root button:focus-visible,\n.scout-root input:focus-visible,\n.scout-root select:focus-visible,\n.scout-root textarea:focus-visible {\n  outline: 2px solid var(--scout-accent);\n  outline-offset: 2px;\n}\n\n.scout-launcher .lucide {\n  width: 21px;\n  height: 21px;\n}\n\n.scout-launcher-dot {\n  position: absolute;\n  top: -3px;\n  right: -3px;\n  width: 10px;\n  height: 10px;\n  border: 2px solid #fff;\n  border-radius: 999px;\n  background: var(--scout-muted);\n}\n\n.scout-launcher-dot[data-tone="good"] {\n  background: var(--scout-good);\n}\n\n.scout-launcher-dot[data-tone="warn"] {\n  background: var(--scout-warn);\n}\n\n.scout-launcher-dot[data-tone="bad"] {\n  background: var(--scout-bad);\n}\n\n.scout-panel {\n  position: fixed;\n  right: 20px;\n  bottom: 64px;\n  display: flex;\n  overflow: hidden;\n  width: min(390px, calc(100vw - 24px));\n  max-height: min(720px, calc(100vh - 96px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n}\n\n.scout-panel-header {\n  cursor: grab;\n  touch-action: none;\n}\n\n.scout-panel.is-dragging,\n.scout-panel.is-dragging .scout-panel-header {\n  cursor: grabbing;\n  user-select: none;\n}\n\n.scout-panel.is-dragging .scout-panel-header {\n  background: var(--scout-bg);\n}\n\n.scout-drag-indicator {\n  display: inline-grid;\n  width: 24px;\n  height: 30px;\n  flex: 0 0 auto;\n  color: #98a09b;\n  place-items: center;\n}\n\n.scout-drag-indicator .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-dock-button:hover {\n  color: var(--scout-accent);\n}\n\n.scout-settings-backdrop {\n  position: fixed;\n  z-index: 2147483645;\n  inset: 0;\n  background: rgb(12 18 14 / 24%);\n}\n\n.scout-settings-window {\n  position: fixed;\n  top: 50%;\n  left: 50%;\n  z-index: 2147483647;\n  display: flex;\n  overflow: hidden;\n  width: min(430px, calc(100vw - 24px));\n  max-height: min(780px, calc(100vh - 48px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n  transform: translate(-50%, -50%);\n}\n\n.scout-panel[hidden],\n.scout-settings-window[hidden],\n.scout-settings-backdrop[hidden],\n.scout-view[hidden],\n[hidden] {\n  display: none !important;\n}\n\n.scout-header {\n  display: flex;\n  min-height: 54px;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-brand-mark {\n  display: grid;\n  width: 30px;\n  height: 30px;\n  flex: 0 0 auto;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  place-items: center;\n}\n\n.scout-brand-mark .lucide {\n  width: 17px;\n  height: 17px;\n}\n\n.scout-brand {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-brand-title {\n  overflow: hidden;\n  margin: 0;\n  font-size: 14px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1.25;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-brand-state {\n  overflow: hidden;\n  margin: 2px 0 0;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.3;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-icon-button {\n  display: inline-grid;\n  width: 30px;\n  height: 30px;\n  padding: 0;\n  flex: 0 0 auto;\n  border: 1px solid transparent;\n  border-radius: 7px;\n  background: transparent;\n  cursor: pointer;\n  place-items: center;\n}\n\n.scout-icon-button:hover {\n  border-color: var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-icon-button .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-body {\n  overflow: auto;\n  min-height: 0;\n  flex: 1;\n  overscroll-behavior: contain;\n}\n\n.scout-view {\n  padding: 14px;\n}\n\n.scout-result-head {\n  padding: 4px 2px 13px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-result-head.has-cover {\n  display: grid;\n  grid-template-columns: 72px minmax(0, 1fr);\n  gap: 12px;\n  align-items: start;\n}\n\n.scout-result-copy {\n  min-width: 0;\n}\n\n.scout-cover {\n  overflow: hidden;\n  width: 72px;\n  aspect-ratio: 3 / 4;\n  border: 1px solid var(--scout-line);\n  border-radius: 7px;\n  background: var(--scout-bg);\n}\n\n.scout-cover-image {\n  display: block;\n  width: 100%;\n  height: 100%;\n  object-fit: cover;\n}\n\n.scout-eyebrow {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin-bottom: 7px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.02em;\n}\n\n.scout-confidence {\n  display: inline-flex;\n  align-items: center;\n  min-height: 19px;\n  padding: 1px 6px;\n  border-radius: 4px;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n}\n\n.scout-confidence[data-tone="good"] {\n  background: #e5f5ed;\n  color: #116b49;\n}\n\n.scout-confidence[data-tone="warn"] {\n  background: #fff1df;\n  color: #8a4c0a;\n}\n\n.scout-title {\n  margin: 0;\n  font-size: 23px;\n  font-weight: 760;\n  letter-spacing: 0;\n  line-height: 1.2;\n  overflow-wrap: anywhere;\n}\n\n.scout-subtitle {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 12px;\n  overflow-wrap: anywhere;\n}\n\n.scout-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 7px;\n  margin-top: 12px;\n}\n\n.scout-button {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  padding: 5px 10px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: var(--scout-panel);\n  color: var(--scout-ink);\n  font-size: 12px;\n  font-weight: 650;\n  text-decoration: none;\n  cursor: pointer;\n  transition:\n    transform 110ms ease,\n    border-color 110ms ease,\n    background 110ms ease,\n    box-shadow 110ms ease;\n}\n\n.scout-button:hover {\n  background: var(--scout-bg);\n}\n\n.scout-button:active:not(:disabled) {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-button.is-confirmed {\n  animation: scout-confirm 420ms ease;\n}\n\n.scout-button[data-variant="primary"] {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-button[data-variant="primary"]:hover {\n  background: #1d4fd0;\n}\n\n.scout-button:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-button .lucide {\n  width: 14px;\n  height: 14px;\n}\n\n.scout-spin {\n  animation: scout-spin 900ms linear infinite;\n}\n\n.scout-button.is-loading .lucide {\n  animation: scout-spin 900ms linear infinite;\n}\n\n@keyframes scout-confirm {\n  0% {\n    box-shadow: 0 0 0 0 rgb(37 99 235 / 32%);\n  }\n\n  100% {\n    box-shadow: 0 0 0 8px rgb(37 99 235 / 0%);\n  }\n}\n\n@keyframes scout-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n.scout-search {\n  position: relative;\n  margin-top: 12px;\n}\n\n.scout-search .lucide {\n  position: absolute;\n  top: 50%;\n  left: 10px;\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.scout-search input,\n.scout-field input,\n.scout-field select,\n.scout-review {\n  width: 100%;\n  min-height: 34px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: #fff;\n  color: var(--scout-ink);\n}\n\n.scout-search input {\n  padding: 6px 9px 6px 32px;\n}\n\n.scout-field input,\n.scout-field select {\n  padding: 6px 9px;\n}\n\n.scout-field input::placeholder {\n  color: #929a95;\n}\n\n.scout-review {\n  min-height: 82px;\n  margin-top: 10px;\n  padding: 8px 9px;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.scout-review:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.scout-evidence {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 5px;\n  margin-top: 9px;\n}\n\n.scout-evidence-item {\n  display: inline-flex;\n  min-height: 22px;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: var(--scout-bg);\n  color: #4e5752;\n  font-size: 10px;\n  font-weight: 650;\n}\n\n.scout-evidence-item .lucide {\n  width: 12px;\n  height: 12px;\n  color: var(--scout-muted);\n}\n\n.scout-section {\n  padding: 14px 0;\n  border-top: 1px solid var(--scout-line);\n}\n\n.scout-section:first-child {\n  padding-top: 0;\n  border-top: 0;\n}\n\n.scout-section-title {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin: 0 0 10px;\n  font-size: 12px;\n  font-weight: 750;\n  letter-spacing: 0;\n}\n\n.scout-section-title .lucide {\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n}\n\n.scout-list {\n  display: grid;\n  gap: 0;\n  margin: 7px 0 0;\n}\n\n.scout-list-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 7px;\n  border: 0;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  background: transparent;\n  color: var(--scout-ink);\n  font: inherit;\n  text-align: left;\n  transition:\n    transform 100ms ease,\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-list-row:first-child {\n  border-top: 0;\n}\n\nbutton.scout-list-row {\n  cursor: pointer;\n}\n\nbutton.scout-list-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\nbutton.scout-list-row:active {\n  transform: scale(0.988);\n  background: var(--scout-accent-soft);\n}\n\n.scout-list-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #b9caf6;\n}\n\n.scout-list-copy {\n  min-width: 0;\n}\n\n.scout-list-title {\n  overflow: hidden;\n  font-size: 12px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-list-meta {\n  overflow: hidden;\n  margin-top: 2px;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-score {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-row-tail {\n  display: inline-flex;\n  min-width: 48px;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 4px;\n}\n\n.scout-row-check {\n  display: inline-grid;\n  width: 17px;\n  height: 17px;\n  border-radius: 999px;\n  background: var(--scout-accent);\n  color: #fff;\n  opacity: 0;\n  place-items: center;\n  transform: scale(0.7);\n  transition:\n    opacity 120ms ease,\n    transform 120ms ease;\n}\n\n.scout-row-check .lucide {\n  width: 11px;\n  height: 11px;\n  stroke-width: 3;\n}\n\n.scout-list-row.is-selected .scout-row-check {\n  opacity: 1;\n  transform: scale(1);\n}\n\n.scout-batch-heading {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-batch-heading .scout-section-title {\n  min-width: 0;\n  margin-bottom: 0;\n}\n\n.scout-batch-heading .scout-section-title span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-batch-summary {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-batch-list {\n  margin-top: 8px;\n}\n\n.scout-batch-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: 18px minmax(0, 1fr) auto;\n  gap: 9px;\n  align-items: center;\n  padding: 8px 7px;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-batch-row:first-child {\n  border-top: 0;\n}\n\n.scout-batch-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\n.scout-batch-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #b9caf6;\n}\n\n.scout-batch-row.is-unmatched {\n  cursor: default;\n  opacity: 0.62;\n}\n\n.scout-batch-checkbox {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--scout-accent);\n  cursor: pointer;\n}\n\n.scout-batch-checkbox:disabled {\n  cursor: not-allowed;\n}\n\n.scout-batch-message {\n  margin: 0;\n  padding: 15px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.5;\n  text-align: center;\n}\n\n.scout-batch-status {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-batch-status[hidden] {\n  display: none;\n}\n\n.scout-batch-note {\n  margin: 6px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-batch-note[data-tone="warn"] {\n  color: #92631d;\n}\n\n.scout-batch-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: 6px;\n  margin-top: 9px;\n}\n\n.scout-batch-toolbar .scout-button {\n  min-height: 30px;\n  padding: 5px 9px;\n  font-size: 11px;\n}\n\n.scout-batch-load-more {\n  width: 100%;\n  min-height: 34px;\n  margin-top: 6px;\n  border: 1px dashed var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font: inherit;\n  font-size: 10px;\n}\n\n.scout-batch-load-more:hover {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-suggestions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-suggestion {\n  display: inline-flex;\n  min-height: 28px;\n  max-width: 100%;\n  align-items: center;\n  gap: 6px;\n  padding: 3px 7px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease;\n}\n\n.scout-suggestion:hover {\n  border-color: #bdc7c0;\n  background: var(--scout-bg);\n}\n\n.scout-suggestion:active {\n  transform: translateY(1px) scale(0.985);\n  background: var(--scout-accent-soft);\n}\n\n.scout-suggestion-title {\n  overflow: hidden;\n  max-width: 215px;\n  font-size: 11px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-suggestion-source {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 9px;\n}\n\n.scout-record-head {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-record-head .scout-section-title {\n  flex: 0 0 auto;\n  margin-bottom: 0;\n}\n\n.scout-record-context {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n}\n\n.scout-record-item {\n  min-width: 0;\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-reselect {\n  display: inline-flex;\n  min-height: 24px;\n  flex: 0 0 auto;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-weight: 650;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-reselect:hover {\n  border-color: #b9caf6;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-reselect:active {\n  transform: scale(0.96);\n}\n\n.scout-reselect .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-record:focus {\n  outline: none;\n}\n\n.scout-record-rating-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  margin-top: 11px;\n}\n\n.scout-record-value {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-rating-options {\n  display: grid;\n  grid-template-columns: repeat(10, minmax(0, 1fr));\n  gap: 3px;\n  margin-top: 6px;\n}\n\n.scout-rating-option {\n  display: grid;\n  min-width: 0;\n  height: 29px;\n  padding: 0;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n  place-items: center;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-rating-option:hover:not(:disabled) {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-rating-option:active:not(:disabled) {\n  transform: scale(0.94);\n}\n\n.scout-rating-option.is-selected {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-rating-option:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-record-footer {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  margin-top: 9px;\n}\n\n.scout-record-footer .scout-footer-status {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-record-remote-link {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  margin-top: 9px;\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 650;\n  text-decoration: none;\n}\n\n.scout-record-remote-link:hover {\n  text-decoration: underline;\n}\n\n.scout-record-remote-link .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-duplicate-warning {\n  margin-top: 10px;\n  padding: 10px;\n  border: 1px solid #e6c77a;\n  border-radius: 7px;\n  background: #fffaf0;\n  color: #5f4917;\n}\n\n.scout-duplicate-heading {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 11px;\n}\n\n.scout-duplicate-heading .lucide {\n  width: 14px;\n  height: 14px;\n  flex: 0 0 auto;\n}\n\n.scout-duplicate-summary {\n  margin: 6px 0 8px;\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-duplicate-list {\n  display: grid;\n  gap: 6px;\n}\n\n.scout-duplicate-row {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 8px;\n  align-items: center;\n  padding-top: 6px;\n  border-top: 1px solid #ead9ad;\n}\n\n.scout-duplicate-copy {\n  display: grid;\n  min-width: 0;\n  gap: 2px;\n}\n\n.scout-duplicate-copy strong,\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-duplicate-copy strong {\n  font-size: 10px;\n}\n\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  color: #80672e;\n  font-size: 9px;\n}\n\n.scout-duplicate-row code {\n  max-width: 110px;\n}\n\n.scout-duplicate-actions {\n  display: flex;\n  justify-content: flex-end;\n  gap: 6px;\n  margin-top: 9px;\n}\n\n.scout-empty {\n  padding: 18px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 12px;\n  text-align: center;\n}\n\n.scout-diagnostics {\n  margin-top: 12px;\n  color: var(--scout-muted);\n  font-size: 11px;\n}\n\n.scout-diagnostics summary {\n  cursor: pointer;\n}\n\n.scout-diagnostics ul {\n  margin: 7px 0 0;\n  padding-left: 18px;\n}\n\n.scout-field {\n  display: grid;\n  gap: 5px;\n  margin-top: 10px;\n}\n\n.scout-field:first-child {\n  margin-top: 0;\n}\n\n.scout-field > span,\n.scout-range-label {\n  color: #3d4641;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.scout-field-grid {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 8px;\n}\n\n.scout-switch {\n  display: flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 3px 0;\n  font-size: 12px;\n  font-weight: 650;\n}\n\n.scout-switch input {\n  position: relative;\n  width: 34px;\n  height: 19px;\n  flex: 0 0 auto;\n  appearance: none;\n  border: 1px solid #c6ccc8;\n  border-radius: 999px;\n  background: #dfe3df;\n  cursor: pointer;\n  transition: background 120ms ease;\n}\n\n.scout-switch input::after {\n  position: absolute;\n  top: 2px;\n  left: 2px;\n  width: 13px;\n  height: 13px;\n  border-radius: 999px;\n  background: #fff;\n  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);\n  content: "";\n  transition: transform 120ms ease;\n}\n\n.scout-switch input:checked {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n}\n\n.scout-switch input:checked::after {\n  transform: translateX(15px);\n}\n\n.scout-range-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  margin-top: 12px;\n}\n\n.scout-range-head output {\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-range {\n  width: 100%;\n  margin: 5px 0 0;\n  accent-color: var(--scout-accent);\n}\n\n.scout-note {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-note[data-tone="good"] {\n  color: #116b49;\n}\n\n.scout-note[data-tone="bad"] {\n  color: #a13c1d;\n}\n\n.scout-onboarding {\n  margin: 10px 0 12px;\n  padding: 10px 11px;\n  border: 1px solid #cdd9f2;\n  border-radius: 7px;\n  background: #f4f7fd;\n}\n\n.scout-onboarding h4 {\n  margin: 0;\n  color: #26334c;\n  font-size: 11px;\n  font-weight: 750;\n}\n\n.scout-onboarding ol {\n  margin: 7px 0 9px;\n  padding-left: 18px;\n  color: #4e5c72;\n  font-size: 10px;\n  line-height: 1.55;\n}\n\n.scout-onboarding-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-footer {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 10px 14px;\n  border-top: 1px solid var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-footer-status {\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-footer-actions {\n  display: flex;\n  flex: 0 0 auto;\n  gap: 6px;\n}\n\n.scout-toast {\n  position: absolute;\n  right: 10px;\n  bottom: 10px;\n  left: 10px;\n  padding: 8px 10px;\n  border: 1px solid #cfd7d1;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  font-size: 11px;\n  box-shadow: 0 8px 20px rgb(0 0 0 / 20%);\n  animation: scout-toast-in 160ms ease-out;\n  z-index: 1;\n}\n\n@keyframes scout-toast-in {\n  from {\n    opacity: 0;\n    transform: translateY(5px);\n  }\n\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 520px) {\n  .scout-root {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-launcher {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-panel {\n    right: 12px;\n    bottom: 64px;\n    left: 12px;\n    width: auto;\n    max-height: calc(100vh - 84px);\n  }\n\n  .scout-settings-window {\n    width: calc(100vw - 24px);\n    max-height: calc(100vh - 24px);\n  }\n}\n\n@media (prefers-color-scheme: dark) {\n  :host {\n    --scout-bg: #eef0ed;\n    --scout-panel: #ffffff;\n    --scout-ink: #161917;\n    --scout-muted: #66706a;\n    --scout-line: #dfe3df;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  * {\n    scroll-behavior: auto !important;\n    transition: none !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n  }\n}\n';
+  var panel_default = ':host {\n  all: initial;\n  --scout-bg: #f7f7f4;\n  --scout-panel: #ffffff;\n  --scout-ink: #161917;\n  --scout-muted: #66706a;\n  --scout-line: #dfe3df;\n  --scout-accent: #2563eb;\n  --scout-accent-soft: #e8efff;\n  --scout-good: #16845b;\n  --scout-warn: #b66a16;\n  --scout-bad: #c13c3c;\n  --scout-shadow: 0 18px 48px rgb(18 25 21 / 18%);\n  color: var(--scout-ink);\n  font-family:\n    Inter, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui,\n    sans-serif;\n  font-size: 14px;\n  line-height: 1.5;\n}\n\n.scout-launcher[data-page-kind="bilibili-follow"],\n.scout-panel[data-page-kind="bilibili-follow"] {\n  --scout-accent: #e45886;\n  --scout-accent-soft: #fff0f5;\n  --scout-good: #be3e6a;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbutton,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}\n\nbutton {\n  color: inherit;\n  -webkit-tap-highlight-color: transparent;\n}\n\n.scout-root {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  z-index: 2147483646;\n}\n\n.scout-launcher {\n  position: fixed;\n  right: 20px;\n  bottom: 20px;\n  display: grid;\n  width: 44px;\n  height: 44px;\n  padding: 0;\n  border: 1px solid rgb(255 255 255 / 22%);\n  border-radius: 9px;\n  background: #17201b;\n  color: #fff;\n  box-shadow: 0 8px 26px rgb(10 15 12 / 28%);\n  cursor: grab;\n  place-items: center;\n  touch-action: none;\n  user-select: none;\n  transition:\n    transform 140ms ease,\n    background 140ms ease,\n    width 140ms ease,\n    height 140ms ease,\n    border-radius 140ms ease;\n}\n\n.scout-launcher:hover {\n  background: #25312a;\n  transform: translateY(-1px);\n}\n\n.scout-launcher[data-page-kind="bilibili-follow"] {\n  border-color: rgb(255 255 255 / 42%);\n  background: #9f2f58;\n  box-shadow: 0 9px 28px rgb(133 31 70 / 34%);\n}\n\n.scout-launcher[data-page-kind="bilibili-follow"]:hover {\n  background: #b43a67;\n}\n\n.scout-launcher:active {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-launcher.is-dragging {\n  cursor: grabbing;\n  transform: none;\n  transition: none;\n}\n\n.scout-launcher-label {\n  display: none;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1;\n  writing-mode: vertical-rl;\n}\n\n.scout-launcher.is-side-docked {\n  display: flex;\n  width: 30px;\n  height: 92px;\n  flex-direction: column;\n  gap: 6px;\n  padding: 7px 3px;\n}\n\n.scout-launcher.is-side-docked .lucide {\n  width: 17px;\n  height: 17px;\n  flex: 0 0 auto;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-label {\n  display: block;\n}\n\n.scout-launcher.is-docked-left {\n  border-radius: 0 8px 8px 0;\n}\n\n.scout-launcher.is-docked-right {\n  border-radius: 8px 0 0 8px;\n}\n\n.scout-launcher.is-side-docked .scout-launcher-dot {\n  top: 4px;\n  right: 4px;\n}\n\n.scout-root button:focus-visible,\n.scout-root input:focus-visible,\n.scout-root select:focus-visible,\n.scout-root textarea:focus-visible {\n  outline: 2px solid var(--scout-accent);\n  outline-offset: 2px;\n}\n\n.scout-launcher .lucide {\n  width: 21px;\n  height: 21px;\n}\n\n.scout-launcher-dot {\n  position: absolute;\n  top: -3px;\n  right: -3px;\n  width: 10px;\n  height: 10px;\n  border: 2px solid #fff;\n  border-radius: 999px;\n  background: var(--scout-muted);\n}\n\n.scout-launcher-dot[data-tone="good"] {\n  background: var(--scout-good);\n}\n\n.scout-launcher-dot[data-tone="warn"] {\n  background: var(--scout-warn);\n}\n\n.scout-launcher-dot[data-tone="bad"] {\n  background: var(--scout-bad);\n}\n\n.scout-panel {\n  position: fixed;\n  right: 20px;\n  bottom: 64px;\n  display: flex;\n  overflow: hidden;\n  width: min(390px, calc(100vw - 24px));\n  max-height: min(720px, calc(100vh - 96px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n}\n\n.scout-panel-header {\n  cursor: grab;\n  touch-action: none;\n}\n\n.scout-panel.is-dragging,\n.scout-panel.is-dragging .scout-panel-header {\n  cursor: grabbing;\n  user-select: none;\n}\n\n.scout-panel.is-dragging .scout-panel-header {\n  background: var(--scout-bg);\n}\n\n.scout-drag-indicator {\n  display: inline-grid;\n  width: 24px;\n  height: 30px;\n  flex: 0 0 auto;\n  color: #98a09b;\n  place-items: center;\n}\n\n.scout-drag-indicator .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-dock-button:hover {\n  color: var(--scout-accent);\n}\n\n.scout-settings-backdrop {\n  position: fixed;\n  z-index: 2147483645;\n  inset: 0;\n  background: rgb(12 18 14 / 24%);\n}\n\n.scout-settings-window {\n  position: fixed;\n  top: 50%;\n  left: 50%;\n  z-index: 2147483647;\n  display: flex;\n  overflow: hidden;\n  width: min(430px, calc(100vw - 24px));\n  max-height: min(780px, calc(100vh - 48px));\n  flex-direction: column;\n  border: 1px solid var(--scout-line);\n  border-radius: 12px;\n  background: var(--scout-panel);\n  box-shadow: var(--scout-shadow);\n  transform: translate(-50%, -50%);\n}\n\n.scout-panel[hidden],\n.scout-settings-window[hidden],\n.scout-settings-backdrop[hidden],\n.scout-view[hidden],\n[hidden] {\n  display: none !important;\n}\n\n.scout-header {\n  display: flex;\n  min-height: 54px;\n  align-items: center;\n  gap: 10px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-brand-mark {\n  display: grid;\n  width: 30px;\n  height: 30px;\n  flex: 0 0 auto;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  place-items: center;\n}\n\n.scout-panel[data-page-kind="bilibili-follow"] .scout-brand-mark {\n  background: #9f2f58;\n}\n\n.scout-panel[data-page-kind="bilibili-follow"] .scout-section-title .lucide {\n  color: #c74574;\n}\n\n.scout-brand-mark .lucide {\n  width: 17px;\n  height: 17px;\n}\n\n.scout-brand {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-brand-title {\n  overflow: hidden;\n  margin: 0;\n  font-size: 14px;\n  font-weight: 700;\n  letter-spacing: 0;\n  line-height: 1.25;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-brand-state {\n  overflow: hidden;\n  margin: 2px 0 0;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.3;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-icon-button {\n  display: inline-grid;\n  width: 30px;\n  height: 30px;\n  padding: 0;\n  flex: 0 0 auto;\n  border: 1px solid transparent;\n  border-radius: 7px;\n  background: transparent;\n  cursor: pointer;\n  place-items: center;\n}\n\n.scout-icon-button:hover {\n  border-color: var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-icon-button .lucide {\n  width: 16px;\n  height: 16px;\n}\n\n.scout-body {\n  overflow: auto;\n  min-height: 0;\n  flex: 1;\n  overscroll-behavior: contain;\n}\n\n.scout-view {\n  padding: 14px;\n}\n\n.scout-result-head {\n  padding: 4px 2px 13px;\n  border-bottom: 1px solid var(--scout-line);\n}\n\n.scout-result-head.has-cover {\n  display: grid;\n  grid-template-columns: 72px minmax(0, 1fr);\n  gap: 12px;\n  align-items: start;\n}\n\n.scout-result-copy {\n  min-width: 0;\n}\n\n.scout-cover {\n  overflow: hidden;\n  width: 72px;\n  aspect-ratio: 3 / 4;\n  border: 1px solid var(--scout-line);\n  border-radius: 7px;\n  background: var(--scout-bg);\n}\n\n.scout-cover-image {\n  display: block;\n  width: 100%;\n  height: 100%;\n  object-fit: cover;\n}\n\n.scout-eyebrow {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin-bottom: 7px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.02em;\n}\n\n.scout-confidence {\n  display: inline-flex;\n  align-items: center;\n  min-height: 19px;\n  padding: 1px 6px;\n  border-radius: 4px;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 700;\n  letter-spacing: 0;\n}\n\n.scout-confidence[data-tone="good"] {\n  background: #e5f5ed;\n  color: #116b49;\n}\n\n.scout-confidence[data-tone="warn"] {\n  background: #fff1df;\n  color: #8a4c0a;\n}\n\n.scout-title {\n  margin: 0;\n  font-size: 23px;\n  font-weight: 760;\n  letter-spacing: 0;\n  line-height: 1.2;\n  overflow-wrap: anywhere;\n}\n\n.scout-subtitle {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 12px;\n  overflow-wrap: anywhere;\n}\n\n.scout-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 7px;\n  margin-top: 12px;\n}\n\n.scout-button {\n  display: inline-flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  padding: 5px 10px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: var(--scout-panel);\n  color: var(--scout-ink);\n  font-size: 12px;\n  font-weight: 650;\n  text-decoration: none;\n  cursor: pointer;\n  transition:\n    transform 110ms ease,\n    border-color 110ms ease,\n    background 110ms ease,\n    box-shadow 110ms ease;\n}\n\n.scout-button:hover {\n  background: var(--scout-bg);\n}\n\n.scout-button:active:not(:disabled) {\n  transform: translateY(1px) scale(0.98);\n}\n\n.scout-button.is-confirmed {\n  animation: scout-confirm 420ms ease;\n}\n\n.scout-button[data-variant="primary"] {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-button[data-variant="primary"]:hover {\n  background: #1d4fd0;\n}\n\n.scout-button:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-button .lucide {\n  width: 14px;\n  height: 14px;\n}\n\n.scout-spin {\n  animation: scout-spin 900ms linear infinite;\n}\n\n.scout-button.is-loading .lucide {\n  animation: scout-spin 900ms linear infinite;\n}\n\n@keyframes scout-confirm {\n  0% {\n    box-shadow: 0 0 0 0 rgb(37 99 235 / 32%);\n  }\n\n  100% {\n    box-shadow: 0 0 0 8px rgb(37 99 235 / 0%);\n  }\n}\n\n@keyframes scout-spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n.scout-search {\n  position: relative;\n  margin-top: 12px;\n}\n\n.scout-search .lucide {\n  position: absolute;\n  top: 50%;\n  left: 10px;\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n  pointer-events: none;\n  transform: translateY(-50%);\n}\n\n.scout-search input,\n.scout-field input,\n.scout-field select,\n.scout-review {\n  width: 100%;\n  min-height: 34px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: #fff;\n  color: var(--scout-ink);\n}\n\n.scout-search input {\n  padding: 6px 9px 6px 32px;\n}\n\n.scout-field input,\n.scout-field select {\n  padding: 6px 9px;\n}\n\n.scout-field input::placeholder {\n  color: #929a95;\n}\n\n.scout-review {\n  min-height: 82px;\n  margin-top: 10px;\n  padding: 8px 9px;\n  line-height: 1.5;\n  resize: vertical;\n}\n\n.scout-review:disabled {\n  cursor: not-allowed;\n  opacity: 0.6;\n}\n\n.scout-evidence {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 5px;\n  margin-top: 9px;\n}\n\n.scout-evidence-item {\n  display: inline-flex;\n  min-height: 22px;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: var(--scout-bg);\n  color: #4e5752;\n  font-size: 10px;\n  font-weight: 650;\n}\n\n.scout-evidence-item .lucide {\n  width: 12px;\n  height: 12px;\n  color: var(--scout-muted);\n}\n\n.scout-section {\n  padding: 14px 0;\n  border-top: 1px solid var(--scout-line);\n}\n\n.scout-section:first-child {\n  padding-top: 0;\n  border-top: 0;\n}\n\n.scout-section-title {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  margin: 0 0 10px;\n  font-size: 12px;\n  font-weight: 750;\n  letter-spacing: 0;\n}\n\n.scout-section-title .lucide {\n  width: 15px;\n  height: 15px;\n  color: var(--scout-muted);\n}\n\n.scout-list {\n  display: grid;\n  gap: 0;\n  margin: 7px 0 0;\n}\n\n.scout-list-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 7px;\n  border: 0;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  background: transparent;\n  color: var(--scout-ink);\n  font: inherit;\n  text-align: left;\n  transition:\n    transform 100ms ease,\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-list-row:first-child {\n  border-top: 0;\n}\n\nbutton.scout-list-row {\n  cursor: pointer;\n}\n\nbutton.scout-list-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\nbutton.scout-list-row:active {\n  transform: scale(0.988);\n  background: var(--scout-accent-soft);\n}\n\n.scout-list-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #b9caf6;\n}\n\n.scout-list-copy {\n  min-width: 0;\n}\n\n.scout-list-title {\n  overflow: hidden;\n  font-size: 12px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-list-meta {\n  overflow: hidden;\n  margin-top: 2px;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-score {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-row-tail {\n  display: inline-flex;\n  min-width: 48px;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 4px;\n}\n\n.scout-row-check {\n  display: inline-grid;\n  width: 17px;\n  height: 17px;\n  border-radius: 999px;\n  background: var(--scout-accent);\n  color: #fff;\n  opacity: 0;\n  place-items: center;\n  transform: scale(0.7);\n  transition:\n    opacity 120ms ease,\n    transform 120ms ease;\n}\n\n.scout-row-check .lucide {\n  width: 11px;\n  height: 11px;\n  stroke-width: 3;\n}\n\n.scout-list-row.is-selected .scout-row-check {\n  opacity: 1;\n  transform: scale(1);\n}\n\n.scout-batch-heading {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-batch-heading .scout-section-title {\n  min-width: 0;\n  margin-bottom: 0;\n}\n\n.scout-batch-heading .scout-section-title span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-batch-summary {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-batch-progress {\n  margin-top: 9px;\n  padding: 8px 9px;\n  border: 1px solid var(--scout-line);\n  border-radius: 6px;\n  background: #fafbfa;\n}\n\n.scout-batch-progress-copy {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  color: var(--scout-muted);\n  font-size: 10px;\n}\n\n.scout-batch-progress-label {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-batch-progress-value {\n  flex: 0 0 auto;\n  color: var(--scout-ink);\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-batch-progress-bar {\n  position: relative;\n  overflow: hidden;\n  height: 4px;\n  margin-top: 7px;\n  border-radius: 999px;\n  background: #e7ebe8;\n}\n\n.scout-batch-progress-fill {\n  display: block;\n  height: 100%;\n  border-radius: inherit;\n  background: var(--scout-accent);\n  transition: width 160ms ease;\n}\n\n.scout-batch-progress-bar[data-mode="indeterminate"]\n  .scout-batch-progress-fill {\n  width: 38%;\n  animation: scout-progress-indeterminate 1.15s ease-in-out infinite;\n}\n\n.scout-batch-list {\n  margin-top: 8px;\n}\n\n.scout-batch-skeleton {\n  display: grid;\n}\n\n.scout-batch-skeleton-row {\n  display: grid;\n  min-height: 48px;\n  grid-template-columns: 18px minmax(0, 1fr) 42px;\n  gap: 9px;\n  align-items: center;\n  padding: 8px 7px;\n  border-top: 1px solid var(--scout-line);\n}\n\n.scout-batch-skeleton-row:first-child {\n  border-top: 0;\n}\n\n.scout-batch-skeleton-check,\n.scout-batch-skeleton-title,\n.scout-batch-skeleton-meta,\n.scout-batch-skeleton-tail {\n  display: block;\n  border-radius: 4px;\n  background: #e7ebe8;\n  animation: scout-skeleton-pulse 1.1s ease-in-out infinite alternate;\n}\n\n.scout-batch-skeleton-check {\n  width: 15px;\n  height: 15px;\n  border-radius: 4px;\n}\n\n.scout-batch-skeleton-copy {\n  display: grid;\n  gap: 5px;\n}\n\n.scout-batch-skeleton-title {\n  width: min(76%, 180px);\n  height: 9px;\n}\n\n.scout-batch-skeleton-meta {\n  width: min(48%, 120px);\n  height: 7px;\n}\n\n.scout-batch-skeleton-tail {\n  width: 40px;\n  height: 7px;\n}\n\n@keyframes scout-progress-indeterminate {\n  from {\n    transform: translateX(-105%);\n  }\n\n  to {\n    transform: translateX(270%);\n  }\n}\n\n@keyframes scout-skeleton-pulse {\n  from {\n    opacity: 0.5;\n  }\n\n  to {\n    opacity: 0.95;\n  }\n}\n\n.scout-batch-row {\n  display: grid;\n  width: 100%;\n  min-height: 48px;\n  grid-template-columns: 18px minmax(0, 1fr) auto;\n  gap: 9px;\n  align-items: center;\n  padding: 8px 7px;\n  border-top: 1px solid var(--scout-line);\n  border-radius: 0;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    background 120ms ease,\n    box-shadow 120ms ease;\n}\n\n.scout-batch-row:first-child {\n  border-top: 0;\n}\n\n.scout-batch-row:hover {\n  border-radius: 6px;\n  background: #f3f6f4;\n  box-shadow: inset 0 0 0 1px var(--scout-line);\n}\n\n.scout-batch-row.is-selected {\n  border-radius: 6px;\n  background: var(--scout-accent-soft);\n  box-shadow: inset 0 0 0 1px #e1a7ba;\n  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--scout-accent) 35%, white);\n}\n\n.scout-batch-row.is-unmatched {\n  cursor: default;\n  opacity: 0.62;\n}\n\n.scout-batch-checkbox {\n  width: 16px;\n  height: 16px;\n  margin: 0;\n  accent-color: var(--scout-accent);\n  cursor: pointer;\n}\n\n.scout-batch-checkbox:disabled {\n  cursor: not-allowed;\n}\n\n.scout-batch-message {\n  margin: 0;\n  padding: 15px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 11px;\n  line-height: 1.5;\n  text-align: center;\n}\n\n.scout-batch-status {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-batch-status[hidden] {\n  display: none;\n}\n\n.scout-batch-note {\n  margin: 6px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-batch-note[data-tone="warn"] {\n  color: #92631d;\n}\n\n.scout-batch-toolbar {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: flex-end;\n  gap: 6px;\n  margin-top: 9px;\n}\n\n.scout-batch-toolbar .scout-button {\n  min-height: 30px;\n  padding: 5px 9px;\n  font-size: 11px;\n}\n\n.scout-batch-load-more {\n  width: 100%;\n  min-height: 34px;\n  margin-top: 6px;\n  border: 1px dashed var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font: inherit;\n  font-size: 10px;\n}\n\n.scout-batch-load-more:hover {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-suggestions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-suggestion {\n  display: inline-flex;\n  min-height: 28px;\n  max-width: 100%;\n  align-items: center;\n  gap: 6px;\n  padding: 3px 7px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-ink);\n  cursor: pointer;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease;\n}\n\n.scout-suggestion:hover {\n  border-color: #bdc7c0;\n  background: var(--scout-bg);\n}\n\n.scout-suggestion:active {\n  transform: translateY(1px) scale(0.985);\n  background: var(--scout-accent-soft);\n}\n\n.scout-suggestion-title {\n  overflow: hidden;\n  max-width: 215px;\n  font-size: 11px;\n  font-weight: 650;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-suggestion-source {\n  flex: 0 0 auto;\n  color: var(--scout-muted);\n  font-size: 9px;\n}\n\n.scout-record-head {\n  display: flex;\n  min-width: 0;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 10px;\n}\n\n.scout-record-head .scout-section-title {\n  flex: 0 0 auto;\n  margin-bottom: 0;\n}\n\n.scout-record-context {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n}\n\n.scout-record-item {\n  min-width: 0;\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-reselect {\n  display: inline-flex;\n  min-height: 24px;\n  flex: 0 0 auto;\n  align-items: center;\n  gap: 4px;\n  padding: 2px 6px;\n  border: 1px solid var(--scout-line);\n  border-radius: 5px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-weight: 650;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-reselect:hover {\n  border-color: #b9caf6;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-reselect:active {\n  transform: scale(0.96);\n}\n\n.scout-reselect .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-record:focus {\n  outline: none;\n}\n\n.scout-record-rating-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  margin-top: 11px;\n}\n\n.scout-record-value {\n  color: var(--scout-muted);\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-rating-options {\n  display: grid;\n  grid-template-columns: repeat(10, minmax(0, 1fr));\n  gap: 3px;\n  margin-top: 6px;\n}\n\n.scout-rating-option {\n  display: grid;\n  min-width: 0;\n  height: 29px;\n  padding: 0;\n  border: 1px solid var(--scout-line);\n  border-radius: 4px;\n  background: #fff;\n  color: var(--scout-muted);\n  cursor: pointer;\n  font-size: 10px;\n  font-variant-numeric: tabular-nums;\n  place-items: center;\n  transition:\n    transform 100ms ease,\n    border-color 120ms ease,\n    background 120ms ease,\n    color 120ms ease;\n}\n\n.scout-rating-option:hover:not(:disabled) {\n  border-color: #9eb7ee;\n  background: var(--scout-accent-soft);\n  color: #1d4ed8;\n}\n\n.scout-rating-option:active:not(:disabled) {\n  transform: scale(0.94);\n}\n\n.scout-rating-option.is-selected {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n  color: #fff;\n}\n\n.scout-rating-option:disabled {\n  cursor: not-allowed;\n  opacity: 0.48;\n}\n\n.scout-record-footer {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  margin-top: 9px;\n}\n\n.scout-record-footer .scout-footer-status {\n  min-width: 0;\n  flex: 1;\n}\n\n.scout-record-remote-link {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  margin-top: 9px;\n  color: #1d4ed8;\n  font-size: 10px;\n  font-weight: 650;\n  text-decoration: none;\n}\n\n.scout-record-remote-link:hover {\n  text-decoration: underline;\n}\n\n.scout-record-remote-link .lucide {\n  width: 12px;\n  height: 12px;\n}\n\n.scout-duplicate-warning {\n  margin-top: 10px;\n  padding: 10px;\n  border: 1px solid #e6c77a;\n  border-radius: 7px;\n  background: #fffaf0;\n  color: #5f4917;\n}\n\n.scout-duplicate-heading {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 11px;\n}\n\n.scout-duplicate-heading .lucide {\n  width: 14px;\n  height: 14px;\n  flex: 0 0 auto;\n}\n\n.scout-duplicate-summary {\n  margin: 6px 0 8px;\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-duplicate-list {\n  display: grid;\n  gap: 6px;\n}\n\n.scout-duplicate-row {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 8px;\n  align-items: center;\n  padding-top: 6px;\n  border-top: 1px solid #ead9ad;\n}\n\n.scout-duplicate-copy {\n  display: grid;\n  min-width: 0;\n  gap: 2px;\n}\n\n.scout-duplicate-copy strong,\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-duplicate-copy strong {\n  font-size: 10px;\n}\n\n.scout-duplicate-copy span,\n.scout-duplicate-row code {\n  color: #80672e;\n  font-size: 9px;\n}\n\n.scout-duplicate-row code {\n  max-width: 110px;\n}\n\n.scout-duplicate-actions {\n  display: flex;\n  justify-content: flex-end;\n  gap: 6px;\n  margin-top: 9px;\n}\n\n.scout-empty {\n  padding: 18px 6px 10px;\n  color: var(--scout-muted);\n  font-size: 12px;\n  text-align: center;\n}\n\n.scout-diagnostics {\n  margin-top: 12px;\n  color: var(--scout-muted);\n  font-size: 11px;\n}\n\n.scout-diagnostics summary {\n  cursor: pointer;\n}\n\n.scout-diagnostics ul {\n  margin: 7px 0 0;\n  padding-left: 18px;\n}\n\n.scout-field {\n  display: grid;\n  gap: 5px;\n  margin-top: 10px;\n}\n\n.scout-field:first-child {\n  margin-top: 0;\n}\n\n.scout-field > span,\n.scout-range-label {\n  color: #3d4641;\n  font-size: 11px;\n  font-weight: 650;\n}\n\n.scout-field-grid {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 8px;\n}\n\n.scout-switch {\n  display: flex;\n  min-height: 32px;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 3px 0;\n  font-size: 12px;\n  font-weight: 650;\n}\n\n.scout-switch input {\n  position: relative;\n  width: 34px;\n  height: 19px;\n  flex: 0 0 auto;\n  appearance: none;\n  border: 1px solid #c6ccc8;\n  border-radius: 999px;\n  background: #dfe3df;\n  cursor: pointer;\n  transition: background 120ms ease;\n}\n\n.scout-switch input::after {\n  position: absolute;\n  top: 2px;\n  left: 2px;\n  width: 13px;\n  height: 13px;\n  border-radius: 999px;\n  background: #fff;\n  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);\n  content: "";\n  transition: transform 120ms ease;\n}\n\n.scout-switch input:checked {\n  border-color: var(--scout-accent);\n  background: var(--scout-accent);\n}\n\n.scout-switch input:checked::after {\n  transform: translateX(15px);\n}\n\n.scout-range-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  margin-top: 12px;\n}\n\n.scout-range-head output {\n  color: var(--scout-muted);\n  font-size: 11px;\n  font-variant-numeric: tabular-nums;\n}\n\n.scout-range {\n  width: 100%;\n  margin: 5px 0 0;\n  accent-color: var(--scout-accent);\n}\n\n.scout-note {\n  margin: 7px 0 0;\n  color: var(--scout-muted);\n  font-size: 10px;\n  line-height: 1.45;\n}\n\n.scout-note[data-tone="good"] {\n  color: #116b49;\n}\n\n.scout-note[data-tone="bad"] {\n  color: #a13c1d;\n}\n\n.scout-onboarding {\n  margin: 10px 0 12px;\n  padding: 10px 11px;\n  border: 1px solid #cdd9f2;\n  border-radius: 7px;\n  background: #f4f7fd;\n}\n\n.scout-onboarding h4 {\n  margin: 0;\n  color: #26334c;\n  font-size: 11px;\n  font-weight: 750;\n}\n\n.scout-onboarding h4 + * {\n  margin-top: 7px;\n}\n\n.scout-onboarding h4:not(:first-child) {\n  margin-top: 11px;\n  padding-top: 10px;\n  border-top: 1px solid #dbe4f5;\n}\n\n.scout-repo-roles {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 6px;\n}\n\n.scout-repo-role {\n  display: grid;\n  min-width: 0;\n  gap: 3px;\n  padding: 8px;\n  border: 1px solid #d7e1f3;\n  border-radius: 6px;\n  background: #fff;\n}\n\n.scout-repo-role-own {\n  border-color: #bccef0;\n  background: #edf3ff;\n}\n\n.scout-repo-role-label {\n  color: #62708a;\n  font-size: 9px;\n  font-weight: 750;\n}\n\n.scout-repo-role strong {\n  overflow: hidden;\n  color: #25334d;\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-repo-role small {\n  color: #657187;\n  font-size: 9px;\n  line-height: 1.4;\n}\n\n.scout-onboarding ol {\n  margin: 7px 0 9px;\n  padding-left: 18px;\n  color: #4e5c72;\n  font-size: 10px;\n  line-height: 1.55;\n}\n\n.scout-onboarding-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.scout-setup-checklist {\n  display: grid;\n  gap: 4px;\n  margin-top: 9px;\n  padding-top: 9px;\n  border-top: 1px solid #dbe4f5;\n}\n\n.scout-setup-step {\n  display: grid;\n  min-height: 25px;\n  grid-template-columns: 14px minmax(0, 1fr) auto;\n  gap: 6px;\n  align-items: center;\n  color: #4e5c72;\n  font-size: 10px;\n}\n\n.scout-setup-step .lucide {\n  width: 13px;\n  height: 13px;\n  color: #9aa5b8;\n}\n\n.scout-setup-state {\n  overflow: hidden;\n  max-width: 150px;\n  color: #7d879a;\n  font-size: 9px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-setup-step[data-state="ready"] .lucide,\n.scout-setup-step[data-state="ready"] .scout-setup-state {\n  color: #16845b;\n}\n\n.scout-setup-step[data-state="bad"] .lucide,\n.scout-setup-step[data-state="bad"] .scout-setup-state {\n  color: #b33245;\n}\n\n.scout-setup-step[data-state="bad"] {\n  color: #913044;\n}\n\n.scout-setup-summary {\n  margin: 2px 0 0;\n  color: #52627d;\n  font-size: 9px;\n  font-weight: 700;\n}\n\n.scout-footer {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 10px;\n  padding: 10px 14px;\n  border-top: 1px solid var(--scout-line);\n  background: var(--scout-bg);\n}\n\n.scout-footer-status {\n  overflow: hidden;\n  color: var(--scout-muted);\n  font-size: 10px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.scout-footer-actions {\n  display: flex;\n  flex: 0 0 auto;\n  gap: 6px;\n}\n\n.scout-toast {\n  position: absolute;\n  right: 10px;\n  bottom: 10px;\n  left: 10px;\n  padding: 8px 10px;\n  border: 1px solid #cfd7d1;\n  border-radius: 7px;\n  background: #17201b;\n  color: #fff;\n  font-size: 11px;\n  box-shadow: 0 8px 20px rgb(0 0 0 / 20%);\n  animation: scout-toast-in 160ms ease-out;\n  z-index: 1;\n}\n\n@keyframes scout-toast-in {\n  from {\n    opacity: 0;\n    transform: translateY(5px);\n  }\n\n  to {\n    opacity: 1;\n    transform: translateY(0);\n  }\n}\n\n@media (max-width: 520px) {\n  .scout-root {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-launcher {\n    right: 12px;\n    bottom: 12px;\n  }\n\n  .scout-panel {\n    right: 12px;\n    bottom: 64px;\n    left: 12px;\n    width: auto;\n    max-height: calc(100vh - 84px);\n  }\n\n  .scout-settings-window {\n    width: calc(100vw - 24px);\n    max-height: calc(100vh - 24px);\n  }\n\n  .scout-repo-roles {\n    grid-template-columns: 1fr;\n  }\n\n  .scout-setup-state {\n    max-width: 120px;\n  }\n}\n\n@media (prefers-color-scheme: dark) {\n  :host {\n    --scout-bg: #eef0ed;\n    --scout-panel: #ffffff;\n    --scout-ink: #161917;\n    --scout-muted: #66706a;\n    --scout-line: #dfe3df;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  * {\n    scroll-behavior: auto !important;\n    transition: none !important;\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n  }\n}\n';
 
   // src/ui/panel.js
   var TYPE_LABELS = {
@@ -5648,11 +5756,13 @@ ${indexText}`);
       this.recordSaving = false;
       this.githubConnectionChecking = false;
       this.githubTemplateChecking = false;
+      this.githubConnectionChecked = false;
       this.githubLastSyncedAt = "";
       this.manualSearchRows = [];
       this.candidateCollapsed = false;
       this.batchCards = [];
       this.batchRenderTimer = null;
+      this.batchProgressRenderTimer = null;
       this.batchScanRequestId = 0;
       this.batchSelectedIds = /* @__PURE__ */ new Set();
       this.batchVisibleLimit = 50;
@@ -5661,6 +5771,9 @@ ${indexText}`);
       this.batchMessage = "";
       this.batchDiagnostics = [];
       this.batchTotal = 0;
+      this.batchProgress = null;
+      this.pageKind = "generic";
+      this.presentationPageKind = null;
       this.coverRequestId = 0;
       this.busy = false;
       this.searchTimer = null;
@@ -5688,6 +5801,7 @@ ${indexText}`);
         className: "scout-launcher-label",
         text: "番剧"
       });
+      this.launcherIconNode = icon(ScanSearch);
       this.launcher = element(
         "button",
         {
@@ -5712,7 +5826,7 @@ ${indexText}`);
             pointercancel: (event) => this.finishLauncherDrag(event)
           }
         },
-        [icon(ScanSearch), this.launcherLabel, this.launcherDot]
+        [this.launcherIconNode, this.launcherLabel, this.launcherDot]
       );
       this.panelStatus = element("p", {
         className: "scout-brand-state",
@@ -5724,6 +5838,16 @@ ${indexText}`);
       ]);
       this.settingsView = null;
       this.settingsBody = element("div", { className: "scout-body" });
+      this.brandIconNode = icon(ScanSearch);
+      this.panelBrandMark = element(
+        "div",
+        { className: "scout-brand-mark" },
+        [this.brandIconNode]
+      );
+      this.brandTitle = element("h1", {
+        className: "scout-brand-title",
+        text: "Bangumi Scout"
+      });
       this.panelHeader = element(
         "header",
         {
@@ -5737,12 +5861,9 @@ ${indexText}`);
           }
         },
         [
-          element("div", { className: "scout-brand-mark" }, [icon(ScanSearch)]),
+          this.panelBrandMark,
           element("div", { className: "scout-brand" }, [
-            element("h1", {
-              className: "scout-brand-title",
-              text: "Bangumi Scout"
-            }),
+            this.brandTitle,
             this.panelStatus
           ]),
           element(
@@ -5819,6 +5940,7 @@ ${indexText}`);
       ]);
       this.shadow.append(this.root);
       document.documentElement.append(this.host);
+      this.updatePagePresentation();
       this.shadow.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           if (!this.settingsWindow.hidden) {
@@ -5830,6 +5952,38 @@ ${indexText}`);
       });
       this.setIndexState(this.indexState);
       window.addEventListener("resize", () => this.handleViewportResize());
+    }
+    updatePagePresentation() {
+      let pageKind = "generic";
+      try {
+        pageKind = detectPageKind(new URL(location.href));
+      } catch {
+      }
+      this.pageKind = pageKind;
+      if (pageKind === this.presentationPageKind) {
+        return;
+      }
+      this.presentationPageKind = pageKind;
+      const followPage = pageKind === "bilibili-follow";
+      const nextIcon = followPage ? List : ScanSearch;
+      const refreshIconNode = (node) => {
+        const replacement = icon(nextIcon);
+        replacement.dataset.icon = followPage ? "list" : "scan-search";
+        node.replaceWith(replacement);
+        return replacement;
+      };
+      this.launcherIconNode = refreshIconNode(this.launcherIconNode);
+      this.brandIconNode = refreshIconNode(this.brandIconNode);
+      this.root.dataset.pageKind = pageKind;
+      this.panel.dataset.pageKind = pageKind;
+      this.launcher.dataset.pageKind = pageKind;
+      this.launcherLabel.textContent = followPage ? "追番" : "番剧";
+      this.launcher.title = followPage ? "打开 B 站追番批量导入" : "打开 Bangumi Scout";
+      this.launcher.setAttribute(
+        "aria-label",
+        followPage ? "打开 B 站追番批量导入" : "打开 Bangumi Scout"
+      );
+      this.brandTitle.textContent = followPage ? "Bangumi Scout · 追番" : "Bangumi Scout";
     }
     buildRecognitionView() {
       this.resultBadge = element("span", {
@@ -5958,6 +6112,43 @@ ${indexText}`);
         className: "scout-batch-status",
         attrs: { role: "status", "aria-live": "polite" }
       });
+      this.batchProgressLabel = element("span", {
+        className: "scout-batch-progress-label",
+        text: "正在准备追番列表"
+      });
+      this.batchProgressValue = element("span", {
+        className: "scout-batch-progress-value",
+        text: "0%"
+      });
+      this.batchProgressFill = element("span", {
+        className: "scout-batch-progress-fill"
+      });
+      this.batchProgressBar = element(
+        "div",
+        {
+          className: "scout-batch-progress-bar",
+          dataset: { mode: "indeterminate" }
+        },
+        [this.batchProgressFill]
+      );
+      this.batchProgressPanel = element(
+        "div",
+        {
+          className: "scout-batch-progress",
+          attrs: {
+            role: "progressbar",
+            "aria-label": "B 站追番导入进度",
+            hidden: ""
+          }
+        },
+        [
+          element("div", { className: "scout-batch-progress-copy" }, [
+            this.batchProgressLabel,
+            this.batchProgressValue
+          ]),
+          this.batchProgressBar
+        ]
+      );
       this.batchActionNote = element("p", {
         className: "scout-batch-note",
         text: "新记录默认未评分、无评价；已存在的番剧会自动跳过。"
@@ -5982,6 +6173,7 @@ ${indexText}`);
           ]),
           this.batchSelectionSummary
         ]),
+        this.batchProgressPanel,
         this.batchList,
         this.batchStatus,
         this.batchActionNote,
@@ -6326,23 +6518,43 @@ ${indexText}`);
         type: "text",
         name: "github.repositoryUrl",
         autocomplete: "off",
-        placeholder: "https://github.com/你的用户名/anime-records",
+        placeholder: "https://github.com/你的用户名/my-anime-life",
         on: {
-          input: () => this.syncGithubRepositoryLinks(),
-          change: () => this.syncGithubRepositoryLinks()
+          input: () => {
+            this.githubConnectionChecked = false;
+            this.syncGithubRepositoryLinks();
+            this.updateGithubSetupChecklist();
+          },
+          change: () => {
+            this.githubConnectionChecked = false;
+            this.syncGithubRepositoryLinks();
+            this.updateGithubSetupChecklist();
+          }
         }
       });
       this.githubBranch = element("input", {
         type: "text",
         name: "github.branch",
         autocomplete: "off",
-        placeholder: "main"
+        placeholder: "main",
+        on: {
+          input: () => {
+            this.githubConnectionChecked = false;
+            this.updateGithubSetupChecklist();
+          }
+        }
       });
       this.githubToken = element("input", {
         type: "password",
         name: "github.token",
         autocomplete: "off",
-        placeholder: "github_pat_..."
+        placeholder: "github_pat_...",
+        on: {
+          input: () => {
+            this.githubConnectionChecked = false;
+            this.updateGithubSetupChecklist();
+          }
+        }
       });
       this.githubConnectionStatus = element("p", {
         className: "scout-note",
@@ -6390,6 +6602,38 @@ ${indexText}`);
         },
         [icon(GitBranch), "Pages 设置说明"]
       );
+      const setupStep = (label) => {
+        const status = element("span", {
+          className: "scout-setup-state",
+          text: "待完成"
+        });
+        return {
+          row: element("div", { className: "scout-setup-step" }, [
+            icon(Check),
+            element("span", { text: label }),
+            status
+          ]),
+          status
+        };
+      };
+      this.githubRepositoryStep = setupStep("填写个人数据仓库");
+      this.githubTokenStep = setupStep("填写仓库专用 Token");
+      this.githubConnectionStep = setupStep("检查仓库连接");
+      this.githubSyncStep = setupStep("完成首次同步");
+      this.githubSetupSummary = element("p", {
+        className: "scout-setup-summary",
+        text: "配置进度 0/4"
+      });
+      this.githubSetupChecklist = element("div", {
+        className: "scout-setup-checklist",
+        attrs: { "aria-label": "GitHub 配置进度" }
+      }, [
+        this.githubRepositoryStep.row,
+        this.githubTokenStep.row,
+        this.githubConnectionStep.row,
+        this.githubSyncStep.row,
+        this.githubSetupSummary
+      ]);
       this.settingsFooterStatus = element("span", {
         className: "scout-footer-status",
         text: "设置保存在油猴扩展中"
@@ -6483,19 +6727,44 @@ ${indexText}`);
               "GitHub 番剧仓库"
             ]),
             element("div", { className: "scout-onboarding" }, [
-              element("h4", { text: "第一次使用" }),
+              element("h4", { text: "先区分两个仓库" }),
+              element("div", { className: "scout-repo-roles" }, [
+                element("div", { className: "scout-repo-role" }, [
+                  element("span", {
+                    className: "scout-repo-role-label",
+                    text: "公开模板仓库"
+                  }),
+                  element("strong", { text: TEMPLATE_REPOSITORY }),
+                  element("small", {
+                    text: "只提供代码、页面和脚本，不要填写到同步地址。"
+                  })
+                ]),
+                element("div", {
+                  className: "scout-repo-role scout-repo-role-own"
+                }, [
+                  element("span", {
+                    className: "scout-repo-role-label",
+                    text: "你的个人数据仓库"
+                  }),
+                  element("strong", { text: "owner/my-anime-life" }),
+                  element("small", {
+                    text: "评分、评价和 JSONL 记录都保存到这里。"
+                  })
+                ])
+              ]),
+              element("h4", { text: "四步完成配置" }),
               element("ol", {}, [
                 element("li", {
-                  text: "使用模板创建个人仓库。新仓库不继承上游提交历史，data/anime.jsonl 与 data/anime-index.jsonl 保持为空。"
+                  text: "点击“用模板新建”，创建自己的个人数据仓库。推荐命名为 my-anime-life；不要直接 Fork 模板。"
                 }),
                 element("li", {
-                  text: "在仓库 Settings > Pages 中把 Source 设为 GitHub Actions。"
+                  text: "创建 Fine-grained Token，只授权这个个人数据仓库，权限设为 Contents: Read and write；Token 不是账户密码。"
                 }),
                 element("li", {
-                  text: "创建仅限该仓库、Contents 为 Read and write 的细粒度 Token。"
+                  text: "填写个人数据仓库地址、分支和 Token。Token 只保存在本机 Tampermonkey 存储中。"
                 }),
                 element("li", {
-                  text: "返回这里填写仓库地址和 Token，保存后点击检查连接。"
+                  text: "点击“检查连接”，成功后保存。如果希望发布展示页，再把仓库 Pages 来源设为 GitHub Actions。"
                 })
               ]),
               element("div", { className: "scout-onboarding-actions" }, [
@@ -6537,7 +6806,8 @@ ${indexText}`);
                   [icon(CircleHelp), "Pages 帮助"]
                 )
               ]),
-              this.githubTemplateStatus
+              this.githubTemplateStatus,
+              this.githubSetupChecklist
             ]),
             this.switchRow("启用 GitHub 同步", this.githubEnabled),
             this.field("仓库地址", this.githubRepositoryUrl),
@@ -6553,7 +6823,7 @@ ${indexText}`);
             this.githubConnectionStatus,
             element("p", {
               className: "scout-note",
-              text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime.jsonl 与 data/anime-index.jsonl。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。"
+              text: "同步地址必须填写你从模板生成的个人数据仓库，不能填写公开模板仓库。Fork 会复制公开分支和旧提交，无法只排除数据文件，因此不推荐。"
             })
           ]),
           element("footer", { className: "scout-footer" }, [
@@ -6580,7 +6850,9 @@ ${indexText}`);
         control
       ]);
     }
-    populateSettings(settings) {
+    populateSettings(settings, options = {}) {
+      const preserveGithubConnection = options.preserveGithubConnection === true && this.githubConnectionChecked;
+      this.githubConnectionChecked = preserveGithubConnection;
       this.indexEnabled.checked = settings.index.enabled;
       this.indexSource.value = settings.index.source;
       this.customIndexUrl.value = settings.index.customIndexUrl;
@@ -6601,13 +6873,17 @@ ${indexText}`);
       this.githubBranch.value = settings.github.branch;
       this.githubToken.value = settings.github.token;
       this.githubLastSyncedAt = settings.github.lastSyncedAt;
-      this.githubConnectionStatus.textContent = this.githubLastSyncedAt ? `上次 GitHub 保存：${formatRecordTime(this.githubLastSyncedAt)}` : "尚未检查仓库连接。";
+      if (!preserveGithubConnection) {
+        this.githubConnectionStatus.textContent = this.githubLastSyncedAt ? `上次 GitHub 保存：${formatRecordTime(this.githubLastSyncedAt)}` : "尚未检查仓库连接。";
+        delete this.githubConnectionStatus.dataset.tone;
+      }
       this.githubTemplateStatus.textContent = "模板状态尚未检查。创建个人仓库前建议先确认。";
       delete this.githubTemplateStatus.dataset.tone;
       this.syncCustomUrlVisibility();
       this.syncSettingsDisabledState();
       this.syncGithubRepositoryLinks();
       this.syncGithubDisabledState();
+      this.updateGithubSetupChecklist();
     }
     syncCustomUrlVisibility() {
       this.customUrlField.hidden = this.indexSource.value !== INDEX_SOURCES.CUSTOM;
@@ -6648,6 +6924,63 @@ ${indexText}`);
       this.githubBranch.disabled = githubDisabled;
       this.githubToken.disabled = githubDisabled;
       this.githubCheckButton.disabled = githubDisabled || this.githubConnectionChecking;
+    }
+    setGithubSetupStep(step, state, text) {
+      step.row.dataset.state = state;
+      step.status.textContent = text;
+    }
+    updateGithubSetupChecklist() {
+      if (!this.githubSetupChecklist) {
+        return;
+      }
+      let repository = null;
+      let repositoryState = "pending";
+      let repositoryText = "待填写";
+      try {
+        repository = parseGithubRepository(this.githubRepositoryUrl.value);
+        if (repository.fullName.toLocaleLowerCase() === TEMPLATE_REPOSITORY.toLocaleLowerCase()) {
+          repositoryState = "bad";
+          repositoryText = "不能使用模板仓库";
+        } else {
+          repositoryState = "ready";
+          repositoryText = repository.fullName;
+        }
+      } catch {
+        repositoryText = this.githubRepositoryUrl.value.trim() ? "地址格式有误" : "待填写";
+      }
+      const tokenReady = Boolean(this.githubToken.value.trim());
+      const connectionReady = this.githubConnectionChecked && repositoryState === "ready" && tokenReady;
+      const syncReady = Boolean(this.githubLastSyncedAt);
+      this.setGithubSetupStep(
+        this.githubRepositoryStep,
+        repositoryState,
+        repositoryText
+      );
+      this.setGithubSetupStep(
+        this.githubTokenStep,
+        tokenReady ? "ready" : "pending",
+        tokenReady ? "已填写" : "待填写"
+      );
+      this.setGithubSetupStep(
+        this.githubConnectionStep,
+        connectionReady ? "ready" : "pending",
+        connectionReady ? "连接正常" : "待检查"
+      );
+      this.setGithubSetupStep(
+        this.githubSyncStep,
+        syncReady ? "ready" : "pending",
+        syncReady ? formatRecordTime(this.githubLastSyncedAt) : "待完成"
+      );
+      const completed = [
+        repositoryState === "ready",
+        tokenReady,
+        connectionReady,
+        syncReady
+      ].filter(Boolean).length;
+      this.githubSetupSummary.textContent = `配置进度 ${completed}/4`;
+      if (repositoryState === "bad") {
+        this.githubSetupSummary.textContent += " · 同步地址不能是公开模板仓库";
+      }
     }
     collectGithubSettings() {
       return {
@@ -6694,7 +7027,9 @@ ${indexText}`);
         },
         github: this.collectGithubSettings()
       });
-      this.populateSettings(settings);
+      this.populateSettings(settings, {
+        preserveGithubConnection: true
+      });
       if (options.quiet !== true) {
         this.showToast("设置已保存");
       }
@@ -6764,25 +7099,65 @@ ${indexText}`);
       if (!this.githubRecords || this.githubConnectionChecking) {
         return;
       }
+      const token = this.githubToken.value.trim();
+      if (!token) {
+        this.githubConnectionChecked = false;
+        this.githubConnectionStatus.textContent = "请先填写仅限个人数据仓库的细粒度 Token。未认证的 GitHub API 很容易触发限流。";
+        this.githubConnectionStatus.dataset.tone = "bad";
+        this.githubToken.focus();
+        this.updateGithubSetupChecklist();
+        return;
+      }
+      try {
+        const repository = parseGithubRepository(
+          this.githubRepositoryUrl.value
+        );
+        if (repository.fullName.toLocaleLowerCase() === TEMPLATE_REPOSITORY.toLocaleLowerCase()) {
+          this.githubConnectionChecked = false;
+          this.githubConnectionStatus.textContent = "当前填写的是公开模板仓库。请先用“用模板新建”创建个人数据仓库，再填写新仓库地址。";
+          this.githubConnectionStatus.dataset.tone = "bad";
+          this.updateGithubSetupChecklist();
+          return;
+        }
+      } catch (error) {
+        this.githubConnectionChecked = false;
+        this.githubConnectionStatus.textContent = toErrorMessage(error);
+        this.githubConnectionStatus.dataset.tone = "bad";
+        this.updateGithubSetupChecklist();
+        return;
+      }
       this.githubConnectionChecking = true;
       this.githubCheckButton.classList.add("is-loading");
       this.githubConnectionStatus.textContent = "正在检查 GitHub 仓库…";
+      delete this.githubConnectionStatus.dataset.tone;
       this.syncGithubDisabledState();
       try {
         const result = await this.githubRecords.checkConnection({
           enabled: this.githubEnabled.checked,
           repositoryUrl: this.githubRepositoryUrl.value,
           branch: this.githubBranch.value,
-          token: this.githubToken.value
+          token
         });
+        if (result.canWrite === false) {
+          this.githubConnectionChecked = false;
+          this.githubConnectionStatus.textContent = "仓库可访问，但 Token 没有 Contents 写权限。请编辑 Token，将 Contents 设为 Read and write。";
+          this.githubConnectionStatus.dataset.tone = "bad";
+          return;
+        }
+        this.githubConnectionChecked = true;
         const visibility = result.private ? "私有仓库" : "公开仓库";
-        this.githubConnectionStatus.textContent = `${result.fullName} 可访问 · ${visibility} · 默认分支 ${result.defaultBranch}`;
+        const accessLabel = result.canWrite === true ? "可读写" : "可访问 · 写权限待实际同步确认";
+        this.githubConnectionStatus.textContent = `${result.fullName} ${accessLabel} · ${visibility} · 默认分支 ${result.defaultBranch}`;
+        this.githubConnectionStatus.dataset.tone = "good";
       } catch (error) {
+        this.githubConnectionChecked = false;
         this.githubConnectionStatus.textContent = `连接失败：${toErrorMessage(error)}`;
+        this.githubConnectionStatus.dataset.tone = "bad";
       } finally {
         this.githubConnectionChecking = false;
         this.githubCheckButton.classList.remove("is-loading");
         this.syncGithubDisabledState();
+        this.updateGithubSetupChecklist();
       }
     }
     async runIndexUpdate() {
@@ -6854,6 +7229,9 @@ ${indexText}`);
       this.batchMessage = "";
       this.batchDiagnostics = [];
       this.batchTotal = 0;
+      this.batchProgress = null;
+      clearTimeout(this.batchProgressRenderTimer);
+      this.batchProgressRenderTimer = null;
       this.batchScanRequestId += 1;
       this.renderRecognitionResult(result);
       if (this.rescanButtonTextNode) {
@@ -7451,6 +7829,49 @@ ${indexText}`);
     batchImportableCards() {
       return this.batchCards.filter((card) => card.selectedResult?.item?.id);
     }
+    renderBatchProgress() {
+      const progress = this.batchProgress;
+      const visible = Boolean(
+        (this.batchLoading || this.batchImporting) && (progress || this.batchImporting)
+      );
+      if (!this.batchProgressPanel) {
+        return;
+      }
+      this.batchProgressPanel.hidden = !visible;
+      if (!visible) {
+        return;
+      }
+      let label = "正在同步到 GitHub";
+      let value = "请稍候";
+      let percent = null;
+      if (!this.batchImporting && progress?.phase === "fetch") {
+        const fetched = Number(progress.itemCount) || 0;
+        const total = Number(progress.total) || 0;
+        label = `正在读取追番列表 · 已读取 ${Number(progress.fetchedPages) || 0} 页`;
+        value = total > 0 ? `${fetched}/${total}` : `${fetched} 部`;
+      } else if (!this.batchImporting && progress?.phase === "matching") {
+        const processed = Number(progress.processed) || 0;
+        const totalItems = Number(progress.totalItems) || 0;
+        const matched = Number(progress.matched) || 0;
+        label = `正在匹配本地索引 · 已命中 ${matched}`;
+        value = totalItems > 0 ? `${processed}/${totalItems}` : "准备中";
+        percent = totalItems > 0 ? Math.round(processed / totalItems * 100) : null;
+      }
+      this.batchProgressPanel.setAttribute("aria-label", label);
+      this.batchProgressLabel.textContent = label;
+      this.batchProgressValue.textContent = percent === null ? value : `${value} · ${percent}%`;
+      this.batchProgressBar.dataset.mode = percent === null ? "indeterminate" : "determinate";
+      this.batchProgressFill.style.width = percent === null ? "" : `${Math.max(0, Math.min(100, percent))}%`;
+      if (percent === null) {
+        this.batchProgressPanel.removeAttribute("aria-valuemin");
+        this.batchProgressPanel.removeAttribute("aria-valuemax");
+        this.batchProgressPanel.removeAttribute("aria-valuenow");
+      } else {
+        this.batchProgressPanel.setAttribute("aria-valuemin", "0");
+        this.batchProgressPanel.setAttribute("aria-valuemax", "100");
+        this.batchProgressPanel.setAttribute("aria-valuenow", String(percent));
+      }
+    }
     toggleBatchCard(mediaId, checked) {
       if (checked) {
         this.batchSelectedIds.add(String(mediaId));
@@ -7484,15 +7905,36 @@ ${indexText}`);
       }
       this.batchSection.hidden = false;
       this.batchList.replaceChildren();
+      this.renderBatchProgress();
       const matched = importable.length;
       const totalSuffix = this.batchTotal > cards.length ? ` · 接口共 ${this.batchTotal} 部` : "";
-      this.batchTitle.textContent = this.batchLoading ? "正在读取追番列表" : `追番列表 (${matched}/${cards.length})${totalSuffix}`;
+      this.batchTitle.textContent = this.batchLoading ? cards.length > 0 ? `正在读取追番列表 (${cards.length}${this.batchTotal > cards.length ? `/${this.batchTotal}` : ""})` : "正在读取追番列表" : `追番列表 (${matched}/${cards.length})${totalSuffix}`;
       this.batchSelectionSummary.textContent = `已选 ${this.batchSelectedIds.size} 项 · 可导入 ${matched}`;
-      if (this.batchLoading) {
+      if (this.batchLoading && cards.length === 0) {
+        this.batchList.append(
+          element(
+            "div",
+            {
+              className: "scout-batch-skeleton",
+              attrs: { "aria-hidden": "true" }
+            },
+            Array.from(
+              { length: 4 },
+              () => element("div", { className: "scout-batch-skeleton-row" }, [
+                element("span", { className: "scout-batch-skeleton-check" }),
+                element("span", { className: "scout-batch-skeleton-copy" }, [
+                  element("span", { className: "scout-batch-skeleton-title" }),
+                  element("span", { className: "scout-batch-skeleton-meta" })
+                ]),
+                element("span", { className: "scout-batch-skeleton-tail" })
+              ])
+            )
+          )
+        );
         this.batchList.append(
           element("p", {
             className: "scout-batch-message",
-            text: "正在自动读取全部追番，请稍候…"
+            text: "正在分批读取并匹配，列表会随进度更新。"
           })
         );
       } else if (!cards.length) {
@@ -7555,6 +7997,14 @@ ${indexText}`);
                 })
               ]
             )
+          );
+        }
+        if (this.batchLoading) {
+          this.batchList.append(
+            element("p", {
+              className: "scout-batch-message",
+              text: "已显示部分结果，其余追番仍在分批匹配。"
+            })
           );
         }
         if (cards.length > this.batchVisibleLimit) {
@@ -7627,6 +8077,7 @@ ${indexText}`);
         this.batchSelectedIds.clear();
         this.batchMessage = result.imported.length > 0 ? `已导入 ${result.imported.length} 条，跳过 ${result.skippedCount} 条` : `选中的 ${result.skippedCount} 条均已存在，没有重复写入`;
         this.showToast(this.batchMessage);
+        this.updateGithubSetupChecklist();
       } catch (error) {
         this.batchMessage = `批量同步失败：${toErrorMessage(error)}`;
         this.showToast(this.batchMessage);
@@ -7638,6 +8089,8 @@ ${indexText}`);
     scheduleBatchCards() {
       clearTimeout(this.batchRenderTimer);
       this.batchRenderTimer = null;
+      clearTimeout(this.batchProgressRenderTimer);
+      this.batchProgressRenderTimer = null;
       const requestId = ++this.batchScanRequestId;
       this.batchCards = [];
       this.batchSelectedIds.clear();
@@ -7647,6 +8100,7 @@ ${indexText}`);
       this.batchMessage = "";
       this.batchDiagnostics = [];
       this.batchTotal = 0;
+      this.batchProgress = null;
       this.batchSection.hidden = true;
       this.batchList.replaceChildren();
       if (this.currentResult?.context?.pageKind !== "bilibili-follow") {
@@ -7654,6 +8108,12 @@ ${indexText}`);
       }
       const result = this.currentResult;
       this.batchLoading = true;
+      this.batchProgress = {
+        phase: "fetch",
+        fetchedPages: 0,
+        itemCount: 0,
+        total: 0
+      };
       this.renderBatchCards();
       const scan = async () => {
         this.batchRenderTimer = null;
@@ -7661,7 +8121,27 @@ ${indexText}`);
           return;
         }
         try {
-          const scanned = await this.onScanCards?.();
+          const scanned = await this.onScanCards?.({
+            onProgress: (progress) => {
+              if (requestId !== this.batchScanRequestId || this.currentResult !== result) {
+                return;
+              }
+              this.batchProgress = progress;
+              if (Array.isArray(progress?.cards)) {
+                this.batchCards = progress.cards;
+              }
+              if (Number(progress?.total) > this.batchTotal) {
+                this.batchTotal = Number(progress.total);
+              }
+              clearTimeout(this.batchProgressRenderTimer);
+              this.batchProgressRenderTimer = setTimeout(() => {
+                if (requestId !== this.batchScanRequestId || this.currentResult !== result) {
+                  return;
+                }
+                this.renderBatchCards();
+              }, 80);
+            }
+          });
           if (requestId !== this.batchScanRequestId || this.currentResult !== result) {
             return;
           }
@@ -7670,6 +8150,7 @@ ${indexText}`);
           this.batchTotal = Number(payload.total) || this.batchCards.length;
           this.batchDiagnostics = (payload.diagnostics ?? []).filter(Boolean);
           this.batchMessage = this.batchDiagnostics.join("；");
+          this.batchProgress = null;
         } catch (error) {
           if (requestId !== this.batchScanRequestId) {
             return;
@@ -7678,18 +8159,15 @@ ${indexText}`);
           this.batchMessage = `追番列表读取失败：${toErrorMessage(error)}`;
         } finally {
           if (requestId === this.batchScanRequestId && this.currentResult === result) {
+            this.batchProgress = null;
             this.batchLoading = false;
+            clearTimeout(this.batchProgressRenderTimer);
+            this.batchProgressRenderTimer = null;
             this.renderBatchCards();
           }
         }
       };
-      if (typeof window.requestIdleCallback === "function") {
-        this.batchRenderTimer = window.requestIdleCallback(scan, {
-          timeout: 600
-        });
-      } else {
-        this.batchRenderTimer = window.setTimeout(scan, 0);
-      }
+      this.batchRenderTimer = window.setTimeout(scan, 0);
     }
     scheduleManualSearch() {
       clearTimeout(this.searchTimer);
@@ -7736,6 +8214,7 @@ ${indexText}`);
       setTimeout(() => toast.remove(), 3200);
     }
     open(options = {}) {
+      this.updatePagePresentation();
       this.closeSettings();
       this.panel.hidden = false;
       this.launcher.hidden = true;
@@ -7754,6 +8233,7 @@ ${indexText}`);
       this.launcher.setAttribute("aria-expanded", "false");
     }
     openSettings() {
+      this.updatePagePresentation();
       this.close();
       this.settingsBackdrop.hidden = false;
       this.settingsWindow.hidden = false;

@@ -138,6 +138,7 @@
   window.GM_deleteValue = (key) => memory.delete(key);
   window.GM_registerMenuCommand = () => {};
   window.__previewRequests = [];
+  window.__previewBilibiliDelay = 0;
   window.GM_xmlhttpRequest = (details) => {
     setTimeout(() => {
       try {
@@ -332,6 +333,6 @@
       } catch (error) {
         details.onerror?.({ error: error.message });
       }
-    }, 80);
+    }, 80 + Math.max(0, Number(window.__previewBilibiliDelay) || 0));
   };
 })();

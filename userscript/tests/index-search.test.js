@@ -76,3 +76,21 @@ test("searches Chinese aliases exactly and with fuzzy input", () => {
   const fuzzy = search.search("相反的你与卧", { limit: 3 });
   assert.equal(fuzzy[0].item.id, "bangumi:525565");
 });
+
+test("supports a lightweight batch lookup without running Fuse", () => {
+  const slim = buildSlimIndex(rawIndex, { sourceVersion: "test" });
+  const search = new LocalAnimeSearch(slim.items, { threshold: 0.55 });
+
+  const exact = search.search("葬送的芙莉莲", {
+    fuzzy: false,
+    limit: 3,
+  });
+  assert.equal(exact[0].item.id, "bangumi:400602");
+  assert.equal(exact[0].matchedBy, "exact");
+
+  const typo = search.search("相反的你与卧", {
+    fuzzy: false,
+    limit: 3,
+  });
+  assert.equal(typo.length, 0);
+});

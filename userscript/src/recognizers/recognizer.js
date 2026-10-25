@@ -13,6 +13,11 @@ import {
 import { inferAnimeWithDeepSeek } from "./deepseek.js";
 
 const MAX_REGEX_INDEX_QUERIES = 8;
+const BATCH_MATCH_CHUNK_SIZE = 40;
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function mergeResult(results, result, extra) {
   const existing = results.get(result.item.id);
@@ -280,12 +285,24 @@ export class AnimeRecognizer {
     const domCards = collectBilibiliCards(limit);
     const followUid = extractBilibiliFollowUid(location.href);
     let apiResult = null;
+    const reportProgress = (progress) => {
+      try {
+        options.onProgress?.(progress);
+      } catch {
+        // Progress rendering must never interrupt the batch scan.
+      }
+    };
 
     if (followUid && options.includeBilibiliApi !== false) {
       try {
         apiResult = await fetchBilibiliFollowList(followUid, {
           maxItems: limit,
           requestJsonImpl: options.requestJsonImpl,
+          onProgress: (progress) =>
+            reportProgress({
+              ...progress,
+              phase: "fetch",
+            }),
         });
         diagnostics.push(
           `Bilibili 追番：读取 ${apiResult.cards.length}/${apiResult.total} 部`,
@@ -313,44 +330,58 @@ export class AnimeRecognizer {
     }
 
     const search = this.indexService.getSearch();
-    return {
-      cards: [...cards.values()].slice(0, limit).map((card) => {
-        const exactItem = search.findBySiteId("bilibili", card.mediaId);
-        if (exactItem) {
-          const item = {
-            ...exactItem,
-            coverUrl: exactItem.coverUrl || card.coverUrl || null,
-          };
-          return {
-            ...card,
+    const sourceCards = [...cards.values()].slice(0, limit);
+    const processedCards = [];
+    let matchedCount = 0;
+    reportProgress({
+      phase: "matching",
+      processed: 0,
+      totalItems: sourceCards.length,
+      matched: 0,
+      cards: [],
+    });
+
+    for (let index = 0; index < sourceCards.length; index += 1) {
+      const card = sourceCards[index];
+      const exactItem = search.findBySiteId("bilibili", card.mediaId);
+      let processedCard = null;
+      if (exactItem) {
+        const item = {
+          ...exactItem,
+          coverUrl: exactItem.coverUrl || card.coverUrl || null,
+        };
+        processedCard = {
+          ...card,
+          item,
+          confidence: 1,
+          selectedResult: {
             item,
             confidence: 1,
-            selectedResult: {
-              item,
-              confidence: 1,
-              matchedBy: [
-                card.source === "bilibili-follow-api"
-                  ? "bilibili-api-id"
-                  : "bilibili-id",
-              ],
-              bilibiliMetadata: {
-                mediaId: card.mediaId,
-                seasonId: card.seasonId,
-                title: card.title,
-                names: [card.title],
-                coverUrl: card.coverUrl || null,
-              },
+            matchedBy: [
+              card.source === "bilibili-follow-api"
+                ? "bilibili-api-id"
+                : "bilibili-id",
+            ],
+            bilibiliMetadata: {
+              mediaId: card.mediaId,
+              seasonId: card.seasonId,
+              title: card.title,
+              names: [card.title],
+              coverUrl: card.coverUrl || null,
             },
-          };
-        }
-
-        const titleMatch = search.search(card.title, { limit: 3 })[0];
+          },
+        };
+      } else {
+        const titleMatch = search.search(card.title, {
+          limit: 1,
+          fuzzy: false,
+        })[0];
         if (titleMatch?.confidence >= 0.7) {
           const item = {
             ...titleMatch.item,
             coverUrl: titleMatch.item.coverUrl || card.coverUrl || null,
           };
-          return {
+          processedCard = {
             ...card,
             item,
             confidence: titleMatch.confidence,
@@ -366,15 +397,40 @@ export class AnimeRecognizer {
               },
             },
           };
+        } else {
+          processedCard = {
+            ...card,
+            item: null,
+            confidence: 0,
+            selectedResult: null,
+          };
         }
+      }
 
-        return {
-          ...card,
-          item: null,
-          confidence: 0,
-          selectedResult: null,
-        };
-      }),
+      processedCards.push(processedCard);
+      if (processedCard.selectedResult) {
+        matchedCount += 1;
+      }
+      const processed = index + 1;
+      if (
+        processed % BATCH_MATCH_CHUNK_SIZE === 0 ||
+        processed === sourceCards.length
+      ) {
+        reportProgress({
+          phase: "matching",
+          processed,
+          totalItems: sourceCards.length,
+          matched: matchedCount,
+          cards: processedCards.slice(),
+        });
+        if (processed < sourceCards.length) {
+          await yieldToEventLoop();
+        }
+      }
+    }
+
+    return {
+      cards: processedCards,
       diagnostics,
       source: apiResult ? "bilibili-follow-api" : "bilibili-dom",
       total: apiResult?.total ?? domCards.length,

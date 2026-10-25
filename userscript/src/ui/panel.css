@@ -19,6 +19,13 @@
   line-height: 1.5;
 }
 
+.scout-launcher[data-page-kind="bilibili-follow"],
+.scout-panel[data-page-kind="bilibili-follow"] {
+  --scout-accent: #e45886;
+  --scout-accent-soft: #fff0f5;
+  --scout-good: #be3e6a;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -70,6 +77,16 @@ button {
 .scout-launcher:hover {
   background: #25312a;
   transform: translateY(-1px);
+}
+
+.scout-launcher[data-page-kind="bilibili-follow"] {
+  border-color: rgb(255 255 255 / 42%);
+  background: #9f2f58;
+  box-shadow: 0 9px 28px rgb(133 31 70 / 34%);
+}
+
+.scout-launcher[data-page-kind="bilibili-follow"]:hover {
+  background: #b43a67;
 }
 
 .scout-launcher:active {
@@ -257,6 +274,14 @@ button {
   background: #17201b;
   color: #fff;
   place-items: center;
+}
+
+.scout-panel[data-page-kind="bilibili-follow"] .scout-brand-mark {
+  background: #9f2f58;
+}
+
+.scout-panel[data-page-kind="bilibili-follow"] .scout-section-title .lucide {
+  color: #c74574;
 }
 
 .scout-brand-mark .lucide {
@@ -737,8 +762,135 @@ button.scout-list-row:active {
   font-variant-numeric: tabular-nums;
 }
 
+.scout-batch-progress {
+  margin-top: 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--scout-line);
+  border-radius: 6px;
+  background: #fafbfa;
+}
+
+.scout-batch-progress-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--scout-muted);
+  font-size: 10px;
+}
+
+.scout-batch-progress-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-batch-progress-value {
+  flex: 0 0 auto;
+  color: var(--scout-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.scout-batch-progress-bar {
+  position: relative;
+  overflow: hidden;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: #e7ebe8;
+}
+
+.scout-batch-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--scout-accent);
+  transition: width 160ms ease;
+}
+
+.scout-batch-progress-bar[data-mode="indeterminate"]
+  .scout-batch-progress-fill {
+  width: 38%;
+  animation: scout-progress-indeterminate 1.15s ease-in-out infinite;
+}
+
 .scout-batch-list {
   margin-top: 8px;
+}
+
+.scout-batch-skeleton {
+  display: grid;
+}
+
+.scout-batch-skeleton-row {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 18px minmax(0, 1fr) 42px;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 7px;
+  border-top: 1px solid var(--scout-line);
+}
+
+.scout-batch-skeleton-row:first-child {
+  border-top: 0;
+}
+
+.scout-batch-skeleton-check,
+.scout-batch-skeleton-title,
+.scout-batch-skeleton-meta,
+.scout-batch-skeleton-tail {
+  display: block;
+  border-radius: 4px;
+  background: #e7ebe8;
+  animation: scout-skeleton-pulse 1.1s ease-in-out infinite alternate;
+}
+
+.scout-batch-skeleton-check {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+}
+
+.scout-batch-skeleton-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.scout-batch-skeleton-title {
+  width: min(76%, 180px);
+  height: 9px;
+}
+
+.scout-batch-skeleton-meta {
+  width: min(48%, 120px);
+  height: 7px;
+}
+
+.scout-batch-skeleton-tail {
+  width: 40px;
+  height: 7px;
+}
+
+@keyframes scout-progress-indeterminate {
+  from {
+    transform: translateX(-105%);
+  }
+
+  to {
+    transform: translateX(270%);
+  }
+}
+
+@keyframes scout-skeleton-pulse {
+  from {
+    opacity: 0.5;
+  }
+
+  to {
+    opacity: 0.95;
+  }
 }
 
 .scout-batch-row {
@@ -771,7 +923,8 @@ button.scout-list-row:active {
 .scout-batch-row.is-selected {
   border-radius: 6px;
   background: var(--scout-accent-soft);
-  box-shadow: inset 0 0 0 1px #b9caf6;
+  box-shadow: inset 0 0 0 1px #e1a7ba;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--scout-accent) 35%, white);
 }
 
 .scout-batch-row.is-unmatched {
@@ -1287,6 +1440,57 @@ button.scout-list-row:active {
   font-weight: 750;
 }
 
+.scout-onboarding h4 + * {
+  margin-top: 7px;
+}
+
+.scout-onboarding h4:not(:first-child) {
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid #dbe4f5;
+}
+
+.scout-repo-roles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.scout-repo-role {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid #d7e1f3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.scout-repo-role-own {
+  border-color: #bccef0;
+  background: #edf3ff;
+}
+
+.scout-repo-role-label {
+  color: #62708a;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.scout-repo-role strong {
+  overflow: hidden;
+  color: #25334d;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-repo-role small {
+  color: #657187;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 .scout-onboarding ol {
   margin: 7px 0 9px;
   padding-left: 18px;
@@ -1299,6 +1503,60 @@ button.scout-list-row:active {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.scout-setup-checklist {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #dbe4f5;
+}
+
+.scout-setup-step {
+  display: grid;
+  min-height: 25px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  color: #4e5c72;
+  font-size: 10px;
+}
+
+.scout-setup-step .lucide {
+  width: 13px;
+  height: 13px;
+  color: #9aa5b8;
+}
+
+.scout-setup-state {
+  overflow: hidden;
+  max-width: 150px;
+  color: #7d879a;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-setup-step[data-state="ready"] .lucide,
+.scout-setup-step[data-state="ready"] .scout-setup-state {
+  color: #16845b;
+}
+
+.scout-setup-step[data-state="bad"] .lucide,
+.scout-setup-step[data-state="bad"] .scout-setup-state {
+  color: #b33245;
+}
+
+.scout-setup-step[data-state="bad"] {
+  color: #913044;
+}
+
+.scout-setup-summary {
+  margin: 2px 0 0;
+  color: #52627d;
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .scout-footer {
@@ -1375,6 +1633,14 @@ button.scout-list-row:active {
   .scout-settings-window {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
+  }
+
+  .scout-repo-roles {
+    grid-template-columns: 1fr;
+  }
+
+  .scout-setup-state {
+    max-width: 120px;
   }
 }
 

@@ -25,9 +25,12 @@ async function configureGithub(page, host, token = "preview-token") {
   await expect(
     settings
       .locator(".scout-note")
-      .filter({ hasText: "preview-user/anime-records 可访问" }),
+      .filter({ hasText: "preview-user/anime-records 可读写" }),
   ).toBeVisible();
   await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings.locator(".scout-setup-summary")).toHaveText(
+    "配置进度 3/4",
+  );
   await host.getByRole("button", { name: "关闭设置" }).click();
 }
 
@@ -112,6 +115,7 @@ test("recognizes only after a click and opens separate extension settings", asyn
 
   await page.evaluate(() => window.BangumiScout.openSettings());
   await expect(host.locator('[data-view="settings"]')).toBeVisible();
+  const settings = host.locator('[data-view="settings"]');
   await expect(host.locator('input[name="ai.apiKey"]')).toBeAttached();
   const generateLink = host.getByRole("link", { name: "用模板新建" });
   await expect(generateLink).toHaveAttribute(
@@ -123,6 +127,41 @@ test("recognizes only after a click and opens separate extension settings", asyn
   ).toHaveAttribute(
     "href",
     "https://github.com/settings/personal-access-tokens/new",
+  );
+  await expect(
+    settings.getByText("公开模板仓库", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    settings.getByText("你的个人数据仓库", { exact: true }),
+  ).toBeVisible();
+  await expect(settings.locator(".scout-setup-summary")).toHaveText(
+    "配置进度 0/4",
+  );
+
+  await settings.locator('input[name="github.enabled"]').check();
+  await settings
+    .locator('input[name="github.repositoryUrl"]')
+    .fill("https://github.com/preview-user/anime-records");
+  await settings.locator('input[name="github.token"]').fill("");
+  await settings.getByRole("button", { name: "检查连接" }).click();
+  await expect(
+    settings
+      .locator(".scout-note")
+      .filter({ hasText: "请先填写仅限个人数据仓库的细粒度 Token" }),
+  ).toBeVisible();
+
+  await settings
+    .locator('input[name="github.repositoryUrl"]')
+    .fill("https://github.com/zjsycwmrbig/MyAnimeLife");
+  await settings.locator('input[name="github.token"]').fill("preview-token");
+  await settings.getByRole("button", { name: "检查连接" }).click();
+  await expect(
+    settings
+      .locator(".scout-note")
+      .filter({ hasText: "当前填写的是公开模板仓库" }),
+  ).toBeVisible();
+  await expect(settings.locator(".scout-setup-summary")).toContainText(
+    "同步地址不能是公开模板仓库",
   );
   expect(
     await page.evaluate(
@@ -217,7 +256,21 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
   await page.waitForFunction(() => Boolean(window.BangumiScout));
 
   const host = page.locator("#bangumi-scout-host");
+  const launcher = host.locator(".scout-launcher");
   await expect(host.locator(".scout-panel")).toBeHidden();
+  await expect(launcher).toHaveAttribute(
+    "data-page-kind",
+    "bilibili-follow",
+  );
+  await expect(launcher).toContainText("追番");
+  await expect(launcher.locator('[data-icon="list"]')).toHaveCount(1);
+  await expect
+    .poll(() =>
+      launcher.evaluate(
+        (node) => getComputedStyle(node).backgroundColor,
+      ),
+    )
+    .toBe("rgb(159, 47, 88)");
   expect(
     await page.evaluate(
       () =>
@@ -228,8 +281,23 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
   ).toBe(0);
 
   await configureGithub(page, host);
+  await page.evaluate(() => {
+    window.__previewBilibiliDelay = 350;
+  });
   await page.evaluate(() => window.BangumiScout.open());
+  await expect(host.locator(".scout-panel")).toHaveAttribute(
+    "data-page-kind",
+    "bilibili-follow",
+  );
+  await expect(
+    host.getByRole("heading", { name: "Bangumi Scout · 追番" }),
+  ).toBeVisible();
   await host.getByRole("button", { name: "识别当前页" }).click();
+  await expect(host.locator(".scout-batch-skeleton")).toBeVisible();
+  await expect(host.locator(".scout-batch-progress")).toBeVisible();
+  await expect(host.locator(".scout-batch-progress")).toContainText(
+    "正在读取追番列表",
+  );
 
   const batchRows = host.locator(".scout-batch-row");
   await expect(batchRows).toHaveCount(2);
@@ -253,10 +321,15 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
   await expect(host.locator(".scout-batch-summary")).toHaveText(
     "已选 2 项 · 可导入 2",
   );
+  await expect(host.locator(".scout-batch-skeleton")).toHaveCount(0);
+  await expect(host.locator(".scout-batch-progress")).toBeHidden();
   await host.getByRole("button", { name: "导入并同步" }).click();
   await expect(host.locator(".scout-batch-status")).toHaveText(
     "已导入 1 条，跳过 1 条",
   );
+  await expect(
+    host.locator('[data-view="settings"] .scout-setup-summary'),
+  ).toHaveText("配置进度 4/4");
 
   const putRequests = await page.evaluate(() =>
     window.__previewRequests.filter(

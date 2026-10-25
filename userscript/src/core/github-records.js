@@ -1195,11 +1195,15 @@ export class GitHubRecordsService {
       headers: githubHeaders(config.token),
       timeout: 20000,
     });
+    const permissions = repository.permissions ?? null;
+    const canWrite =
+      typeof permissions?.push === "boolean" ? permissions.push : null;
     return {
       fullName: cleanString(repository.full_name) || config.urls.fullName,
       defaultBranch: cleanString(repository.default_branch) || "main",
       private: Boolean(repository.private),
-      permissions: repository.permissions ?? null,
+      permissions,
+      canWrite,
       hasToken: Boolean(config.token),
       pagesLibraryUrl: config.urls.pagesLibraryUrl,
       pagesSetupUrl: `${config.urls.webUrl}/settings/pages`,

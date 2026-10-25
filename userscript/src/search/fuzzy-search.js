@@ -24,6 +24,23 @@ function makeExactIndex(items) {
   return index;
 }
 
+function makeInitialIndex(items) {
+  const index = new Map();
+  for (const item of items) {
+    const initials = new Set(
+      (item.normalizedNames ?? [])
+        .map((name) => String(name ?? "").slice(0, 1))
+        .filter(Boolean),
+    );
+    for (const initial of initials) {
+      const bucket = index.get(initial) ?? [];
+      bucket.push(item);
+      index.set(initial, bucket);
+    }
+  }
+  return index;
+}
+
 function makeResult(item, score, matchedBy) {
   return {
     item,
@@ -38,6 +55,7 @@ export class LocalAnimeSearch {
     this.items = Array.isArray(items) ? items : [];
     this.threshold = options.threshold ?? 0.42;
     this.exactIndex = makeExactIndex(this.items);
+    this.initialIndex = makeInitialIndex(this.items);
     this.siteIndex = makeSiteIndex(this.items);
     this.fuse = null;
     this.fuseOptions = {
@@ -88,7 +106,9 @@ export class LocalAnimeSearch {
     }
 
     if (normalizedQuery.length >= 2) {
-      for (const item of this.items) {
+      const candidates =
+        this.initialIndex.get(normalizedQuery.slice(0, 1)) ?? this.items;
+      for (const item of candidates) {
         const keys = item.normalizedNames ?? [];
         if (
           keys.some(
@@ -105,17 +125,19 @@ export class LocalAnimeSearch {
       }
     }
 
-    const fuse = this.getFuse();
-    if (fuse.options.threshold !== threshold) {
-      fuse.options.threshold = threshold;
-    }
-    for (const result of fuse.search(originalQuery, { limit: limit * 2 })) {
-      const existing = results.get(result.item.id);
-      if (!existing || result.score < existing.score) {
-        results.set(
-          result.item.id,
-          makeResult(result.item, result.score ?? 1, "fuzzy"),
-        );
+    if (options.fuzzy !== false) {
+      const fuse = this.getFuse();
+      if (fuse.options.threshold !== threshold) {
+        fuse.options.threshold = threshold;
+      }
+      for (const result of fuse.search(originalQuery, { limit: limit * 2 })) {
+        const existing = results.get(result.item.id);
+        if (!existing || result.score < existing.score) {
+          results.set(
+            result.item.id,
+            makeResult(result.item, result.score ?? 1, "fuzzy"),
+          );
+        }
       }
     }
 

@@ -38,11 +38,13 @@ import {
   DuplicateRecordError,
   FINE_GRAINED_TOKEN_URL,
   GITHUB_PAGES_DOCS_URL,
+  TEMPLATE_REPOSITORY,
   TEMPLATE_GENERATE_URL,
   parseGithubRepository,
 } from "../core/github-records.js";
 import { toErrorMessage } from "../core/network.js";
 import { INDEX_STATES } from "../index/index-service.js";
+import { detectPageKind } from "../recognizers/page-context.js";
 
 const TYPE_LABELS = {
   tv: "TV",
@@ -266,11 +268,13 @@ export class ScoutPanel {
     this.recordSaving = false;
     this.githubConnectionChecking = false;
     this.githubTemplateChecking = false;
+    this.githubConnectionChecked = false;
     this.githubLastSyncedAt = "";
     this.manualSearchRows = [];
     this.candidateCollapsed = false;
     this.batchCards = [];
     this.batchRenderTimer = null;
+    this.batchProgressRenderTimer = null;
     this.batchScanRequestId = 0;
     this.batchSelectedIds = new Set();
     this.batchVisibleLimit = 50;
@@ -279,6 +283,9 @@ export class ScoutPanel {
     this.batchMessage = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
+    this.batchProgress = null;
+    this.pageKind = "generic";
+    this.presentationPageKind = null;
     this.coverRequestId = 0;
     this.busy = false;
     this.searchTimer = null;
@@ -309,6 +316,7 @@ export class ScoutPanel {
       className: "scout-launcher-label",
       text: "番剧",
     });
+    this.launcherIconNode = icon(ScanSearch);
     this.launcher = element(
       "button",
       {
@@ -333,7 +341,7 @@ export class ScoutPanel {
           pointercancel: (event) => this.finishLauncherDrag(event),
         },
       },
-      [icon(ScanSearch), this.launcherLabel, this.launcherDot],
+      [this.launcherIconNode, this.launcherLabel, this.launcherDot],
     );
 
     this.panelStatus = element("p", {
@@ -347,6 +355,16 @@ export class ScoutPanel {
     this.settingsView = null;
     this.settingsBody = element("div", { className: "scout-body" });
 
+    this.brandIconNode = icon(ScanSearch);
+    this.panelBrandMark = element(
+      "div",
+      { className: "scout-brand-mark" },
+      [this.brandIconNode],
+    );
+    this.brandTitle = element("h1", {
+      className: "scout-brand-title",
+      text: "Bangumi Scout",
+    });
     this.panelHeader = element(
       "header",
       {
@@ -360,12 +378,9 @@ export class ScoutPanel {
         },
       },
       [
-        element("div", { className: "scout-brand-mark" }, [icon(ScanSearch)]),
+        this.panelBrandMark,
         element("div", { className: "scout-brand" }, [
-          element("h1", {
-            className: "scout-brand-title",
-            text: "Bangumi Scout",
-          }),
+          this.brandTitle,
           this.panelStatus,
         ]),
         element(
@@ -445,6 +460,7 @@ export class ScoutPanel {
     ]);
     this.shadow.append(this.root);
     document.documentElement.append(this.host);
+    this.updatePagePresentation();
 
     this.shadow.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
@@ -457,6 +473,44 @@ export class ScoutPanel {
     });
     this.setIndexState(this.indexState);
     window.addEventListener("resize", () => this.handleViewportResize());
+  }
+
+  updatePagePresentation() {
+    let pageKind = "generic";
+    try {
+      pageKind = detectPageKind(new URL(location.href));
+    } catch {
+      // Keep the generic presentation when the page URL is unavailable.
+    }
+    this.pageKind = pageKind;
+    if (pageKind === this.presentationPageKind) {
+      return;
+    }
+    this.presentationPageKind = pageKind;
+    const followPage = pageKind === "bilibili-follow";
+    const nextIcon = followPage ? List : ScanSearch;
+    const refreshIconNode = (node) => {
+      const replacement = icon(nextIcon);
+      replacement.dataset.icon = followPage ? "list" : "scan-search";
+      node.replaceWith(replacement);
+      return replacement;
+    };
+    this.launcherIconNode = refreshIconNode(this.launcherIconNode);
+    this.brandIconNode = refreshIconNode(this.brandIconNode);
+    this.root.dataset.pageKind = pageKind;
+    this.panel.dataset.pageKind = pageKind;
+    this.launcher.dataset.pageKind = pageKind;
+    this.launcherLabel.textContent = followPage ? "追番" : "番剧";
+    this.launcher.title = followPage
+      ? "打开 B 站追番批量导入"
+      : "打开 Bangumi Scout";
+    this.launcher.setAttribute(
+      "aria-label",
+      followPage ? "打开 B 站追番批量导入" : "打开 Bangumi Scout",
+    );
+    this.brandTitle.textContent = followPage
+      ? "Bangumi Scout · 追番"
+      : "Bangumi Scout";
   }
 
   buildRecognitionView() {
@@ -592,6 +646,43 @@ export class ScoutPanel {
       className: "scout-batch-status",
       attrs: { role: "status", "aria-live": "polite" },
     });
+    this.batchProgressLabel = element("span", {
+      className: "scout-batch-progress-label",
+      text: "正在准备追番列表",
+    });
+    this.batchProgressValue = element("span", {
+      className: "scout-batch-progress-value",
+      text: "0%",
+    });
+    this.batchProgressFill = element("span", {
+      className: "scout-batch-progress-fill",
+    });
+    this.batchProgressBar = element(
+      "div",
+      {
+        className: "scout-batch-progress-bar",
+        dataset: { mode: "indeterminate" },
+      },
+      [this.batchProgressFill],
+    );
+    this.batchProgressPanel = element(
+      "div",
+      {
+        className: "scout-batch-progress",
+        attrs: {
+          role: "progressbar",
+          "aria-label": "B 站追番导入进度",
+          hidden: "",
+        },
+      },
+      [
+        element("div", { className: "scout-batch-progress-copy" }, [
+          this.batchProgressLabel,
+          this.batchProgressValue,
+        ]),
+        this.batchProgressBar,
+      ],
+    );
     this.batchActionNote = element("p", {
       className: "scout-batch-note",
       text: "新记录默认未评分、无评价；已存在的番剧会自动跳过。",
@@ -616,6 +707,7 @@ export class ScoutPanel {
         ]),
         this.batchSelectionSummary,
       ]),
+      this.batchProgressPanel,
       this.batchList,
       this.batchStatus,
       this.batchActionNote,
@@ -969,10 +1061,18 @@ export class ScoutPanel {
       type: "text",
       name: "github.repositoryUrl",
       autocomplete: "off",
-      placeholder: "https://github.com/你的用户名/anime-records",
+      placeholder: "https://github.com/你的用户名/my-anime-life",
       on: {
-        input: () => this.syncGithubRepositoryLinks(),
-        change: () => this.syncGithubRepositoryLinks(),
+        input: () => {
+          this.githubConnectionChecked = false;
+          this.syncGithubRepositoryLinks();
+          this.updateGithubSetupChecklist();
+        },
+        change: () => {
+          this.githubConnectionChecked = false;
+          this.syncGithubRepositoryLinks();
+          this.updateGithubSetupChecklist();
+        },
       },
     });
     this.githubBranch = element("input", {
@@ -980,12 +1080,24 @@ export class ScoutPanel {
       name: "github.branch",
       autocomplete: "off",
       placeholder: "main",
+      on: {
+        input: () => {
+          this.githubConnectionChecked = false;
+          this.updateGithubSetupChecklist();
+        },
+      },
     });
     this.githubToken = element("input", {
       type: "password",
       name: "github.token",
       autocomplete: "off",
       placeholder: "github_pat_...",
+      on: {
+        input: () => {
+          this.githubConnectionChecked = false;
+          this.updateGithubSetupChecklist();
+        },
+      },
     });
     this.githubConnectionStatus = element("p", {
       className: "scout-note",
@@ -1033,6 +1145,38 @@ export class ScoutPanel {
       },
       [icon(GitBranch), "Pages 设置说明"],
     );
+    const setupStep = (label) => {
+      const status = element("span", {
+        className: "scout-setup-state",
+        text: "待完成",
+      });
+      return {
+        row: element("div", { className: "scout-setup-step" }, [
+          icon(Check),
+          element("span", { text: label }),
+          status,
+        ]),
+        status,
+      };
+    };
+    this.githubRepositoryStep = setupStep("填写个人数据仓库");
+    this.githubTokenStep = setupStep("填写仓库专用 Token");
+    this.githubConnectionStep = setupStep("检查仓库连接");
+    this.githubSyncStep = setupStep("完成首次同步");
+    this.githubSetupSummary = element("p", {
+      className: "scout-setup-summary",
+      text: "配置进度 0/4",
+    });
+    this.githubSetupChecklist = element("div", {
+      className: "scout-setup-checklist",
+      attrs: { "aria-label": "GitHub 配置进度" },
+    }, [
+      this.githubRepositoryStep.row,
+      this.githubTokenStep.row,
+      this.githubConnectionStep.row,
+      this.githubSyncStep.row,
+      this.githubSetupSummary,
+    ]);
 
     this.settingsFooterStatus = element("span", {
       className: "scout-footer-status",
@@ -1128,19 +1272,44 @@ export class ScoutPanel {
             "GitHub 番剧仓库",
           ]),
           element("div", { className: "scout-onboarding" }, [
-            element("h4", { text: "第一次使用" }),
+            element("h4", { text: "先区分两个仓库" }),
+            element("div", { className: "scout-repo-roles" }, [
+              element("div", { className: "scout-repo-role" }, [
+                element("span", {
+                  className: "scout-repo-role-label",
+                  text: "公开模板仓库",
+                }),
+                element("strong", { text: TEMPLATE_REPOSITORY }),
+                element("small", {
+                  text: "只提供代码、页面和脚本，不要填写到同步地址。",
+                }),
+              ]),
+              element("div", {
+                className: "scout-repo-role scout-repo-role-own",
+              }, [
+                element("span", {
+                  className: "scout-repo-role-label",
+                  text: "你的个人数据仓库",
+                }),
+                element("strong", { text: "owner/my-anime-life" }),
+                element("small", {
+                  text: "评分、评价和 JSONL 记录都保存到这里。",
+                }),
+              ]),
+            ]),
+            element("h4", { text: "四步完成配置" }),
             element("ol", {}, [
               element("li", {
-                text: "使用模板创建个人仓库。新仓库不继承上游提交历史，data/anime.jsonl 与 data/anime-index.jsonl 保持为空。",
+                text: "点击“用模板新建”，创建自己的个人数据仓库。推荐命名为 my-anime-life；不要直接 Fork 模板。",
               }),
               element("li", {
-                text: "在仓库 Settings > Pages 中把 Source 设为 GitHub Actions。",
+                text: "创建 Fine-grained Token，只授权这个个人数据仓库，权限设为 Contents: Read and write；Token 不是账户密码。",
               }),
               element("li", {
-                text: "创建仅限该仓库、Contents 为 Read and write 的细粒度 Token。",
+                text: "填写个人数据仓库地址、分支和 Token。Token 只保存在本机 Tampermonkey 存储中。",
               }),
               element("li", {
-                text: "返回这里填写仓库地址和 Token，保存后点击检查连接。",
+                text: "点击“检查连接”，成功后保存。如果希望发布展示页，再把仓库 Pages 来源设为 GitHub Actions。",
               }),
             ]),
             element("div", { className: "scout-onboarding-actions" }, [
@@ -1183,6 +1352,7 @@ export class ScoutPanel {
               ),
             ]),
             this.githubTemplateStatus,
+            this.githubSetupChecklist,
           ]),
           this.switchRow("启用 GitHub 同步", this.githubEnabled),
           this.field("仓库地址", this.githubRepositoryUrl),
@@ -1198,7 +1368,7 @@ export class ScoutPanel {
           this.githubConnectionStatus,
           element("p", {
             className: "scout-note",
-            text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime.jsonl 与 data/anime-index.jsonl。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。",
+            text: "同步地址必须填写你从模板生成的个人数据仓库，不能填写公开模板仓库。Fork 会复制公开分支和旧提交，无法只排除数据文件，因此不推荐。",
           }),
         ]),
         element("footer", { className: "scout-footer" }, [
@@ -1229,7 +1399,11 @@ export class ScoutPanel {
     ]);
   }
 
-  populateSettings(settings) {
+  populateSettings(settings, options = {}) {
+    const preserveGithubConnection =
+      options.preserveGithubConnection === true &&
+      this.githubConnectionChecked;
+    this.githubConnectionChecked = preserveGithubConnection;
     this.indexEnabled.checked = settings.index.enabled;
     this.indexSource.value = settings.index.source;
     this.customIndexUrl.value = settings.index.customIndexUrl;
@@ -1250,9 +1424,12 @@ export class ScoutPanel {
     this.githubBranch.value = settings.github.branch;
     this.githubToken.value = settings.github.token;
     this.githubLastSyncedAt = settings.github.lastSyncedAt;
-    this.githubConnectionStatus.textContent = this.githubLastSyncedAt
-      ? `上次 GitHub 保存：${formatRecordTime(this.githubLastSyncedAt)}`
-      : "尚未检查仓库连接。";
+    if (!preserveGithubConnection) {
+      this.githubConnectionStatus.textContent = this.githubLastSyncedAt
+        ? `上次 GitHub 保存：${formatRecordTime(this.githubLastSyncedAt)}`
+        : "尚未检查仓库连接。";
+      delete this.githubConnectionStatus.dataset.tone;
+    }
     this.githubTemplateStatus.textContent =
       "模板状态尚未检查。创建个人仓库前建议先确认。";
     delete this.githubTemplateStatus.dataset.tone;
@@ -1260,6 +1437,7 @@ export class ScoutPanel {
     this.syncSettingsDisabledState();
     this.syncGithubRepositoryLinks();
     this.syncGithubDisabledState();
+    this.updateGithubSetupChecklist();
   }
 
   syncCustomUrlVisibility() {
@@ -1312,6 +1490,76 @@ export class ScoutPanel {
       githubDisabled || this.githubConnectionChecking;
   }
 
+  setGithubSetupStep(step, state, text) {
+    step.row.dataset.state = state;
+    step.status.textContent = text;
+  }
+
+  updateGithubSetupChecklist() {
+    if (!this.githubSetupChecklist) {
+      return;
+    }
+
+    let repository = null;
+    let repositoryState = "pending";
+    let repositoryText = "待填写";
+    try {
+      repository = parseGithubRepository(this.githubRepositoryUrl.value);
+      if (
+        repository.fullName.toLocaleLowerCase() ===
+        TEMPLATE_REPOSITORY.toLocaleLowerCase()
+      ) {
+        repositoryState = "bad";
+        repositoryText = "不能使用模板仓库";
+      } else {
+        repositoryState = "ready";
+        repositoryText = repository.fullName;
+      }
+    } catch {
+      repositoryText = this.githubRepositoryUrl.value.trim()
+        ? "地址格式有误"
+        : "待填写";
+    }
+
+    const tokenReady = Boolean(this.githubToken.value.trim());
+    const connectionReady =
+      this.githubConnectionChecked &&
+      repositoryState === "ready" &&
+      tokenReady;
+    const syncReady = Boolean(this.githubLastSyncedAt);
+    this.setGithubSetupStep(
+      this.githubRepositoryStep,
+      repositoryState,
+      repositoryText,
+    );
+    this.setGithubSetupStep(
+      this.githubTokenStep,
+      tokenReady ? "ready" : "pending",
+      tokenReady ? "已填写" : "待填写",
+    );
+    this.setGithubSetupStep(
+      this.githubConnectionStep,
+      connectionReady ? "ready" : "pending",
+      connectionReady ? "连接正常" : "待检查",
+    );
+    this.setGithubSetupStep(
+      this.githubSyncStep,
+      syncReady ? "ready" : "pending",
+      syncReady ? formatRecordTime(this.githubLastSyncedAt) : "待完成",
+    );
+
+    const completed = [
+      repositoryState === "ready",
+      tokenReady,
+      connectionReady,
+      syncReady,
+    ].filter(Boolean).length;
+    this.githubSetupSummary.textContent = `配置进度 ${completed}/4`;
+    if (repositoryState === "bad") {
+      this.githubSetupSummary.textContent += " · 同步地址不能是公开模板仓库";
+    }
+  }
+
   collectGithubSettings() {
     return {
       enabled: this.githubEnabled.checked,
@@ -1359,7 +1607,9 @@ export class ScoutPanel {
       },
       github: this.collectGithubSettings(),
     });
-    this.populateSettings(settings);
+    this.populateSettings(settings, {
+      preserveGithubConnection: true,
+    });
     if (options.quiet !== true) {
       this.showToast("设置已保存");
     }
@@ -1445,27 +1695,77 @@ export class ScoutPanel {
     if (!this.githubRecords || this.githubConnectionChecking) {
       return;
     }
+    const token = this.githubToken.value.trim();
+    if (!token) {
+      this.githubConnectionChecked = false;
+      this.githubConnectionStatus.textContent =
+        "请先填写仅限个人数据仓库的细粒度 Token。未认证的 GitHub API 很容易触发限流。";
+      this.githubConnectionStatus.dataset.tone = "bad";
+      this.githubToken.focus();
+      this.updateGithubSetupChecklist();
+      return;
+    }
+    try {
+      const repository = parseGithubRepository(
+        this.githubRepositoryUrl.value,
+      );
+      if (
+        repository.fullName.toLocaleLowerCase() ===
+        TEMPLATE_REPOSITORY.toLocaleLowerCase()
+      ) {
+        this.githubConnectionChecked = false;
+        this.githubConnectionStatus.textContent =
+          "当前填写的是公开模板仓库。请先用“用模板新建”创建个人数据仓库，再填写新仓库地址。";
+        this.githubConnectionStatus.dataset.tone = "bad";
+        this.updateGithubSetupChecklist();
+        return;
+      }
+    } catch (error) {
+      this.githubConnectionChecked = false;
+      this.githubConnectionStatus.textContent = toErrorMessage(error);
+      this.githubConnectionStatus.dataset.tone = "bad";
+      this.updateGithubSetupChecklist();
+      return;
+    }
+
     this.githubConnectionChecking = true;
     this.githubCheckButton.classList.add("is-loading");
     this.githubConnectionStatus.textContent = "正在检查 GitHub 仓库…";
+    delete this.githubConnectionStatus.dataset.tone;
     this.syncGithubDisabledState();
     try {
       const result = await this.githubRecords.checkConnection({
         enabled: this.githubEnabled.checked,
         repositoryUrl: this.githubRepositoryUrl.value,
         branch: this.githubBranch.value,
-        token: this.githubToken.value,
+        token,
       });
+      if (result.canWrite === false) {
+        this.githubConnectionChecked = false;
+        this.githubConnectionStatus.textContent =
+          "仓库可访问，但 Token 没有 Contents 写权限。请编辑 Token，将 Contents 设为 Read and write。";
+        this.githubConnectionStatus.dataset.tone = "bad";
+        return;
+      }
+      this.githubConnectionChecked = true;
       const visibility = result.private ? "私有仓库" : "公开仓库";
+      const accessLabel =
+        result.canWrite === true
+          ? "可读写"
+          : "可访问 · 写权限待实际同步确认";
       this.githubConnectionStatus.textContent =
-        `${result.fullName} 可访问 · ${visibility} · 默认分支 ${result.defaultBranch}`;
+        `${result.fullName} ${accessLabel} · ${visibility} · 默认分支 ${result.defaultBranch}`;
+      this.githubConnectionStatus.dataset.tone = "good";
     } catch (error) {
+      this.githubConnectionChecked = false;
       this.githubConnectionStatus.textContent =
         `连接失败：${toErrorMessage(error)}`;
+      this.githubConnectionStatus.dataset.tone = "bad";
     } finally {
       this.githubConnectionChecking = false;
       this.githubCheckButton.classList.remove("is-loading");
       this.syncGithubDisabledState();
+      this.updateGithubSetupChecklist();
     }
   }
 
@@ -1556,6 +1856,9 @@ export class ScoutPanel {
     this.batchMessage = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
+    this.batchProgress = null;
+    clearTimeout(this.batchProgressRenderTimer);
+    this.batchProgressRenderTimer = null;
     this.batchScanRequestId += 1;
     this.renderRecognitionResult(result);
     if (this.rescanButtonTextNode) {
@@ -2288,6 +2591,57 @@ export class ScoutPanel {
     return this.batchCards.filter((card) => card.selectedResult?.item?.id);
   }
 
+  renderBatchProgress() {
+    const progress = this.batchProgress;
+    const visible = Boolean(
+      (this.batchLoading || this.batchImporting) &&
+        (progress || this.batchImporting),
+    );
+    if (!this.batchProgressPanel) {
+      return;
+    }
+    this.batchProgressPanel.hidden = !visible;
+    if (!visible) {
+      return;
+    }
+
+    let label = "正在同步到 GitHub";
+    let value = "请稍候";
+    let percent = null;
+    if (!this.batchImporting && progress?.phase === "fetch") {
+      const fetched = Number(progress.itemCount) || 0;
+      const total = Number(progress.total) || 0;
+      label = `正在读取追番列表 · 已读取 ${Number(progress.fetchedPages) || 0} 页`;
+      value = total > 0 ? `${fetched}/${total}` : `${fetched} 部`;
+    } else if (!this.batchImporting && progress?.phase === "matching") {
+      const processed = Number(progress.processed) || 0;
+      const totalItems = Number(progress.totalItems) || 0;
+      const matched = Number(progress.matched) || 0;
+      label = `正在匹配本地索引 · 已命中 ${matched}`;
+      value = totalItems > 0 ? `${processed}/${totalItems}` : "准备中";
+      percent =
+        totalItems > 0 ? Math.round((processed / totalItems) * 100) : null;
+    }
+
+    this.batchProgressPanel.setAttribute("aria-label", label);
+    this.batchProgressLabel.textContent = label;
+    this.batchProgressValue.textContent =
+      percent === null ? value : `${value} · ${percent}%`;
+    this.batchProgressBar.dataset.mode =
+      percent === null ? "indeterminate" : "determinate";
+    this.batchProgressFill.style.width =
+      percent === null ? "" : `${Math.max(0, Math.min(100, percent))}%`;
+    if (percent === null) {
+      this.batchProgressPanel.removeAttribute("aria-valuemin");
+      this.batchProgressPanel.removeAttribute("aria-valuemax");
+      this.batchProgressPanel.removeAttribute("aria-valuenow");
+    } else {
+      this.batchProgressPanel.setAttribute("aria-valuemin", "0");
+      this.batchProgressPanel.setAttribute("aria-valuemax", "100");
+      this.batchProgressPanel.setAttribute("aria-valuenow", String(percent));
+    }
+  }
+
   toggleBatchCard(mediaId, checked) {
     if (checked) {
       this.batchSelectedIds.add(String(mediaId));
@@ -2329,22 +2683,44 @@ export class ScoutPanel {
 
     this.batchSection.hidden = false;
     this.batchList.replaceChildren();
+    this.renderBatchProgress();
     const matched = importable.length;
     const totalSuffix =
       this.batchTotal > cards.length
         ? ` · 接口共 ${this.batchTotal} 部`
         : "";
     this.batchTitle.textContent = this.batchLoading
-      ? "正在读取追番列表"
+      ? cards.length > 0
+        ? `正在读取追番列表 (${cards.length}${this.batchTotal > cards.length ? `/${this.batchTotal}` : ""})`
+        : "正在读取追番列表"
       : `追番列表 (${matched}/${cards.length})${totalSuffix}`;
     this.batchSelectionSummary.textContent =
       `已选 ${this.batchSelectedIds.size} 项 · 可导入 ${matched}`;
 
-    if (this.batchLoading) {
+    if (this.batchLoading && cards.length === 0) {
+      this.batchList.append(
+        element(
+          "div",
+          {
+            className: "scout-batch-skeleton",
+            attrs: { "aria-hidden": "true" },
+          },
+          Array.from({ length: 4 }, () =>
+            element("div", { className: "scout-batch-skeleton-row" }, [
+              element("span", { className: "scout-batch-skeleton-check" }),
+              element("span", { className: "scout-batch-skeleton-copy" }, [
+                element("span", { className: "scout-batch-skeleton-title" }),
+                element("span", { className: "scout-batch-skeleton-meta" }),
+              ]),
+              element("span", { className: "scout-batch-skeleton-tail" }),
+            ]),
+          ),
+        ),
+      );
       this.batchList.append(
         element("p", {
           className: "scout-batch-message",
-          text: "正在自动读取全部追番，请稍候…",
+          text: "正在分批读取并匹配，列表会随进度更新。",
         }),
       );
     } else if (!cards.length) {
@@ -2419,6 +2795,15 @@ export class ScoutPanel {
               }),
             ],
           ),
+        );
+      }
+
+      if (this.batchLoading) {
+        this.batchList.append(
+          element("p", {
+            className: "scout-batch-message",
+            text: "已显示部分结果，其余追番仍在分批匹配。",
+          }),
         );
       }
 
@@ -2512,6 +2897,7 @@ export class ScoutPanel {
           ? `已导入 ${result.imported.length} 条，跳过 ${result.skippedCount} 条`
           : `选中的 ${result.skippedCount} 条均已存在，没有重复写入`;
       this.showToast(this.batchMessage);
+      this.updateGithubSetupChecklist();
     } catch (error) {
       this.batchMessage = `批量同步失败：${toErrorMessage(error)}`;
       this.showToast(this.batchMessage);
@@ -2524,6 +2910,8 @@ export class ScoutPanel {
   scheduleBatchCards() {
     clearTimeout(this.batchRenderTimer);
     this.batchRenderTimer = null;
+    clearTimeout(this.batchProgressRenderTimer);
+    this.batchProgressRenderTimer = null;
     const requestId = ++this.batchScanRequestId;
     this.batchCards = [];
     this.batchSelectedIds.clear();
@@ -2533,6 +2921,7 @@ export class ScoutPanel {
     this.batchMessage = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
+    this.batchProgress = null;
     this.batchSection.hidden = true;
     this.batchList.replaceChildren();
     if (this.currentResult?.context?.pageKind !== "bilibili-follow") {
@@ -2541,6 +2930,12 @@ export class ScoutPanel {
 
     const result = this.currentResult;
     this.batchLoading = true;
+    this.batchProgress = {
+      phase: "fetch",
+      fetchedPages: 0,
+      itemCount: 0,
+      total: 0,
+    };
     this.renderBatchCards();
     const scan = async () => {
       this.batchRenderTimer = null;
@@ -2551,7 +2946,33 @@ export class ScoutPanel {
         return;
       }
       try {
-        const scanned = await this.onScanCards?.();
+        const scanned = await this.onScanCards?.({
+          onProgress: (progress) => {
+            if (
+              requestId !== this.batchScanRequestId ||
+              this.currentResult !== result
+            ) {
+              return;
+            }
+            this.batchProgress = progress;
+            if (Array.isArray(progress?.cards)) {
+              this.batchCards = progress.cards;
+            }
+            if (Number(progress?.total) > this.batchTotal) {
+              this.batchTotal = Number(progress.total);
+            }
+            clearTimeout(this.batchProgressRenderTimer);
+            this.batchProgressRenderTimer = setTimeout(() => {
+              if (
+                requestId !== this.batchScanRequestId ||
+                this.currentResult !== result
+              ) {
+                return;
+              }
+              this.renderBatchCards();
+            }, 80);
+          },
+        });
         if (
           requestId !== this.batchScanRequestId ||
           this.currentResult !== result
@@ -2565,6 +2986,7 @@ export class ScoutPanel {
         this.batchTotal = Number(payload.total) || this.batchCards.length;
         this.batchDiagnostics = (payload.diagnostics ?? []).filter(Boolean);
         this.batchMessage = this.batchDiagnostics.join("；");
+        this.batchProgress = null;
       } catch (error) {
         if (requestId !== this.batchScanRequestId) {
           return;
@@ -2576,19 +2998,16 @@ export class ScoutPanel {
           requestId === this.batchScanRequestId &&
           this.currentResult === result
         ) {
+          this.batchProgress = null;
           this.batchLoading = false;
+          clearTimeout(this.batchProgressRenderTimer);
+          this.batchProgressRenderTimer = null;
           this.renderBatchCards();
         }
       }
     };
 
-    if (typeof window.requestIdleCallback === "function") {
-      this.batchRenderTimer = window.requestIdleCallback(scan, {
-        timeout: 600,
-      });
-    } else {
-      this.batchRenderTimer = window.setTimeout(scan, 0);
-    }
+    this.batchRenderTimer = window.setTimeout(scan, 0);
   }
 
   scheduleManualSearch() {
@@ -2642,6 +3061,7 @@ export class ScoutPanel {
   }
 
   open(options = {}) {
+    this.updatePagePresentation();
     this.closeSettings();
     this.panel.hidden = false;
     this.launcher.hidden = true;
@@ -2666,6 +3086,7 @@ export class ScoutPanel {
   }
 
   openSettings() {
+    this.updatePagePresentation();
     this.close();
     this.settingsBackdrop.hidden = false;
     this.settingsWindow.hidden = false;
