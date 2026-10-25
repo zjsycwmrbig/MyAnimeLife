@@ -19,6 +19,7 @@
       data-share-rating="{{ record.ratingDisplay }}"
       data-share-review="{{ record.review }}"
       data-share-season="{{ record.seasonLabel }}"
+      data-share-year="{{ record.yearLabel }}"
       data-share-updated="{{ record.updatedLabel }}"
     >
       <header class="detail-hero">
@@ -48,6 +49,7 @@
             {% if record.seasonLabel %}
               <span>{{ record.seasonLabel }}</span>
             {% endif %}
+            <span>{{ record.yearLabel or "年份未知" }}</span>
             <span>{{ record.matchStatusLabel }}</span>
             <span>{{ record.matchMethodLabel }}</span>
           </div>

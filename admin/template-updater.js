@@ -81,11 +81,18 @@ export async function getTemplateStatus(client, options = {}) {
   if (!commitSha) {
     throw new Error(`找不到模板分支 ${branch}`);
   }
+  const commit = await client.getCommitFor(repository, commitSha);
+  const commitData = commit?.commit ?? {};
+  const commitAuthor = commitData.author?.name ?? commit?.author?.login ?? "未知作者";
   return {
     repository,
     branch,
     commit: commitSha,
     commitShort: commitSha.slice(0, 7),
+    commitMessage: String(commitData.message ?? "").split("\n", 1)[0] || "无提交说明",
+    commitAuthor,
+    commitDate: commitData.author?.date ?? commitData.committer?.date ?? null,
+    commitUrl: commit?.html_url ?? `https://github.com/${repository}/commit/${commitSha}`,
   };
 }
 
@@ -109,6 +116,7 @@ export async function updateFromTemplate(client, options = {}) {
   if (!templateHead || !targetCommit?.tree?.sha) {
     throw new Error("无法读取模板或数据仓库的 Git 树");
   }
+  const templateCommit = await client.getCommitFor(templateRepository, templateHead);
   const [templateTree, targetTree] = await Promise.all([
     client.getTreeFor(templateRepository, templateHead),
     client.getTreeFor(client.repository, targetCommit.tree.sha),
@@ -170,6 +178,15 @@ export async function updateFromTemplate(client, options = {}) {
     commit: commit.sha,
     commitShort: commit.sha.slice(0, 7),
     templateCommit: templateHead,
+    templateCommitMessage:
+      String(templateCommit?.commit?.message ?? "").split("\n", 1)[0] || "无提交说明",
+    templateCommitAuthor:
+      templateCommit?.commit?.author?.name ?? templateCommit?.author?.login ?? "未知作者",
+    templateCommitDate:
+      templateCommit?.commit?.author?.date ?? templateCommit?.commit?.committer?.date ?? null,
+    templateCommitUrl:
+      templateCommit?.html_url ??
+      `https://github.com/${templateRepository}/commit/${templateHead}`,
     preservedDataFiles: tree.filter((entry) => isDataPath(entry.path)).length,
     updatedFiles: copiedSha.size,
     removedFiles: blobEntries(targetTree).filter(

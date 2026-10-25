@@ -425,11 +425,15 @@ function createRecordViewModel(record) {
   const sourceLinks = createSourceLinks(record.externalIds);
   const reviewText = markdownToText(record.review);
   const seasonLabel = formatSeasonLabel(record);
+  const year = Number.isInteger(record.season?.year) ? record.season.year : null;
+  const yearLabel = year === null ? "" : String(year);
 
   return {
     ...record,
     coverUrl: normalizeCoverUrl(record.coverUrl),
     seasonLabel,
+    year,
+    yearLabel,
     detailPath: `anime/${record.id}/`,
     ratingDisplay: formatRating(record.rating),
     ratingValue: record.rating === null ? "" : String(record.rating),
@@ -453,6 +457,7 @@ function createRecordViewModel(record) {
     sourceCount: sourceLinks.length,
     searchText: [
       record.title,
+      yearLabel,
       seasonLabel,
       record.match.matchedTitle ?? "",
       record.review,
@@ -568,6 +573,7 @@ export async function buildSite(options = {}) {
     repository,
     generatedAt,
     generatedAtLabel,
+    assetVersion: generatedAt.replace(/[^0-9A-Za-z]/gu, ""),
     dataEndpoint: "data/library.json",
   };
 

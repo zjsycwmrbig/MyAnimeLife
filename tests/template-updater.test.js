@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildTemplateTree } from "../admin/template-updater.js";
+import {
+  buildTemplateTree,
+  getTemplateStatus,
+} from "../admin/template-updater.js";
 
 test("template tree keeps every target data file and replaces non-data files", () => {
   const next = buildTemplateTree(
@@ -27,4 +30,39 @@ test("template tree keeps every target data file and replaces non-data files", (
     { path: "data/backups/library-old.json", mode: "100644", type: "blob", sha: "personal-backup" },
     { path: "data/README.md", mode: "100644", type: "blob", sha: "template-data-readme" },
   ]);
+});
+
+test("reads the latest template commit details", async () => {
+  const status = await getTemplateStatus(
+    {
+      async getRefFor() {
+        return { object: { sha: "a".repeat(40) } };
+      },
+      async getCommitFor() {
+        return {
+          html_url: "https://github.com/example/template/commit/abc",
+          author: { login: "maintainer" },
+          commit: {
+            message: "feat: improve archive\n\nDetails",
+            author: {
+              name: "Template Maintainer",
+              date: "2026-10-25T12:00:00Z",
+            },
+          },
+        };
+      },
+    },
+    { repository: "example/template", branch: "main" },
+  );
+
+  assert.deepEqual(status, {
+    repository: "example/template",
+    branch: "main",
+    commit: "a".repeat(40),
+    commitShort: "aaaaaaa",
+    commitMessage: "feat: improve archive",
+    commitAuthor: "Template Maintainer",
+    commitDate: "2026-10-25T12:00:00Z",
+    commitUrl: "https://github.com/example/template/commit/abc",
+  });
 });

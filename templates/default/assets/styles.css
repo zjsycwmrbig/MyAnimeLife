@@ -560,6 +560,22 @@ svg {
   color: var(--accent-dark);
 }
 
+.record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.record-meta span + span::before {
+  margin-right: 6px;
+  color: var(--line-strong);
+  content: "·";
+}
+
 .record-excerpt {
   display: -webkit-box;
   overflow: hidden;
@@ -1177,6 +1193,18 @@ a:focus-visible {
 
 .share-menu button:hover {
   background: var(--accent-soft, #f4e2d9);
+}
+
+.share-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.share-menu button .icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
 }
 
 .share-menu button:disabled {

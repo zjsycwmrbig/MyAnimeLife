@@ -76,6 +76,9 @@ const elements = {
   templateRepositoryLink: document.querySelector("#templateRepositoryLink"),
   aboutTargetRepository: document.querySelector("#aboutTargetRepository"),
   templateCommitLabel: document.querySelector("#templateCommitLabel"),
+  templateCommitMessage: document.querySelector("#templateCommitMessage"),
+  templateCommitMeta: document.querySelector("#templateCommitMeta"),
+  templateCommitLink: document.querySelector("#templateCommitLink"),
   templateUpdateStatus: document.querySelector("#templateUpdateStatus"),
   templateCheckButton: document.querySelector("#templateCheckButton"),
   templateUpdateButton: document.querySelector("#templateUpdateButton"),
@@ -273,8 +276,14 @@ async function checkTemplate(showMessage = true) {
   try {
     const status = await api("/api/template/status");
     elements.templateCommitLabel.textContent = status.commitShort;
+    elements.templateCommitMessage.textContent = status.commitMessage || "无提交说明";
+    elements.templateCommitMeta.textContent = [
+      status.commitAuthor,
+      status.commitDate ? formatDate(status.commitDate) : "时间未知",
+    ].filter(Boolean).join(" · ");
+    elements.templateCommitLink.href = status.commitUrl;
     elements.templateUpdateBadge.textContent = `最新 ${status.commitShort}`;
-    elements.templateUpdateStatus.textContent = `模板 main 分支当前提交为 ${status.commitShort}。确认后可以拉取到当前数据仓库。`;
+    elements.templateUpdateStatus.textContent = `模板 main 分支当前提交为 ${status.commitShort}：${status.commitMessage}。确认后可以拉取到当前数据仓库。`;
     if (showMessage) {
       showToast(`模板版本 ${status.commitShort}`);
     }
@@ -309,6 +318,12 @@ async function updateTemplate() {
       body: JSON.stringify({}),
     });
     elements.templateCommitLabel.textContent = result.templateCommit.slice(0, 7);
+    elements.templateCommitMessage.textContent = result.templateCommitMessage || "无提交说明";
+    elements.templateCommitMeta.textContent = [
+      result.templateCommitAuthor,
+      result.templateCommitDate ? formatDate(result.templateCommitDate) : "时间未知",
+    ].filter(Boolean).join(" · ");
+    elements.templateCommitLink.href = result.templateCommitUrl || elements.templateCommitLink.href;
     elements.templateUpdateBadge.textContent = `已更新 ${result.commitShort}`;
     elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
     showToast(`管理页已更新，提交 ${result.commitShort}`, { duration: 7000 });

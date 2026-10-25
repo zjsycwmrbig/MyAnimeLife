@@ -9,8 +9,8 @@
     <meta property="og:description" content="{{ pageDescription }}" />
     <meta property="og:type" content="website" />
     <title>{{ pageTitle }}</title>
-    <link rel="icon" href="{{ assetRoot }}favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="{{ assetRoot }}styles.css" />
+    <link rel="icon" href="{{ assetRoot }}favicon.svg?v={{ assetVersion }}" type="image/svg+xml" />
+    <link rel="stylesheet" href="{{ assetRoot }}styles.css?v={{ assetVersion }}" />
     {% block head %}{% endblock %}
   </head>
   <body class="{% block bodyClass %}{% endblock %}">
@@ -64,8 +64,8 @@
     </footer>
 
     {% block scripts %}
-      <script src="{{ assetRoot }}share.js" defer></script>
-      <script src="{{ assetRoot }}app.js" defer></script>
+      <script src="{{ assetRoot }}share.js?v={{ assetVersion }}" defer></script>
+      <script src="{{ assetRoot }}app.js?v={{ assetVersion }}" defer></script>
     {% endblock %}
   </body>
 </html>

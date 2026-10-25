@@ -136,7 +136,8 @@
     const cover = await coverBlock(record, 72, 112, 420, 590);
     const rating = clean(record.ratingDisplay ?? record.rating);
     const season = clean(record.seasonLabel ?? record.season?.label);
-    const meta = [season, rating && rating !== "未评分" ? `${rating} / 10` : "未评分"]
+    const year = clean(record.yearLabel ?? record.year ?? record.season?.year);
+    const meta = [year, season, rating && rating !== "未评分" ? `${rating} / 10` : "未评分"]
       .filter(Boolean)
       .join("  ·  ");
     const body = `<rect width="1200" height="1500" fill="#f6f4ef" />
@@ -152,6 +153,7 @@
       <rect x="72" y="790" width="1056" height="1" fill="#d9d5ca" />
       <text x="72" y="850" fill="#68736d" font-family="${FONT_STACK}" font-size="18" font-weight="700">记录信息</text>
       ${textBlock([
+        year ? `年份：${year}` : "年份：未标注",
         season ? `季度：${season}` : "季度：未标注",
         record.updatedLabel ? `更新：${clean(record.updatedLabel)}` : "",
       ].filter(Boolean), 72, 900, 38, { fill: "#26332f", "font-family": FONT_STACK, "font-size": 23 })}
@@ -231,10 +233,16 @@
   async function pngBlob(svg, width, height) {
     const url = URL.createObjectURL(svgBlob(svg));
     try {
-      const image = new Image();
-      image.decoding = "async";
-      image.src = url;
-      await image.decode();
+      const image = await new Promise((resolve, reject) => {
+        const candidate = new Image();
+        candidate.decoding = "async";
+        candidate.onload = () => resolve(candidate);
+        candidate.onerror = () => reject(new Error("分享图像加载失败"));
+        candidate.src = url;
+      });
+      if (typeof image.decode === "function") {
+        await image.decode().catch(() => {});
+      }
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -299,6 +307,7 @@
       ratingDisplay: element.dataset.shareRating,
       review: element.dataset.shareReview,
       seasonLabel: element.dataset.shareSeason,
+      yearLabel: element.dataset.shareYear,
       updatedLabel: element.dataset.shareUpdated,
       siteTitle: document.title.split("|").pop()?.trim(),
     };
@@ -315,6 +324,17 @@
 
   function closeMenu() {
     document.querySelector(".share-menu")?.remove();
+  }
+
+  function actionIcon(action) {
+    const paths = {
+      download:
+        '<path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path>',
+      copy:
+        '<rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path>',
+      svg: '<path d="M4 4h16v16H4z"></path><path d="M8 16 12 8l4 8"></path><path d="M7 14h10"></path>',
+    };
+    return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[action] ?? paths.download}</svg>`;
   }
 
   function placeMenu(menu, trigger) {
@@ -336,7 +356,7 @@
     for (const [label, action] of actions) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = label;
+      button.innerHTML = `${actionIcon(action)}<span>${label}</span>`;
       button.dataset.action = action;
       button.addEventListener("click", () => runAction(trigger, action, button));
       menu.append(button);
@@ -347,7 +367,7 @@
 
   async function runAction(trigger, action, actionButton) {
     actionButton.disabled = true;
-    actionButton.textContent = "正在生成…";
+    actionButton.innerHTML = '<span>正在生成…</span>';
     try {
       const isOverview = trigger.dataset.shareKind === "overview";
       const source = isOverview
@@ -356,9 +376,12 @@
           })
         : createRecordShareSvg(recordFromElement(trigger.closest("[data-share-record]")));
       const svg = await source;
-      const image = isOverview
-        ? await createImage(svg, 1600, 1000)
-        : await createImage(svg, 1200, 1500);
+      const image =
+        action === "svg"
+          ? { svg: svgBlob(svg) }
+          : isOverview
+            ? await createImage(svg, 1600, 1000)
+            : await createImage(svg, 1200, 1500);
       const filename = isOverview ? "my-anime-life-overview" : `anime-${trigger.closest("[data-share-record]")?.dataset.shareId || "record"}`;
       if (action === "copy") {
         await copyImage(image.png);
@@ -374,7 +397,8 @@
     } catch (error) {
       showStatus(error.message || "图片生成失败", "error");
       actionButton.disabled = false;
-      actionButton.textContent = action;
+      const label = action === "copy" ? "复制图片" : action === "svg" ? "下载 SVG" : "下载 PNG";
+      actionButton.innerHTML = `${actionIcon(action)}<span>${label}</span>`;
     }
   }
 

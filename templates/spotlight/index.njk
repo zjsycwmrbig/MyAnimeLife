@@ -93,6 +93,7 @@
               data-share-rating="{{ record.ratingDisplay }}"
               data-share-review="{{ record.reviewExcerpt }}"
               data-share-season="{{ record.seasonLabel }}"
+              data-share-year="{{ record.yearLabel }}"
               data-share-updated="{{ record.updatedLabel }}"
               data-record-id="{{ record.id }}"
               data-title="{{ record.title }}"
@@ -137,16 +138,15 @@
                 <h3>
                   <a href="./{{ record.detailPath }}">{{ record.title }}</a>
                 </h3>
+                <p class="record-meta">
+                  <span>{{ record.yearLabel or "年份未知" }}</span>
+                  {% if record.seasonLabel %}<span>{{ record.seasonLabel }}</span>{% endif %}
+                  <span>{{ record.sourceCount }} 个索引</span>
+                </p>
                 <p class="record-excerpt">{{ record.reviewExcerpt }}</p>
 
                 <div class="record-card-footer">
-                  <span>
-                    {% if record.sourceCount %}
-                      {{ record.sourceCount }} 个索引
-                    {% else %}
-                      手动记录
-                    {% endif %}
-                  </span>
+                  <span>{{ "有索引" if record.sourceCount else "手动记录" }}</span>
                   <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
                   <button
                     class="share-trigger record-share-trigger"
@@ -157,7 +157,6 @@
                     title="分享图片"
                   >
                     {{ icon("share") }}
-                    <span>分享</span>
                   </button>
                 </div>
               </div>

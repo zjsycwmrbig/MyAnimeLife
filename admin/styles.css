@@ -1924,6 +1924,15 @@ th:nth-child(4) {
   color: #245b96;
 }
 
+.about-repository-list #templateCommitMessage {
+  max-width: min(520px, 62%);
+}
+
+.about-repository-list #templateCommitMeta {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 .about-warning {
   margin-top: 18px;
   padding: 12px 14px;

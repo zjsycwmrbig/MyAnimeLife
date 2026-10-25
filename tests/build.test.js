@@ -221,6 +221,9 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /data-page-size="24"/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
+    assert.match(indexHtml, /styles\.css\?v=20261025T120000000Z/u);
+    assert.match(indexHtml, /share\.js\?v=20261025T120000000Z/u);
+    assert.match(indexHtml, /app\.js\?v=20261025T120000000Z/u);
 
     const detailHtml = await fs.readFile(
       path.join(
@@ -262,6 +265,7 @@ test("ships three independently buildable templates", async () => {
       "scripts/catalog-data.mjs",
       "scripts/duplicate-data.mjs",
       "scripts/admin-data.mjs",
+      "assets/share.js",
     ]) {
       await fs.access(path.join(fixtureRoot, "dist", file));
     }
@@ -331,6 +335,7 @@ test("shows the season label on every detail template", async () => {
       "utf8",
     );
     assert.match(detailHtml, /第2季/u);
+    assert.match(detailHtml, /2026/u);
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });
