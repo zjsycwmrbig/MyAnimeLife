@@ -1,0 +1,164 @@
+import fs from "node:fs/promises";
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { LibraryAdminStore } from "./admin-store.mjs";
+
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(
+  process.env.ADMIN_ROOT || path.resolve(scriptDirectory, ".."),
+);
+const adminDirectory = path.join(root, "admin");
+const store = new LibraryAdminStore(root);
+const host = process.env.ADMIN_HOST || "127.0.0.1";
+const port = Number(process.env.ADMIN_PORT || 4174);
+
+const CONTENT_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".json": "application/json; charset=utf-8",
+};
+
+function sendJson(response, status, payload) {
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  response.end(`${JSON.stringify(payload)}\n`);
+}
+
+function sendError(response, error) {
+  sendJson(response, Number(error.status) || 400, {
+    error: error.message || "请求失败",
+  });
+}
+
+async function readBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 256 * 1024) {
+      throw new Error("请求内容过大");
+    }
+    chunks.push(chunk);
+  }
+  if (!chunks.length) {
+    return {};
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("请求内容不是有效 JSON");
+  }
+}
+
+function assertLocalRequest(request) {
+  const origin = request.headers.origin;
+  if (!origin) {
+    return;
+  }
+  const allowed = new Set([`http://${host}:${port}`, `http://localhost:${port}`]);
+  if (!allowed.has(origin)) {
+    throw new Error("仅允许本地管理页发起写操作");
+  }
+}
+
+async function serveStatic(pathname, response) {
+  const relativePath =
+    pathname === "/" || pathname === "/admin/"
+      ? "index.html"
+      : pathname.replace(/^\/admin\/?/u, "");
+  const filePath = path.resolve(adminDirectory, relativePath);
+  if (
+    filePath !== adminDirectory &&
+    !filePath.startsWith(`${adminDirectory}${path.sep}`)
+  ) {
+    sendJson(response, 404, { error: "页面不存在" });
+    return;
+  }
+  try {
+    const contents = await fs.readFile(filePath);
+    response.writeHead(200, {
+      "Content-Type":
+        CONTENT_TYPES[path.extname(filePath)] || "application/octet-stream",
+      "Cache-Control": "no-cache",
+    });
+    response.end(contents);
+  } catch {
+    sendJson(response, 404, { error: "页面不存在" });
+  }
+}
+
+const server = http.createServer(async (request, response) => {
+  const url = new URL(request.url, `http://${request.headers.host || host}`);
+  try {
+    if (url.pathname === "/api/library" && request.method === "GET") {
+      const library = await store.load();
+      sendJson(response, 200, {
+        records: library.records,
+        index: library.index,
+        backupLimit: library.config.backupLimit,
+        git: await store.gitStatus(),
+      });
+      return;
+    }
+    if (url.pathname === "/api/status" && request.method === "GET") {
+      sendJson(response, 200, await store.gitStatus());
+      return;
+    }
+    if (
+      url.pathname.startsWith("/api/records/") &&
+      request.method === "PUT"
+    ) {
+      assertLocalRequest(request);
+      const recordId = decodeURIComponent(url.pathname.slice("/api/records/".length));
+      const result = await store.saveRecord(recordId, await readBody(request));
+      sendJson(response, 200, {
+        record: result.record,
+        records: result.records,
+        index: result.index,
+        backupPath: result.backupPath
+          ? path.relative(root, result.backupPath)
+          : null,
+      });
+      return;
+    }
+    if (url.pathname === "/api/records" && request.method === "DELETE") {
+      assertLocalRequest(request);
+      const body = await readBody(request);
+      const result = await store.deleteRecords(body.ids);
+      sendJson(response, 200, {
+        records: result.records,
+        index: result.index,
+        backupPath: result.backupPath
+          ? path.relative(root, result.backupPath)
+          : null,
+      });
+      return;
+    }
+    if (url.pathname === "/api/sync" && request.method === "POST") {
+      assertLocalRequest(request);
+      const body = await readBody(request);
+      sendJson(response, 200, await store.sync(body.message));
+      return;
+    }
+    if (url.pathname.startsWith("/api/")) {
+      sendJson(response, 404, { error: "接口不存在" });
+      return;
+    }
+    if (!["GET", "HEAD"].includes(request.method)) {
+      sendJson(response, 405, { error: "不支持该请求方法" });
+      return;
+    }
+    await serveStatic(url.pathname, response);
+  } catch (error) {
+    sendError(response, error);
+  }
+});
+
+server.listen(port, host, () => {
+  console.log(`Anime Records Manager: http://${host}:${port}/admin/`);
+});

@@ -11,6 +11,7 @@
     "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
     "dev": "npm run build && node scripts/serve.mjs",
+    "admin": "node scripts/admin.mjs",
     "test": "node --test",
     "check": "npm test && npm run build"
   },

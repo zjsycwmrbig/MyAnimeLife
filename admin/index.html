@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Anime Records Manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <div>
+            <strong>Anime Records Manager</strong>
+            <span id="repoStatus">正在读取仓库状态</span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshButton" class="button button-quiet" type="button">
+            刷新
+          </button>
+          <button id="syncButton" class="button button-primary" type="button">
+            同步远端
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="library-pane" aria-label="番剧列表">
+          <div class="library-heading">
+            <div>
+              <p class="eyebrow">LIBRARY</p>
+              <h1>番剧数据</h1>
+            </div>
+            <div class="library-counts" aria-live="polite">
+              <strong id="recordCount">0</strong>
+              <span>条记录</span>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="search-field">
+              <span class="visually-hidden">搜索番剧</span>
+              <input
+                id="searchInput"
+                type="search"
+                placeholder="搜索标题、评价或站点 ID"
+                autocomplete="off"
+              />
+            </label>
+            <div class="segmented" role="group" aria-label="筛选">
+              <button class="is-active" data-filter="all" type="button">全部</button>
+              <button data-filter="rated" type="button">已评分</button>
+              <button data-filter="unrated" type="button">未评分</button>
+            </div>
+          </div>
+
+          <div class="selection-bar">
+            <label>
+              <input id="selectAll" type="checkbox" />
+              <span id="selectionLabel">未选择</span>
+            </label>
+            <button id="deleteButton" class="button button-danger" type="button" disabled>
+              删除所选
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="checkbox-column"></th>
+                  <th>番剧</th>
+                  <th>评分</th>
+                  <th>更新时间</th>
+                </tr>
+              </thead>
+              <tbody id="recordRows"></tbody>
+            </table>
+            <div id="emptyState" class="empty-state" hidden>
+              <strong>没有匹配的记录</strong>
+              <span>清除搜索或切换筛选条件。</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="editor-pane" aria-label="记录编辑">
+          <div id="editorEmpty" class="editor-empty">
+            <span class="editor-empty-mark" aria-hidden="true">Aa</span>
+            <strong>选择一条番剧</strong>
+            <p>从左侧列表打开记录后编辑评分和评价。</p>
+          </div>
+
+          <form id="editorForm" class="editor-form" hidden>
+            <div class="editor-heading">
+              <div>
+                <p class="eyebrow">RECORD</p>
+                <h2 id="editorTitle">番剧记录</h2>
+              </div>
+              <span id="editorBadge" class="status-badge"></span>
+            </div>
+
+            <label class="field">
+              <span>展示标题</span>
+              <input id="titleInput" name="title" maxlength="200" required />
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>评分</span>
+                <input
+                  id="ratingInput"
+                  name="rating"
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  placeholder="未评分"
+                />
+              </label>
+              <div class="field">
+                <span>索引 ID</span>
+                <code id="recordId"></code>
+              </div>
+            </div>
+
+            <label class="field field-grow">
+              <span>评价</span>
+              <textarea
+                id="reviewInput"
+                name="review"
+                maxlength="20000"
+                placeholder="写下评价"
+              ></textarea>
+            </label>
+
+            <label class="field">
+              <span>备注</span>
+              <textarea
+                id="noteInput"
+                name="note"
+                maxlength="5000"
+                rows="3"
+                placeholder="内部备注"
+              ></textarea>
+            </label>
+
+            <div class="record-meta">
+              <span id="seasonLabel"></span>
+              <span id="updatedLabel"></span>
+              <span id="backupLabel">备份上限 5 个</span>
+            </div>
+
+            <div class="editor-actions">
+              <button id="saveButton" class="button button-primary" type="submit">
+                保存修改
+              </button>
+            </div>
+          </form>
+        </aside>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
