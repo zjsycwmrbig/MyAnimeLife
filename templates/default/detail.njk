@@ -32,6 +32,9 @@
 
         <div class="detail-summary">
           <div class="detail-kicker">
+            {% if record.seasonLabel %}
+              <span>{{ record.seasonLabel }}</span>
+            {% endif %}
             <span>{{ record.matchStatusLabel }}</span>
             <span>{{ record.matchMethodLabel }}</span>
           </div>

@@ -233,6 +233,15 @@ export async function loadEntries(root = defaultRoot, options = {}) {
     if (new Date(record.updatedAt).getTime() < new Date(record.createdAt).getTime()) {
       throw new Error(`${fileName} 的 updatedAt 不能早于 createdAt`);
     }
+    if (record.season) {
+      const hasSeasonNumber = record.season.number !== null;
+      const hasSeasonLabel = Boolean(record.season.label);
+      if (hasSeasonNumber !== hasSeasonLabel) {
+        throw new Error(
+          `${fileName} 的 season.number 与 season.label 必须同时填写或同时为 null`,
+        );
+      }
+    }
     if (seenIds.has(record.id)) {
       throw new Error(`发现重复的番剧 id: ${record.id}`);
     }
@@ -295,6 +304,15 @@ function formatRating(value) {
   return value === null ? "未评分" : Number(value).toFixed(1);
 }
 
+function formatSeasonLabel(record) {
+  const label = String(record.season?.label ?? "").trim();
+  if (label) {
+    return label;
+  }
+  const number = Number(record.season?.number);
+  return Number.isInteger(number) && number > 0 ? `第${number}季` : "";
+}
+
 function createSourceLinks(externalIds = {}) {
   return Object.entries(externalIds)
     .map(([source, id]) => {
@@ -315,9 +333,11 @@ function createSourceLinks(externalIds = {}) {
 function createRecordViewModel(record) {
   const sourceLinks = createSourceLinks(record.externalIds);
   const reviewText = markdownToText(record.review);
+  const seasonLabel = formatSeasonLabel(record);
 
   return {
     ...record,
+    seasonLabel,
     detailPath: `anime/${record.id}/`,
     ratingDisplay: formatRating(record.rating),
     ratingValue: record.rating === null ? "" : String(record.rating),
@@ -341,6 +361,7 @@ function createRecordViewModel(record) {
     sourceCount: sourceLinks.length,
     searchText: [
       record.title,
+      seasonLabel,
       record.match.matchedTitle ?? "",
       record.review,
       record.note,
@@ -370,11 +391,13 @@ function calculateStats(records) {
   };
 }
 
-function createRepositoryContext(config) {
+export function createRepositoryContext(config, environment = process.env) {
   const slug = String(
-    process.env.GITHUB_REPOSITORY || config.repository?.slug || "",
+    environment.GITHUB_REPOSITORY || config.repository?.slug || "",
   ).trim();
-  const branch = String(config.repository?.branch || "main").trim();
+  const branch = String(
+    environment.GITHUB_REF_NAME || config.repository?.branch || "main",
+  ).trim();
 
   if (slug && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(slug)) {
     throw new Error(`GitHub repository slug 不合法: ${slug}`);
