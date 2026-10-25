@@ -44,6 +44,8 @@ test("builds a compact searchable index", () => {
     bangumi: "525565",
     bilibili: "292073015",
   });
+  assert.equal(slim.items[0].title, "正反対な君と僕");
+  assert.equal(slim.items[0].displayTitle, "相反的你和我");
   assert.ok(slim.items[0].normalizedNames.includes("相反的你和我"));
 });
 
@@ -52,6 +54,7 @@ test("exact site ids take precedence over title ambiguity", () => {
   const search = new LocalAnimeSearch(slim.items);
   const item = search.findBySiteId("bilibili", "292073015");
   assert.equal(item.title, "正反対な君と僕");
+  assert.equal(item.displayTitle, "相反的你和我");
 });
 
 test("searches Chinese aliases exactly and with fuzzy input", () => {

@@ -13,6 +13,7 @@
     {
       "id": "bangumi:525565",
       "title": "正反対な君と僕",
+      "displayTitle": "相反的你和我",
       "names": [
         "正反対な君と僕",
         "相反的你和我",
@@ -29,6 +30,7 @@
       "type": "tv",
       "begin": "2023-01-01T00:00:00.000Z",
       "year": 2023,
+      "coverUrl": null,
       "sites": {
         "bangumi": "525565",
         "bilibili": "292073015",

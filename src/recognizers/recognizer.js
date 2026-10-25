@@ -1,6 +1,16 @@
-import { collectBilibiliCards, createPageContext, extractTitleCandidates } from "./page-context.js";
-import { fetchBilibiliSeasonMetadata } from "./bilibili.js";
+import {
+  collectBilibiliCards,
+  createPageContext,
+  extractTitleCandidates,
+  extractTitleMentions,
+} from "./page-context.js";
+import {
+  fetchBilibiliSeasonMetadata,
+  fetchBilibiliShortComments,
+} from "./bilibili.js";
 import { inferAnimeWithDeepSeek } from "./deepseek.js";
+
+const MAX_REGEX_INDEX_QUERIES = 8;
 
 function mergeResult(results, result, extra) {
   const existing = results.get(result.item.id);
@@ -74,7 +84,7 @@ export class AnimeRecognizer {
 
   async recognize(options = {}) {
     const settings = this.settingsStore.get();
-    const context = createPageContext({
+    let context = createPageContext({
       maxExcerptChars: settings.ai.maxContextChars,
     });
     const indexSearch = this.indexService.getSearch();
@@ -134,10 +144,50 @@ export class AnimeRecognizer {
       }
     }
 
+    if (options.includeBilibiliApi !== false) {
+      const mediaId =
+        context.bilibiliIds.mediaId ?? bilibiliMetadata?.mediaId ?? null;
+      if (mediaId) {
+        try {
+          const apiComments = await fetchBilibiliShortComments(mediaId, {
+            limit: 12,
+          });
+          const comments = [
+            ...context.comments,
+            ...apiComments.map((comment) => comment.text),
+          ];
+          const summary = [
+            bilibiliMetadata?.summary,
+            context.summary,
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 2400);
+          const summaryMentions = extractTitleMentions([summary]);
+          const commentMentions = extractTitleMentions(comments);
+          context = {
+            ...context,
+            summary,
+            comments,
+            summaryMentions,
+            commentMentions,
+            titleMentions: [
+              ...new Set([...summaryMentions, ...commentMentions]),
+            ],
+            bilibiliMetadata,
+          };
+          diagnostics.push(`Bilibili 评论：已读取 ${apiComments.length} 条`);
+        } catch (error) {
+          diagnostics.push(`Bilibili 评论：${error.message}`);
+        }
+      }
+    }
+
     const titleCandidates = extractTitleCandidates(context);
-    if (settings.matching.useRegexCandidates) {
-      for (const candidate of titleCandidates) {
-        for (const result of indexSearch.search(candidate.title, { limit: 4 })) {
+    const hasExactSiteMatch = results.size > 0;
+    if (settings.matching.useRegexCandidates && !hasExactSiteMatch) {
+      for (const candidate of titleCandidates.slice(0, MAX_REGEX_INDEX_QUERIES)) {
+        for (const result of indexSearch.search(candidate.title, { limit: 3 })) {
           const confidence =
             result.confidence * 0.82 + candidate.confidence * 0.18;
           mergeResult(
@@ -154,7 +204,7 @@ export class AnimeRecognizer {
       }
     }
 
-    if (bilibiliMetadata) {
+    if (bilibiliMetadata && !hasExactSiteMatch) {
       for (const title of bilibiliMetadata.titleVariants) {
         for (const result of indexSearch.search(title, { limit: 3 })) {
           mergeResult(results, result, {

@@ -38,7 +38,9 @@ export class LocalAnimeSearch {
     this.items = Array.isArray(items) ? items : [];
     this.threshold = options.threshold ?? 0.42;
     this.exactIndex = makeExactIndex(this.items);
-    this.fuse = new Fuse(this.items, {
+    this.siteIndex = makeSiteIndex(this.items);
+    this.fuse = null;
+    this.fuseOptions = {
       includeScore: true,
       ignoreLocation: true,
       minMatchCharLength: 2,
@@ -49,12 +51,24 @@ export class LocalAnimeSearch {
         { name: "normalizedNames", weight: 0.2 },
         { name: "searchText", weight: 0.05 },
       ],
-    });
+    };
   }
 
   setThreshold(threshold) {
     this.threshold = threshold;
-    this.fuse.options.threshold = threshold;
+    if (this.fuse) {
+      this.fuse.options.threshold = threshold;
+    }
+  }
+
+  getFuse() {
+    if (!this.fuse) {
+      this.fuse = new Fuse(this.items, {
+        ...this.fuseOptions,
+        threshold: this.threshold,
+      });
+    }
+    return this.fuse;
   }
 
   search(query, options = {}) {
@@ -91,10 +105,11 @@ export class LocalAnimeSearch {
       }
     }
 
-    if (this.fuse.options.threshold !== threshold) {
-      this.fuse.options.threshold = threshold;
+    const fuse = this.getFuse();
+    if (fuse.options.threshold !== threshold) {
+      fuse.options.threshold = threshold;
     }
-    for (const result of this.fuse.search(originalQuery, { limit: limit * 2 })) {
+    for (const result of fuse.search(originalQuery, { limit: limit * 2 })) {
       const existing = results.get(result.item.id);
       if (!existing || result.score < existing.score) {
         results.set(
@@ -114,9 +129,24 @@ export class LocalAnimeSearch {
     if (!site || !expected) {
       return null;
     }
-    return (
-      this.items.find((item) => String(item.sites?.[site] ?? "") === expected) ??
-      null
-    );
+    return this.siteIndex.get(site)?.get(expected) ?? null;
   }
+}
+
+function makeSiteIndex(items) {
+  const index = new Map();
+  for (const item of items) {
+    for (const [site, id] of Object.entries(item.sites ?? {})) {
+      const expected = String(id ?? "");
+      if (!site || !expected) {
+        continue;
+      }
+      const siteEntries = index.get(site) ?? new Map();
+      if (!siteEntries.has(expected)) {
+        siteEntries.set(expected, item);
+      }
+      index.set(site, siteEntries);
+    }
+  }
+  return index;
 }

@@ -47,7 +47,12 @@ function sourceMatchesSettings(snapshot, settings) {
   return (
     snapshot?.schemaVersion === INDEX_SCHEMA_VERSION &&
     snapshot?.source?.id === sourceIdForSettings(settings) &&
-    indexItemsHaveSearchFields(snapshot.items)
+    indexItemsHaveSearchFields(snapshot.items) &&
+    (settings.index.source !== INDEX_SOURCES.BANGUMI_DATA ||
+      snapshot.items.every(
+        (item) =>
+          typeof item.displayTitle === "string" && item.displayTitle.trim(),
+      ))
   );
 }
 

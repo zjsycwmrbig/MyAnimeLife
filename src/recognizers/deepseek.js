@@ -48,6 +48,17 @@ export async function inferAnimeWithDeepSeek(settings, pageContext) {
     headings: pageContext.headings.slice(0, 4),
     structuredDataTitles: pageContext.jsonLdTitles.slice(0, 6),
     breadcrumb: pageContext.breadcrumb,
+    synopsis: pageContext.summary,
+    comments: pageContext.comments.slice(0, 24),
+    regexMentions: pageContext.titleMentions.slice(0, 12),
+    bilibiliMetadata: pageContext.bilibiliMetadata
+      ? {
+          title: pageContext.bilibiliMetadata.title,
+          names: pageContext.bilibiliMetadata.names,
+          synopsis: pageContext.bilibiliMetadata.summary,
+          rating: pageContext.bilibiliMetadata.rating,
+        }
+      : null,
     pageExcerpt: pageContext.excerpt.slice(0, maxChars),
   };
 
@@ -66,7 +77,7 @@ export async function inferAnimeWithDeepSeek(settings, pageContext) {
         {
           role: "system",
           content:
-            "你是番剧识别器。根据网页上下文判断页面讨论的具体动画系列，不要把集数、播放平台、清晰度或文章标题误认为作品名。只输出 JSON。",
+            "你是番剧识别器。根据网页上下文判断页面正在介绍、播放或讨论的具体动画系列。页面标题、结构化数据、作品简介比评论更可靠；评论可用于补充别名和线索，但评论里也可能提到其他作品。不要把集数、播放平台、清晰度、文章标题或评论者的泛称误认为作品名。只输出 JSON。",
         },
         {
           role: "user",

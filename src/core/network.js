@@ -15,6 +15,29 @@ function gmRequest(details) {
   });
 }
 
+function responseSnippet(text, maxLength = 280) {
+  const normalized = String(text ?? "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}...`
+    : normalized;
+}
+
+function httpError(response, url, body) {
+  const host = new URL(url).host;
+  const detail = responseSnippet(body);
+  const error = new Error(
+    `HTTP ${response.status} while requesting ${host}${detail ? `: ${detail}` : ""}`,
+  );
+  error.name = "HttpError";
+  error.status = response.status;
+  error.body = String(body ?? "");
+  error.url = url;
+  error.responseHeaders = response.responseHeaders ?? "";
+  return error;
+}
+
 export async function requestText(url, options = {}) {
   const details = {
     method: options.method ?? "GET",
@@ -22,13 +45,14 @@ export async function requestText(url, options = {}) {
     headers: options.headers ?? {},
     timeout: options.timeout ?? 20000,
   };
+  if (options.body !== undefined) {
+    details.data = options.body;
+  }
 
   if (typeof GM_xmlhttpRequest === "function") {
     const response = await gmRequest(details);
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(
-        `HTTP ${response.status} while requesting ${new URL(url).host}`,
-      );
+      throw httpError(response, url, response.responseText);
     }
     return response.responseText;
   }
@@ -36,11 +60,11 @@ export async function requestText(url, options = {}) {
   const response = await fetch(url, {
     method: details.method,
     headers: details.headers,
+    body: options.body,
   });
   if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} while requesting ${new URL(url).host}`,
-    );
+    const body = await response.text();
+    throw httpError(response, url, body);
   }
   return response.text();
 }

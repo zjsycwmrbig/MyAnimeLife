@@ -26,6 +26,8 @@ const userscriptHeader = `// ==UserScript==
 // @connect      unpkg.com
 // @connect      raw.githubusercontent.com
 // @connect      gist.githubusercontent.com
+// @connect      api.github.com
+// @connect      api.bgm.tv
 // @connect      api.bilibili.com
 // @connect      api.deepseek.com
 // @run-at       document-idle

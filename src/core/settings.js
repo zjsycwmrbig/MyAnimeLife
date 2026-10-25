@@ -32,6 +32,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
     model: "deepseek-chat",
     maxContextChars: 6000,
   },
+  github: {
+    enabled: false,
+    repositoryUrl: "",
+    token: "",
+    branch: "main",
+    lastSyncedAt: "",
+  },
   ui: {
     launcherVisible: true,
   },
@@ -103,6 +110,17 @@ export function sanitizeSettings(input) {
   settings.ai.maxContextChars = Math.round(
     clampNumber(settings.ai.maxContextChars, 1000, 16000, 6000),
   );
+
+  settings.github.enabled = Boolean(settings.github.enabled);
+  settings.github.repositoryUrl = String(
+    settings.github.repositoryUrl ?? "",
+  ).trim();
+  settings.github.token = String(settings.github.token ?? "").trim();
+  settings.github.branch =
+    String(settings.github.branch ?? "").trim() || "main";
+  settings.github.lastSyncedAt = String(
+    settings.github.lastSyncedAt ?? "",
+  ).trim();
 
   settings.ui.launcherVisible = Boolean(settings.ui.launcherVisible);
   return settings;

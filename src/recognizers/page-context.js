@@ -2,10 +2,25 @@ import {
   cleanDisplayTitle,
   extractBilibiliIds,
   extractTitleVariants,
+  normalizeTitle,
   uniqueByTitle,
 } from "../core/title-normalize.js";
 
 const MAX_TITLE_CANDIDATES = 24;
+const MENTION_PATTERNS = [
+  /《([^》\n]{2,80})》/gu,
+  /(?:番名|番剧名|作品名|动画名)[：:\s]*(?:是|叫|为)?\s*[「“"]([^」”"\n]{2,80})[」”"]/giu,
+  /(?:番名|番剧名|作品名|动画名)[：:\s]*(?:是|叫|为)?\s*([^\s，。！？,；;]{2,50})/giu,
+  /(?:这部|该部|本)(?:番|番剧|动画|作品)(?:就是|是|叫|名为)\s*[「“"]?([^」”"\n，。！？,；;]{2,50})/giu,
+];
+const GENERIC_MENTIONS = new Set([
+  "动画",
+  "番剧",
+  "本作",
+  "作品",
+  "这部番",
+  "这个番",
+]);
 
 function textOf(element) {
   return element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
@@ -112,6 +127,102 @@ function collectPageExcerpt(maxChars) {
   return textOf(main).slice(0, maxChars);
 }
 
+function collectTextBlocks(selectors, options = {}) {
+  const minLength = options.minLength ?? 4;
+  const maxLength = options.maxLength ?? 800;
+  const limit = options.limit ?? 20;
+  const seen = new Set();
+  const blocks = [];
+
+  for (const element of document.querySelectorAll(selectors.join(","))) {
+    const text = textOf(element).slice(0, maxLength);
+    const key = normalizeTitle(text);
+    if (text.length < minLength || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    blocks.push(text);
+    if (blocks.length >= limit) {
+      break;
+    }
+  }
+  return blocks;
+}
+
+function collectDocumentDescription() {
+  return metaContent(
+    'meta[name="description"]',
+    'meta[property="og:description"]',
+    'meta[name="twitter:description"]',
+    '[itemprop="description"]',
+  );
+}
+
+function collectSummary() {
+  const siteSummary = collectTextBlocks(
+    [
+      "#v_desc",
+      ".desc-info-text",
+      ".basic-desc-info",
+      ".video-desc",
+      ".media-summary",
+      ".bangumi-summary",
+      ".summary-content",
+      "[class*='media-intro']",
+      "[class*='bangumi-intro']",
+    ],
+    { minLength: 8, maxLength: 1600, limit: 4 },
+  );
+  const description = collectDocumentDescription();
+  return [...new Set([...siteSummary, description].filter(Boolean))]
+    .join("\n")
+    .slice(0, 2400);
+}
+
+function collectComments() {
+  return collectTextBlocks(
+    [
+      ".reply-item .reply-content",
+      ".comment-item .comment-content",
+      ".bb-comment .con",
+      "#comment .reply-content",
+      "[class*='short-review'] [class*='content']",
+    ],
+    { minLength: 2, maxLength: 500, limit: 24 },
+  );
+}
+
+export function extractTitleMentions(texts) {
+  const seen = new Set();
+  const mentions = [];
+
+  for (const text of texts ?? []) {
+    const value = String(text ?? "");
+    for (const pattern of MENTION_PATTERNS) {
+      pattern.lastIndex = 0;
+      for (const match of value.matchAll(pattern)) {
+        const title = cleanDisplayTitle(match[1]).replace(
+          /^[《「“"']+|[》」”"']+$/gu,
+          "",
+        );
+        const key = normalizeTitle(title);
+        if (
+          title.length < 2 ||
+          title.length > 80 ||
+          key.length < 2 ||
+          GENERIC_MENTIONS.has(title) ||
+          seen.has(key)
+        ) {
+          continue;
+        }
+        seen.add(key);
+        mentions.push(title);
+      }
+    }
+  }
+  return mentions.slice(0, 16);
+}
+
 function detectPageKind(url) {
   if (url.hostname.endsWith("bilibili.com")) {
     if (/\/(?:bangumi\/mine\/follow|bangumi\/mine\/bangumi)/iu.test(url.pathname)) {
@@ -130,6 +241,10 @@ function detectPageKind(url) {
 export function createPageContext(options = {}) {
   const url = new URL(location.href);
   const maxExcerptChars = options.maxExcerptChars ?? 6000;
+  const summary = collectSummary();
+  const comments = collectComments();
+  const summaryMentions = extractTitleMentions([summary]);
+  const commentMentions = extractTitleMentions(comments);
   return {
     url: location.href,
     host: url.hostname,
@@ -148,6 +263,11 @@ export function createPageContext(options = {}) {
     jsonLdTitles: collectJsonLdValues(),
     breadcrumb: collectBreadcrumbText(),
     excerpt: collectPageExcerpt(maxExcerptChars),
+    summary,
+    comments,
+    summaryMentions,
+    commentMentions,
+    titleMentions: [...new Set([...summaryMentions, ...commentMentions])],
     bilibiliIds: extractBilibiliIds(location.href),
   };
 }
@@ -178,6 +298,25 @@ export function extractTitleCandidates(context) {
       titles: [context.documentTitle],
       source: "regex:document-title",
       confidence: 0.74,
+    },
+    {
+      titles: context.summaryMentions,
+      source: "regex:summary-mention",
+      confidence: 0.7,
+    },
+    {
+      titles: context.commentMentions,
+      source: "regex:comment-mention",
+      confidence: 0.6,
+    },
+    {
+      titles: [...new Set(context.titleMentions)].filter(
+        (title) =>
+          !context.summaryMentions.includes(title) &&
+          !context.commentMentions.includes(title),
+      ),
+      source: "regex:page-mention",
+      confidence: 0.64,
     },
     {
       titles: [context.breadcrumb],

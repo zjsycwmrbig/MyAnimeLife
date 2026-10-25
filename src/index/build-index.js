@@ -1,3 +1,4 @@
+import { normalizeCoverUrl } from "../core/cover-url.js";
 import { normalizeTitle } from "../core/title-normalize.js";
 
 export const INDEX_SCHEMA_VERSION = 1;
@@ -12,7 +13,8 @@ const TRACKED_SITES = new Set([
   "tmdb",
 ]);
 
-const LANGUAGE_ORDER = ["zh-Hans", "zh-Hant", "ja", "en"];
+const LANGUAGE_ORDER = ["zh-Hans", "zh-Hant", "zh", "ja", "en"];
+const DISPLAY_TITLE_LANGUAGES = ["zh-Hans", "zh-Hant", "zh"];
 
 function uniqueStrings(values) {
   const seen = new Set();
@@ -51,6 +53,31 @@ function collectNames(item) {
   }
 
   return uniqueStrings([item.title, ...translatedNames]);
+}
+
+function collectDisplayTitle(item, names) {
+  const translations = item.titleTranslate ?? {};
+  for (const language of DISPLAY_TITLE_LANGUAGES) {
+    const values = translations[language];
+    const candidates = Array.isArray(values) ? values : [values];
+    const translated = uniqueStrings(candidates)[0];
+    if (translated) {
+      return translated;
+    }
+  }
+  return names[0] ?? String(item.title ?? "").trim();
+}
+
+function collectCoverUrl(item) {
+  const candidates = [
+    item?.coverUrl,
+    item?.cover,
+    item?.image,
+    item?.images?.large,
+    item?.images?.common,
+    item?.images?.medium,
+  ];
+  return candidates.map(normalizeCoverUrl).find(Boolean) ?? null;
 }
 
 function collectSites(sites) {
@@ -103,6 +130,7 @@ export function buildSlimIndex(raw, metadata = {}) {
       return {
         id: stableItemId(title, names, sites, year),
         title,
+        displayTitle: collectDisplayTitle(item, names),
         names,
         normalizedNames: uniqueStrings(names.map(normalizeTitle)),
         searchText: names.join(" "),
@@ -110,6 +138,7 @@ export function buildSlimIndex(raw, metadata = {}) {
         begin,
         year,
         sites,
+        coverUrl: collectCoverUrl(item),
       };
     })
     .filter(Boolean);
