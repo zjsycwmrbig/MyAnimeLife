@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Ensure the public template is empty
-        if: github.repository == 'zjsycwmrbig/anime-records-template'
+        if: github.repository == 'zjsycwmrbig/MyAnimeLife'
         run: node scripts/assert-empty-template.mjs
 
       - name: Build site

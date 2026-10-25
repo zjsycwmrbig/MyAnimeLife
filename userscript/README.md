@@ -1,6 +1,6 @@
 # Bangumi Scout
 
-一个以识别为第一阶段的番剧油猴脚本原型。个人评分和短评会先保存为本地草稿；配置自己的 GitHub 番剧仓库后，也可以通过 Contents API 同步记录。
+MyAnimeLife 仓库中的油猴脚本模块。个人评分和短评会先保存为本地草稿；配置自己的 GitHub 番剧仓库后，也可以通过 Contents API 同步记录。
 
 ## 当前能力
 
@@ -61,7 +61,7 @@ DeepSeek Key 使用 `GM_setValue` 保存在本机 Tampermonkey 存储中，不�
 ## GitHub 番剧仓库
 
 新用户可以在设置的 GitHub 区域点击“用模板新建”，从
-[`zjsycwmrbig/anime-records-template`](https://github.com/zjsycwmrbig/anime-records-template/generate)
+[`zjsycwmrbig/MyAnimeLife`](https://github.com/zjsycwmrbig/MyAnimeLife/generate)
 生成自己的数据仓库。完成以下步骤后，面板中的保存按钮会从“保存草稿”变为“保存到 GitHub”：
 
 1. 在 Bangumi Scout 设置中点击“检查模板”，确认上游已公开并启用 `Template repository`。

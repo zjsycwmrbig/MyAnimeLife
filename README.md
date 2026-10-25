@@ -1,11 +1,12 @@
-# Anime Records Template
+# MyAnimeLife
 
-一个可以通过 GitHub Template 生成个人副本的番剧档案源仓库。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
+一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
 仓库中的数据和模板彼此独立：
 
 ```text
 data/anime.jsonl + data/anime-index.jsonl + templates/<current>/ = dist/*
+data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 ```
 
 因此替换模板不需要迁移个人记录，修改个人记录也不会触碰页面代码。
@@ -27,11 +28,23 @@ data/anime.jsonl + data/anime-index.jsonl + templates/<current>/ = dist/*
 
 GitHub Pages 只发布只读展示网站。管理页不会部署到 Pages，只在本地克隆中通过 `npm run admin` 启动。
 
+## 油猴脚本
+
+`userscript/` 包含 Bangumi Scout 的完整源码、测试和可直接安装的构建产物。上游版本可以从以下地址安装：
+
+```text
+https://raw.githubusercontent.com/zjsycwmrbig/MyAnimeLife/main/userscript/dist/anime-index.user.js
+```
+
+在 Tampermonkey 中打开该地址，或新建脚本后粘贴内容即可。脚本通过 GitHub Contents API 读写个人仓库中的 `data/anime.jsonl` 和 `data/anime-index.jsonl`，不要求个人仓库与模板同名。详细设置和识别机制见 [`userscript/README.md`](userscript/README.md)。
+
+如果希望脚本更新也完全由自己的仓库管理，可以把上述地址中的 `zjsycwmrbig/MyAnimeLife` 替换成自己的 `owner/repository`。使用 Template 创建的个人仓库同样会包含 `userscript/dist/anime-index.user.js`。
+
 ## 创建个人仓库
 
 推荐使用 GitHub 的 `Use this template`，不要直接 Fork。模板生成的仓库与上游提交历史无关联，只包含默认分支当前文件，因此不会继承上游历史中的番剧记录。
 
-1. 仓库所有者在[上游设置](https://github.com/zjsycwmrbig/anime-records-template/settings)中启用 `Template repository`。
+1. 仓库所有者在[上游设置](https://github.com/zjsycwmrbig/MyAnimeLife/settings)中启用 `Template repository`。
 2. 运行 `npm run template:check`，确认公开状态、Template 开关、默认分支和空数据都正确。
 3. 打开仓库页面，点击 `Use this template > Create a new repository`。
 4. 修改新仓库 [`config/site.json`](config/site.json) 中的站点名称和描述。
@@ -57,7 +70,7 @@ GitHub 不支持只 Fork 某一个分支。Fork 会复制仓库当时可见的�
 
 因此本项目把 `Use this template` 作为推荐路径：
 
-- `zjsycwmrbig/anime-records-template` 的 `main` 分支始终保持两个 JSONL 文件为空。
+- `zjsycwmrbig/MyAnimeLife` 的 `main` 分支始终保持两个 JSONL 文件为空。
 - 新用户通过 `Use this template` 生成一个提交历史无关联的个人仓库。生成结果只包含模板默认分支的当前文件，不继承其他分支，也不继承上游旧提交中的记录。
 - 第一条评分或评价只会写进用户自己的个人仓库。
 - 上游部署前会运行空白检查；如果模板仓库误提交了个人记录，发布流程会直接失败。
@@ -87,6 +100,15 @@ npm test
 npm run dev
 ```
 
+开发油猴脚本需要单独安装其依赖：
+
+```bash
+npm install --prefix userscript
+npm run test:userscript
+npm run build:userscript
+npm run test:e2e:userscript
+```
+
 本地预览默认运行在：
 
 ```text
@@ -108,7 +130,11 @@ npm run validate  # 只校验配置、Schema、模板和索引
 npm run build     # 生成 dist/
 npm test          # 运行构建和 Schema 测试
 npm run check     # 测试后重新构建
+npm run check:all # 同时检查站点和油猴脚本
 npm run admin     # 启动本地数据管理页
+npm run build:userscript        # 构建油猴脚本
+npm run test:userscript         # 运行油猴脚本单元测试
+npm run test:e2e:userscript     # 运行油猴脚本浏览器测试
 ```
 
 ## 本地管理页
@@ -179,6 +205,7 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 ```text
 .
 ├─ .github/workflows/pages.yml
+├─ .github/workflows/userscript.yml
 ├─ admin/
 │  ├─ index.html
 │  ├─ styles.css
@@ -208,6 +235,11 @@ https://<pages-host>/insights/?peer=<owner>/<repository>&branch=<branch>
 │  ├─ default/
 │  ├─ compact/
 │  └─ spotlight/
+├─ userscript/
+│  ├─ src/
+│  ├─ tests/
+│  ├─ e2e/
+│  └─ dist/anime-index.user.js
 └─ tests/
 ```
 

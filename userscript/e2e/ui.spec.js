@@ -85,7 +85,7 @@ test("recognizes only after a click and opens separate extension settings", asyn
   const generateLink = host.getByRole("link", { name: "用模板新建" });
   await expect(generateLink).toHaveAttribute(
     "href",
-    "https://github.com/zjsycwmrbig/anime-records-template/generate",
+    "https://github.com/zjsycwmrbig/MyAnimeLife/generate",
   );
   await expect(
     host.getByRole("link", { name: "创建 Token" }),

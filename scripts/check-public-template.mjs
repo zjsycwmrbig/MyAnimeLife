@@ -1,5 +1,5 @@
 const repository =
-  process.env.TEMPLATE_REPOSITORY || "zjsycwmrbig/anime-records-template";
+  process.env.TEMPLATE_REPOSITORY || "zjsycwmrbig/MyAnimeLife";
 const token = String(process.env.GITHUB_TOKEN ?? "").trim();
 const apiRoot = `https://api.github.com/repos/${repository}`;
 
@@ -7,7 +7,7 @@ function headers() {
   return {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "anime-records-template-check",
+    "User-Agent": "myanimelife-template-check",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }

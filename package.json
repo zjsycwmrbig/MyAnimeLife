@@ -1,9 +1,9 @@
 {
-  "name": "anime-records-template",
+  "name": "myanimelife",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A forkable GitHub Pages template for a personal anime archive.",
+  "description": "A GitHub Pages template and Tampermonkey client for a personal anime archive.",
   "engines": {
     "node": ">=20"
   },
@@ -12,8 +12,12 @@
     "validate": "node scripts/validate.mjs",
     "dev": "npm run build && node scripts/serve.mjs",
     "admin": "node scripts/admin.mjs",
-    "test": "node --test",
+    "test": "node --test tests/*.test.js",
+    "test:userscript": "npm --prefix userscript test",
+    "build:userscript": "npm --prefix userscript run build",
+    "test:e2e:userscript": "npm --prefix userscript run test:e2e",
     "check": "npm test && npm run build",
+    "check:all": "npm run check && npm run test:userscript && npm run build:userscript",
     "template:check": "node scripts/check-public-template.mjs"
   },
   "dependencies": {

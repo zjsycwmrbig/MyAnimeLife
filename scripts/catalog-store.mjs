@@ -35,7 +35,7 @@ async function requestJson(fetchImpl, url, timeoutMs = 60000) {
     const response = await fetchImpl(url, {
       headers: {
         Accept: "application/json",
-        "User-Agent": "anime-records-template-admin",
+        "User-Agent": "myanimelife-admin",
       },
       signal: controller.signal,
     });

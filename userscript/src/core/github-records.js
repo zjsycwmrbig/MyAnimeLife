@@ -17,7 +17,7 @@ import {
   toErrorMessage,
 } from "./network.js";
 
-export const TEMPLATE_REPOSITORY = "zjsycwmrbig/anime-records-template";
+export const TEMPLATE_REPOSITORY = "zjsycwmrbig/MyAnimeLife";
 export const TEMPLATE_GENERATE_URL =
   `https://github.com/${TEMPLATE_REPOSITORY}/generate`;
 export const TEMPLATE_REPOSITORY_API_URL =

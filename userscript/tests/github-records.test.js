@@ -675,7 +675,7 @@ test("checks whether the public onboarding repository is a usable template", asy
   const result = await service.checkTemplateRepository();
 
   assert.equal(requests.length, 1);
-  assert.match(requests[0].url, /\/repos\/.+anime-records-template$/u);
+  assert.match(requests[0].url, /\/repos\/.+MyAnimeLife$/u);
   assert.equal(requests[0].options.timeout, 20000);
   assert.deepEqual(result, {
     fullName: "example/public-template",

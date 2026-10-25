@@ -888,7 +888,7 @@
   }
 
   // src/core/github-records.js
-  var TEMPLATE_REPOSITORY = "zjsycwmrbig/anime-records-template";
+  var TEMPLATE_REPOSITORY = "zjsycwmrbig/MyAnimeLife";
   var TEMPLATE_GENERATE_URL = `https://github.com/${TEMPLATE_REPOSITORY}/generate`;
   var TEMPLATE_REPOSITORY_API_URL = `https://api.github.com/repos/${TEMPLATE_REPOSITORY}`;
   var FINE_GRAINED_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
