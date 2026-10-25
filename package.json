@@ -1,0 +1,23 @@
+{
+  "name": "anime-records-template",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A forkable GitHub Pages template for a personal anime archive.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/validate.mjs",
+    "dev": "npm run build && node scripts/serve.mjs",
+    "test": "node --test",
+    "check": "npm test && npm run build"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "markdown-it": "^14.1.0",
+    "nunjucks": "^3.2.4"
+  }
+}

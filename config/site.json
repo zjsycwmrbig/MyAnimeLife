@@ -1,0 +1,16 @@
+{
+  "site": {
+    "title": "我的番剧档案",
+    "brand": "ANIME LEDGER",
+    "description": "一份由数据与模板共同生成的私人番剧记录。",
+    "language": "zh-CN",
+    "footer": "由 Anime Records Template 构建"
+  },
+  "repository": {
+    "slug": "",
+    "branch": "main"
+  },
+  "template": "default",
+  "dataDirectory": "data/anime",
+  "outputDirectory": "dist"
+}

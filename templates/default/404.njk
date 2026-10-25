@@ -1,0 +1,16 @@
+{% extends "base.njk" %}
+{% from "icons.njk" import icon %}
+
+{% block bodyClass %}not-found-page{% endblock %}
+
+{% block content %}
+  <div class="page-shell not-found">
+    <p class="eyebrow">404 / NOT FOUND</p>
+    <h1>这一页不在档案里。</h1>
+    <p>记录可能已经移动，或者地址并不存在。</p>
+    <a class="primary-link" href="{{ homeUrl }}">
+      {{ icon("arrow-left") }}
+      返回全部档案
+    </a>
+  </div>
+{% endblock %}

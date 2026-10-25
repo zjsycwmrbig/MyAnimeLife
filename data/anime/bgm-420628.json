@@ -1,0 +1,25 @@
+{
+  "$schema": "../../schemas/anime.schema.json",
+  "schemaVersion": 1,
+  "id": "bgm-420628",
+  "title": "药师少女的独语",
+  "rating": null,
+  "review": "",
+  "coverUrl": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx161645-QLbzHXiYRgV2.jpg",
+  "note": "示例记录。尚未评分，展示 `rating: null` 的标准写法。",
+  "externalIds": {
+    "bangumi": "420628",
+    "anilist": "161645",
+    "mal": "54492"
+  },
+  "match": {
+    "status": "matched",
+    "method": "title-exact",
+    "source": "bangumi-data",
+    "confidence": 0.98,
+    "matchedTitle": "薬屋のひとりごと",
+    "matchedAt": "2026-10-23T13:20:00Z"
+  },
+  "createdAt": "2026-10-23T13:20:00Z",
+  "updatedAt": "2026-10-23T13:20:00Z"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "default",
+  "name": "Archive",
+  "contractVersion": 1,
+  "entrypoints": {
+    "index": "index.njk",
+    "detail": "detail.njk",
+    "notFound": "404.njk"
+  },
+  "assets": "assets"
+}

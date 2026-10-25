@@ -1,0 +1,26 @@
+{
+  "$schema": "../../schemas/anime.schema.json",
+  "schemaVersion": 1,
+  "id": "bili-23013233",
+  "title": "胆大党",
+  "rating": 8.4,
+  "review": "作画和演出非常有冲劲，类型元素切换得又快又稳。热闹之外，主角之间那种笨拙但坦率的信任感是真正留住人的部分。",
+  "coverUrl": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx171018-60q1B6GK2Ghb.jpg",
+  "note": "示例记录。中文别名包括「当哒当」和「超自然武装当哒当」。",
+  "externalIds": {
+    "bangumi": "467461",
+    "bilibiliMedia": "23013233",
+    "anilist": "171018",
+    "mal": "57334"
+  },
+  "match": {
+    "status": "matched",
+    "method": "site-id",
+    "source": "bangumi-data",
+    "confidence": 1,
+    "matchedTitle": "ダンダダン",
+    "matchedAt": "2026-10-22T18:00:00Z"
+  },
+  "createdAt": "2026-10-22T18:00:00Z",
+  "updatedAt": "2026-10-24T20:28:00Z"
+}

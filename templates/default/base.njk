@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="{{ site.language }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="{{ pageDescription }}" />
+    <meta name="theme-color" content="#17201b" />
+    <meta property="og:title" content="{{ pageTitle }}" />
+    <meta property="og:description" content="{{ pageDescription }}" />
+    <meta property="og:type" content="website" />
+    <title>{{ pageTitle }}</title>
+    <link rel="icon" href="{{ assetRoot }}favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="{{ assetRoot }}styles.css" />
+  </head>
+  <body class="{% block bodyClass %}{% endblock %}">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="{{ homeUrl }}" aria-label="{{ site.title }}首页">
+          <span class="brand-mark" aria-hidden="true">A.</span>
+          <span class="brand-copy">
+            <strong>{{ site.brand }}</strong>
+            <span>{{ site.title }}</span>
+          </span>
+        </a>
+        <nav class="header-nav" aria-label="站点">
+          <a href="{{ homeUrl }}">档案</a>
+          {% if repository.url %}
+            <a
+              class="header-icon-link"
+              href="{{ repository.url }}"
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label="打开 GitHub 仓库"
+              title="GitHub 仓库"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7.4A5.8 5.8 0 0 0 19.3 3 5.4 5.4 0 0 0 19.1 0S18 0 15 1.7a13.4 13.4 0 0 0-6 0C6 0 4.9 0 4.9 0a5.4 5.4 0 0 0-.2 3A5.8 5.8 0 0 0 3.2 7c0 5.8 3.5 7 6.8 7.4A4.8 4.8 0 0 0 9 18v4"
+                />
+                <path d="M9 18c-4.5 2-5-2-7-2" />
+              </svg>
+            </a>
+          {% endif %}
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <p>{{ site.footer }}</p>
+        <p>
+          <span>数据更新 {{ generatedAtLabel }}</span>
+          <a href="{{ homeUrl }}{{ dataEndpoint }}">JSON</a>
+        </p>
+      </div>
+    </footer>
+
+    <script src="{{ assetRoot }}app.js" defer></script>
+  </body>
+</html>
