@@ -17,7 +17,7 @@
 - 支持扫描 Bilibili 追番/媒体页面中已经渲染出来的番剧链接。
 - 候选结果可以直接点选；选中后候选区会自动收起并进入评分/短评区，也可随时点“重新选择”展开。
 - 可以填写 1-10 分个人评分和 20000 字短评，并优先保存在本机油猴存储中。
-- 可以从模板生成的个人仓库按需读取已有评分/评价，并将修改写回 `data/anime/{id}.json`。
+- 可以从模板生成的个人仓库按需读取完整 JSONL，并将修改覆盖写回 `data/anime.jsonl` 和 `data/anime-index.jsonl`。
 - 封面优先使用 Bilibili PGC 元数据；没有时通过 Bangumi subject ID 查询并缓存。
 - 识别面板可以手动关闭、拖动位置，或收起为贴附屏幕左/右侧的“番剧”标签。
 
@@ -64,23 +64,25 @@ DeepSeek Key 使用 `GM_setValue` 保存在本机 Tampermonkey 存储中，不�
 [`zjsycwmrbig/anime-records-template`](https://github.com/zjsycwmrbig/anime-records-template/generate)
 生成自己的数据仓库。完成以下步骤后，面板中的保存按钮会从“保存草稿”变为“保存到 GitHub”：
 
-1. 使用 GitHub 的“Use this template”创建个人仓库。生成仓库只包含默认分支当前文件，不继承上游提交历史，`data/anime/` 保持为空。
+1. 使用 GitHub 的“Use this template”创建个人仓库。生成仓库只包含默认分支当前文件，不继承上游提交历史，`data/anime.jsonl` 与 `data/anime-index.jsonl` 保持为空。
 2. 在仓库 `Settings > Pages` 中将 Source 设置为 `GitHub Actions`，用于生成公开展示页。
 3. 创建仅限该仓库、`Contents` 权限为 `Read and write` 的[细粒度 Token](https://github.com/settings/personal-access-tokens/new)。
 4. 在 Bangumi Scout 设置中填写仓库地址、分支和 Token，保存后点击“检查连接”。
 
 上游仓库需要先在 `Settings` 中启用 `Template repository`，上述生成入口才会生效。
 
-GitHub Fork 会复制完整提交历史，不能只排除 `data/anime/` 或对指定目录隐藏。即使最新提交已经删除记录，旧提交中的文件仍可能被恢复；`.gitignore` 只影响未跟踪文件，也无法解决这个问题。个人记录只应写入模板生成的个人仓库，不要提交回上游模板。
+GitHub Fork 会复制完整提交历史，不能只排除 JSONL 数据文件或对其内容隐藏。即使最新提交已经清空记录，旧提交中的内容仍可能被恢复；`.gitignore` 只影响未跟踪文件，也无法解决这个问题。个人记录只应写入模板生成的个人仓库，不要提交回上游模板。
 
 油猴脚本通过 `api.github.com` 的 Contents API 按需读取和写入：
 
 ```text
-data/anime/bili-292073015.json
-data/anime/bgm-525565.json
+data/anime.jsonl
+data/anime-index.jsonl
 ```
 
-记录遵循模板仓库的 `schemas/anime.schema.json`。ID 优先使用 Bilibili、Bangumi、AniList 或 MAL 的稳定站点 ID。更新已有记录时会带上 Contents API 返回的 `sha`，遇到 `409`/`422` 会重新读取并重试一次，同时保留记录中的其他字段。
+`anime.jsonl` 每行是一条完整记录，是唯一数据源；`anime-index.jsonl` 由完整记录确定性生成，只保留标题、别名、评分摘要、站点 ID 和季度等轻量字段。油猴端正常读取这两个文件只需两个 Contents API 请求，不再按番剧数量产生 N+1 请求。
+
+记录遵循模板仓库的 `schemas/anime.schema.json`。ID 优先使用 Bilibili、Bangumi、AniList 或 MAL 的稳定站点 ID。重复检测直接扫描索引。同步时按 ID 合并完整记录，同一 ID 以较新的 `updatedAt` 为准，然后重建索引并覆盖两个文件；遇到 `409`/`422` 会重新读取并重试一次。覆盖前会创建同时包含完整数据和索引的备份快照，最多保留 5 份。
 
 读取发生在用户选定番剧之后，不会在普通页面加载时请求 GitHub。保存时始终先写本地 `GM_setValue` 草稿，再尝试远端写入；Token 无效、网络失败或仓库不可写时，本地评分和评价仍然保留。
 

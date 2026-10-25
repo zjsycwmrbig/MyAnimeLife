@@ -1,8 +1,9 @@
 (() => {
   const memory = new Map();
-  const githubRecordPath = "data/anime/bili-292073015.json";
-  let githubRecordSha = "sha-preview-1";
-  let githubRecord = {
+  const animePath = "data/anime.jsonl";
+  const indexPath = "data/anime-index.jsonl";
+  const backupDirectory = "data/backups";
+  const githubRecord = {
     $schema: "../../schemas/anime.schema.json",
     schemaVersion: 1,
     id: "bili-292073015",
@@ -27,6 +28,77 @@
     createdAt: "2026-10-25T08:00:00.000Z",
     updatedAt: "2026-10-25T08:00:00.000Z",
   };
+  const buildIndexRecord = (record) => ({
+    schemaVersion: 1,
+    id: record.id,
+    title: record.title,
+    aliases: [record.match?.matchedTitle].filter(Boolean),
+    rating: record.rating,
+    reviewExcerpt: String(record.review ?? "").slice(0, 180),
+    coverUrl: record.coverUrl ?? null,
+    externalIds: record.externalIds ?? {},
+    season: record.season ?? null,
+    match: {
+      status: record.match?.status ?? "unmatched",
+      method: record.match?.method ?? "manual",
+      confidence: Number(record.match?.confidence) || 0,
+      matchedTitle: record.match?.matchedTitle ?? null,
+    },
+    createdAt: record.createdAt ?? null,
+    updatedAt: record.updatedAt ?? null,
+    deletedAt: record.deletedAt ?? null,
+  });
+  const githubFiles = new Map([
+    [
+      animePath,
+      {
+        sha: "sha-preview-1",
+        text: `${JSON.stringify(githubRecord)}\n`,
+      },
+    ],
+    [
+      indexPath,
+      {
+        sha: "sha-preview-index-1",
+        text: `${JSON.stringify(buildIndexRecord(githubRecord))}\n`,
+      },
+    ],
+  ]);
+  let githubRevision = 1;
+
+  function encodeBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    return btoa(binary);
+  }
+
+  function decodeBase64(value) {
+    const binary = atob(String(value ?? "").replace(/\s+/gu, ""));
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    return new TextDecoder().decode(bytes);
+  }
+
+  function githubFileResponse(path, file) {
+    return {
+      type: "file",
+      encoding: "base64",
+      content: encodeBase64(file.text),
+      path,
+      sha: file.sha,
+      html_url: `https://github.com/preview-user/anime-records/blob/main/${path}`,
+    };
+  }
+
+  function nextGithubSha(path) {
+    githubRevision += 1;
+    return `sha-preview-${path.includes("index") ? "index-" : ""}${githubRevision}`;
+  }
+
   const fixtureIndex = {
     items: [
       {
@@ -151,10 +223,7 @@
             const path = decodeURIComponent(
               url.pathname.slice(contentsPrefix.length),
             );
-            if (path !== githubRecordPath) {
-              status = 404;
-              responseText = JSON.stringify({ message: "Not Found" });
-            } else if (details.method === "PUT") {
+            if (details.method === "PUT") {
               const authorization =
                 details.headers?.Authorization ??
                 details.headers?.authorization ??
@@ -166,37 +235,59 @@
                 });
               } else {
                 const body = JSON.parse(details.data);
-                const binary = atob(body.content.replace(/\s+/gu, ""));
-                const bytes = Uint8Array.from(binary, (character) =>
-                  character.charCodeAt(0),
-                );
-                githubRecord = JSON.parse(new TextDecoder().decode(bytes));
-                githubRecordSha = `sha-preview-${Date.now()}`;
+                const current = githubFiles.get(path);
+                if (
+                  (current && body.sha !== current.sha) ||
+                  (!current && body.sha)
+                ) {
+                  status = 422;
+                  responseText = JSON.stringify({
+                    message: "Preview SHA conflict",
+                  });
+                  details.onload({
+                    status,
+                    responseText,
+                    responseHeaders: "",
+                    finalUrl: details.url,
+                  });
+                  return;
+                }
+                const file = {
+                  sha: nextGithubSha(path),
+                  text: decodeBase64(body.content),
+                };
+                githubFiles.set(path, file);
                 responseText = JSON.stringify({
                   content: {
-                    name: `${githubRecord.id}.json`,
+                    name: path.split("/").at(-1),
                     path,
-                    sha: githubRecordSha,
+                    sha: file.sha,
                     html_url: `https://github.com/preview-user/anime-records/blob/main/${path}`,
                   },
                   commit: { sha: "commit-preview" },
                 });
               }
+            } else if (path === backupDirectory) {
+              responseText = JSON.stringify(
+                [...githubFiles.entries()]
+                  .filter(([filePath]) =>
+                    filePath.startsWith(`${backupDirectory}/`),
+                  )
+                  .map(([filePath, file]) => ({
+                    type: "file",
+                    name: filePath.split("/").at(-1),
+                    path: filePath,
+                    sha: file.sha,
+                  })),
+              );
             } else {
-              const content = JSON.stringify(githubRecord, null, 2);
-              const bytes = new TextEncoder().encode(content);
-              let binary = "";
-              for (const byte of bytes) {
-                binary += String.fromCharCode(byte);
+              const file = githubFiles.get(path);
+              if (!file) {
+                status = 404;
+                responseText = JSON.stringify({ message: "Not Found" });
+              } else {
+                responseText = JSON.stringify(githubFileResponse(path, file));
               }
-              responseText = JSON.stringify({
-                type: "file",
-                encoding: "base64",
-                content: btoa(binary),
-                path,
-                sha: githubRecordSha,
-                html_url: `https://github.com/preview-user/anime-records/blob/main/${path}`,
-              });
             }
           } else {
             status = 404;

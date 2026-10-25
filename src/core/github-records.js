@@ -2,8 +2,18 @@ import { normalizeCoverUrl } from "./cover-url.js";
 import { createSeasonDescriptor } from "./season.js";
 import { normalizeTitle } from "./title-normalize.js";
 import {
+  ANIME_INDEX_JSONL_PATH,
+  ANIME_JSONL_PATH,
+  BACKUP_DIRECTORY,
+  MAX_BACKUP_SNAPSHOTS,
+  buildAnimeIndex,
+  createBackupSnapshot,
+  parseJsonl,
+  serializeJsonl,
+  upsertRecord,
+} from "./record-jsonl.js";
+import {
   requestJson,
-  requestText,
   toErrorMessage,
 } from "./network.js";
 
@@ -16,10 +26,8 @@ export const GITHUB_PAGES_DOCS_URL =
   "https://docs.github.com/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site";
 
 const API_ROOT = "https://api.github.com";
-const RECORD_DIRECTORY = "data/anime";
 const MAX_REVIEW_LENGTH = 20000;
-const RECORD_LIST_CACHE_MS = 5 * 60 * 1000;
-const RECORD_FETCH_CONCURRENCY = 5;
+const LIBRARY_CACHE_MS = 5 * 60 * 1000;
 const DUPLICATE_SCORE_THRESHOLD = 0.72;
 
 export class DuplicateRecordError extends Error {
@@ -253,6 +261,19 @@ function sanitizeRating(value, fallback = null) {
     : fallback;
 }
 
+function nextRecordTimestamp(previous, now) {
+  const currentTime = new Date(now).getTime();
+  const previousTime = new Date(previous).getTime();
+  if (
+    Number.isFinite(currentTime) &&
+    Number.isFinite(previousTime) &&
+    currentTime <= previousTime
+  ) {
+    return new Date(previousTime + 1).toISOString();
+  }
+  return now;
+}
+
 function matchMethod(selectedResult, aiResult) {
   if (selectedResult?.manualSelection) {
     return "manual";
@@ -349,7 +370,7 @@ export function mergeAnimeRecord(
     id: cleanString(existingRecord.id) || id,
     rating: sanitizeRating(rating),
     review: cleanString(review).slice(0, MAX_REVIEW_LENGTH),
-    updatedAt: now,
+    updatedAt: nextRecordTimestamp(existingRecord.updatedAt, now),
   };
   const season = seasonForItem(item, selectedResult);
   if (season) {
@@ -471,6 +492,7 @@ function compareRecordDuplicate({
   const existingTitles = [
     existing?.title,
     existing?.match?.matchedTitle,
+    ...(existing?.aliases ?? []),
   ]
     .map(cleanString)
     .filter(Boolean);
@@ -509,23 +531,6 @@ function compareRecordDuplicate({
     : null;
 }
 
-async function mapWithConcurrency(values, concurrency, mapper) {
-  const results = new Array(values.length);
-  let nextIndex = 0;
-  const workers = Array.from(
-    { length: Math.min(concurrency, values.length) },
-    async () => {
-      while (nextIndex < values.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        results[index] = await mapper(values[index], index);
-      }
-    },
-  );
-  await Promise.all(workers);
-  return results;
-}
-
 function encodeBase64Utf8(text) {
   const bytes = new TextEncoder().encode(text);
   let binary = "";
@@ -541,10 +546,6 @@ function decodeBase64Utf8(value) {
     character.charCodeAt(0),
   );
   return new TextDecoder().decode(bytes);
-}
-
-function recordPath(id) {
-  return `${RECORD_DIRECTORY}/${id}.json`;
 }
 
 function githubHeaders(token, includeContentType = false) {
@@ -572,9 +573,9 @@ function isConflict(error) {
   return [409, 422].includes(Number(error?.status));
 }
 
-function parseContentResponse(payload, id) {
+function parseContentResponse(payload, path) {
   if (!payload || typeof payload !== "object") {
-    throw new Error("GitHub 返回了无效的记录内容");
+    throw new Error("GitHub 返回了无效的文件内容");
   }
   const file =
     payload.content && typeof payload.content === "object"
@@ -582,29 +583,23 @@ function parseContentResponse(payload, id) {
       : payload;
   if (!Object.hasOwn(file, "content")) {
     return {
-      id,
-      record: null,
+      text: "",
       sha: cleanString(file.sha),
       htmlUrl: cleanString(file.html_url),
-      path: cleanString(file.path),
+      path: cleanString(file.path) || path,
+      exists: false,
     };
   }
   const text =
     file.encoding === "base64"
       ? decodeBase64Utf8(file.content)
       : String(file.content ?? "");
-  let record;
-  try {
-    record = JSON.parse(text);
-  } catch {
-    throw new Error(`GitHub 记录 ${id}.json 不是有效 JSON`);
-  }
   return {
-    id,
-    record,
+    text,
     sha: cleanString(file.sha),
     htmlUrl: cleanString(file.html_url),
-    path: cleanString(file.path),
+    path: cleanString(file.path) || path,
+    exists: true,
   };
 }
 
@@ -612,15 +607,12 @@ export class GitHubRecordsService {
   constructor({
     settingsStore = null,
     requestJsonImpl = requestJson,
-    requestTextImpl = requestText,
     now = () => new Date().toISOString(),
   } = {}) {
     this.settingsStore = settingsStore;
     this.requestJson = requestJsonImpl;
-    this.requestText = requestTextImpl;
     this.now = now;
-    this.recordCache = new Map();
-    this.recordListCache = new Map();
+    this.fileCache = new Map();
   }
 
   getConfig(override = null) {
@@ -649,56 +641,88 @@ export class GitHubRecordsService {
     return config;
   }
 
-  cacheKey(config, id) {
-    return `${config.urls.fullName}:${config.branch}:${id}`;
+  fileCacheKey(config, filePath) {
+    return `${config.urls.fullName}:${config.branch}:${filePath}`;
   }
 
-  listCacheKey(config) {
-    return `${config.urls.fullName}:${config.branch}:${RECORD_DIRECTORY}`;
-  }
-
-  async getRecordById(config, id) {
-    const key = this.cacheKey(config, id);
-    if (this.recordCache.has(key)) {
-      return this.recordCache.get(key);
-    }
-    const path = recordPath(id);
-    const url = `${config.urls.contentsUrl}/${path
+  contentUrl(config, filePath) {
+    return `${config.urls.contentsUrl}/${filePath
       .split("/")
       .map(encodeURIComponent)
-      .join("/")}?ref=${encodeURIComponent(config.branch)}`;
+      .join("/")}`;
+  }
+
+  async getContentFile(config, filePath, options = {}) {
+    const key = this.fileCacheKey(config, filePath);
+    const cached = this.fileCache.get(key);
+    if (
+      !options.force &&
+      cached &&
+      Date.now() - cached.cachedAt < LIBRARY_CACHE_MS
+    ) {
+      return cached.file;
+    }
+    const url = `${this.contentUrl(config, filePath)}?ref=${encodeURIComponent(
+      config.branch,
+    )}`;
     try {
       const payload = await this.requestJson(url, {
         headers: githubHeaders(config.token),
         timeout: 20000,
       });
-      const parsed = parseContentResponse(payload, id);
-      this.recordCache.set(key, parsed);
-      return parsed;
+      const file = parseContentResponse(payload, filePath);
+      this.fileCache.set(key, { file, cachedAt: Date.now() });
+      return file;
     } catch (error) {
       if (isNotFound(error)) {
-        this.recordCache.delete(key);
-        return null;
+        const file = {
+          text: "",
+          sha: null,
+          htmlUrl: "",
+          path: filePath,
+          exists: false,
+        };
+        this.fileCache.set(key, { file, cachedAt: Date.now() });
+        return file;
       }
       throw error;
     }
   }
 
-  async listRecordFiles(config, options = {}) {
-    const key = this.listCacheKey(config);
-    const cached = this.recordListCache.get(key);
-    if (
-      !options.force &&
-      cached &&
-      Date.now() - cached.cachedAt < RECORD_LIST_CACHE_MS
-    ) {
-      return cached.files;
+  async getIndexRecords(config, options = {}) {
+    const indexFile = await this.getContentFile(
+      config,
+      ANIME_INDEX_JSONL_PATH,
+      options,
+    );
+    if (indexFile.exists) {
+      return parseJsonl(indexFile.text, ANIME_INDEX_JSONL_PATH);
     }
+    const library = await this.loadLibrary(config, options);
+    return buildAnimeIndex(library.records);
+  }
 
-    const url = `${config.urls.contentsUrl}/${RECORD_DIRECTORY
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}?ref=${encodeURIComponent(config.branch)}`;
+  async loadLibrary(config, options = {}) {
+    const [animeFile, indexFile] = await Promise.all([
+      this.getContentFile(config, ANIME_JSONL_PATH, options),
+      this.getContentFile(config, ANIME_INDEX_JSONL_PATH, options),
+    ]);
+    const records = parseJsonl(animeFile.text, ANIME_JSONL_PATH);
+    const index = indexFile.exists
+      ? parseJsonl(indexFile.text, ANIME_INDEX_JSONL_PATH)
+      : buildAnimeIndex(records);
+    return {
+      records,
+      index,
+      animeFile,
+      indexFile,
+    };
+  }
+
+  async listDirectoryFiles(config, directory, options = {}) {
+    const url = `${this.contentUrl(config, directory)}?ref=${encodeURIComponent(
+      config.branch,
+    )}`;
     let payload;
     try {
       payload = await this.requestJson(url, {
@@ -707,76 +731,43 @@ export class GitHubRecordsService {
       });
     } catch (error) {
       if (isNotFound(error)) {
-        this.recordListCache.set(key, {
-          files: [],
-          cachedAt: Date.now(),
-        });
         return [];
       }
       throw error;
     }
     if (!Array.isArray(payload)) {
-      throw new Error("GitHub 记录目录返回了无效内容");
+      throw new Error(`GitHub 目录 ${directory} 返回了无效内容`);
     }
-
-    const files = payload
+    return payload
       .filter(
         (entry) =>
           entry?.type === "file" &&
-          /\.json$/iu.test(String(entry?.name ?? "")),
+          (!options.extension ||
+            String(entry?.name ?? "").toLocaleLowerCase().endsWith(
+              options.extension.toLocaleLowerCase(),
+            )),
       )
       .map((entry) => ({
-        id: String(entry.name).replace(/\.json$/iu, ""),
         name: String(entry.name),
         path: cleanString(entry.path),
         sha: cleanString(entry.sha),
       }))
-      .filter((entry) => entry.id);
-    this.recordListCache.set(key, {
-      files,
-      cachedAt: Date.now(),
-    });
-    return files;
+      .filter((entry) => entry.name && entry.path);
   }
 
   async listRecords(config, options = {}) {
-    const files = await this.listRecordFiles(config, options);
-    const records = await mapWithConcurrency(
-      files,
-      RECORD_FETCH_CONCURRENCY,
-      async (file) => {
-        const parsed = await this.getRecordById(config, file.id);
-        return parsed?.record
-          ? {
-              id: cleanString(parsed.record.id) || file.id,
-              record: parsed.record,
-              path: parsed.path || file.path,
-              sha: parsed.sha || file.sha,
-            }
-          : null;
-      },
-    );
-    return records.filter(Boolean);
+    const library = await this.loadLibrary(config, options);
+    return library.records;
   }
 
-  async inspectDuplicates({
-    item,
-    selectedResult = null,
-    aiResult = null,
-    excludeIds = [],
-  }) {
-    const config = this.assertConfigured();
-    if (!item) {
-      return { duplicates: [], scannedCount: 0 };
-    }
+  inspectDuplicateRecords(records, { item, selectedResult, aiResult, excludeIds }) {
     const excluded = new Set([
       ...recordIdsForItem(item, selectedResult),
       ...excludeIds.map((id) => cleanString(id)).filter(Boolean),
     ]);
-    const records = await this.listRecords(config);
-    const duplicates = records
-      .filter(({ id }) => !excluded.has(id))
-      .map(({ record }) =>
+    const duplicates = (records ?? [])
+      .filter(({ id }) => !excluded.has(cleanString(id)))
+      .map((record) =>
         compareRecordDuplicate({
           item,
           selectedResult,
@@ -789,20 +780,45 @@ export class GitHubRecordsService {
       .slice(0, 8);
     return {
       duplicates,
-      scannedCount: records.length,
+      scannedCount: records?.length ?? 0,
     };
+  }
+
+  async inspectDuplicates({
+    item,
+    selectedResult = null,
+    aiResult = null,
+    excludeIds = [],
+  }) {
+    const config = this.assertConfigured();
+    if (!item) {
+      return { duplicates: [], scannedCount: 0 };
+    }
+    const records = await this.getIndexRecords(config);
+    return this.inspectDuplicateRecords(records, {
+      item,
+      selectedResult,
+      aiResult,
+      excludeIds,
+    });
   }
 
   async findRecord(item, selectedResult = null) {
     const config = this.assertConfigured();
     const ids = recordIdsForItem(item, selectedResult);
-    for (const id of ids) {
-      const record = await this.getRecordById(config, id);
-      if (record) {
-        return record;
-      }
+    const library = await this.loadLibrary(config);
+    const idSet = new Set(ids);
+    const record = library.records.find((entry) => idSet.has(cleanString(entry.id)));
+    if (!record) {
+      return null;
     }
-    return null;
+    return {
+      id: cleanString(record.id),
+      record,
+      sha: library.animeFile.sha,
+      htmlUrl: library.animeFile.htmlUrl,
+      path: library.animeFile.path,
+    };
   }
 
   async loadForItem(item, selectedResult = null) {
@@ -831,102 +847,116 @@ export class GitHubRecordsService {
   }) {
     const config = this.assertConfigured();
     const ids = recordIdsForItem(item, selectedResult);
-    let existing = null;
-    let existingId = null;
-    for (const id of ids) {
-      existing = await this.getRecordById(config, id);
-      if (existing) {
-        existingId = id;
-        break;
-      }
-    }
+    const requestedAt = this.now();
+    let backupWritten = false;
 
-    if (!allowDuplicates) {
-      const inspection = await this.inspectDuplicates({
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const library = await this.loadLibrary(config, {
+        force: attempt > 0,
+      });
+      const idSet = new Set(ids);
+      const existing =
+        library.records.find((record) => idSet.has(cleanString(record.id))) ??
+        null;
+      const existingId = cleanString(existing?.id) || null;
+
+      if (!allowDuplicates) {
+        const inspection = this.inspectDuplicateRecords(library.index, {
+          item,
+          selectedResult,
+          aiResult,
+          excludeIds: ids,
+        });
+        if (inspection.duplicates.length) {
+          throw new DuplicateRecordError(
+            inspection.duplicates,
+            inspection.scannedCount,
+          );
+        }
+      }
+
+      const id = existingId ?? ids[0];
+      const merged = mergeAnimeRecord(existing, {
         item,
         selectedResult,
         aiResult,
-        excludeIds: ids,
+        id,
+        rating,
+        review,
+        now: requestedAt,
       });
-      if (inspection.duplicates.length) {
-        throw new DuplicateRecordError(
-          inspection.duplicates,
-          inspection.scannedCount,
-        );
-      }
-    }
+      const nextRecords = upsertRecord(library.records, merged);
+      const nextIndex = buildAnimeIndex(nextRecords);
+      const animeText = serializeJsonl(nextRecords);
+      const indexText = serializeJsonl(nextIndex);
 
-    const id = existingId ?? ids[0];
-    let merged = mergeAnimeRecord(existing?.record, {
-      item,
-      selectedResult,
-      aiResult,
-      id,
-      rating,
-      review,
-      now: this.now(),
-    });
-    let sha = existing?.sha ?? null;
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const payload = await this.putRecord(config, id, merged, sha);
-        const parsed = parseContentResponse(payload, id);
-        if (!parsed.record?.id) {
-          parsed.record = merged;
+        if (!backupWritten && (library.animeFile.exists || library.indexFile.exists)) {
+          await this.writeBackupSnapshot(config, library, requestedAt);
+          backupWritten = true;
         }
-        this.recordCache.set(this.cacheKey(config, id), parsed);
-        this.recordListCache.delete(this.listCacheKey(config));
-        return parsed;
+        const animeWrite = await this.putContentFile(
+          config,
+          ANIME_JSONL_PATH,
+          animeText,
+          library.animeFile.sha,
+          `chore(data): sync ${id}`,
+        );
+        const indexWrite = await this.putContentFile(
+          config,
+          ANIME_INDEX_JSONL_PATH,
+          indexText,
+          library.indexFile.sha,
+          `chore(data): refresh anime index for ${id}`,
+        );
+        this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
+        this.cacheWrittenFile(
+          config,
+          ANIME_INDEX_JSONL_PATH,
+          indexText,
+          indexWrite,
+        );
+        return {
+          id,
+          record: merged,
+          sha: animeWrite.sha,
+          htmlUrl: animeWrite.htmlUrl,
+          path: ANIME_JSONL_PATH,
+        };
       } catch (error) {
         if (attempt > 0 || !isConflict(error)) {
           throw error;
         }
-        this.recordCache.delete(this.cacheKey(config, id));
-        existing = await this.getRecordById(config, id);
-        if (!existing) {
-          sha = null;
-          merged = mergeAnimeRecord(null, {
-            item,
-            selectedResult,
-            aiResult,
-            id,
-            rating,
-            review,
-            now: this.now(),
-          });
-          continue;
-        }
-        sha = existing.sha;
-        merged = mergeAnimeRecord(existing.record, {
-          item,
-          selectedResult,
-          aiResult,
-          id,
-          rating,
-          review,
-          now: this.now(),
-        });
+        this.fileCache.delete(this.fileCacheKey(config, ANIME_JSONL_PATH));
+        this.fileCache.delete(this.fileCacheKey(config, ANIME_INDEX_JSONL_PATH));
       }
     }
     throw new Error("GitHub 记录写入冲突，请稍后重试");
   }
 
-  async putRecord(config, id, record, sha) {
-    const path = recordPath(id);
+  cacheWrittenFile(config, filePath, text, payload) {
+    const parsed = parseContentResponse(payload, filePath);
+    this.fileCache.set(this.fileCacheKey(config, filePath), {
+      file: {
+        ...parsed,
+        text,
+        exists: true,
+      },
+      cachedAt: Date.now(),
+    });
+  }
+
+  async putContentFile(config, filePath, text, sha, message) {
     const body = {
-      message: `chore(data): update ${id}`,
-      content: encodeBase64Utf8(`${JSON.stringify(record, null, 2)}\n`),
+      message,
+      content: encodeBase64Utf8(text),
       branch: config.branch,
     };
     if (sha) {
       body.sha = sha;
     }
     return this.requestJson(
-      `${config.urls.contentsUrl}/${path
-        .split("/")
-        .map(encodeURIComponent)
-        .join("/")}`,
+      this.contentUrl(config, filePath),
       {
         method: "PUT",
         headers: githubHeaders(config.token, true),
@@ -934,6 +964,58 @@ export class GitHubRecordsService {
         timeout: 30000,
       },
     );
+  }
+
+  async deleteContentFile(config, filePath, sha, message) {
+    return this.requestJson(this.contentUrl(config, filePath), {
+      method: "DELETE",
+      headers: githubHeaders(config.token, true),
+      body: JSON.stringify({
+        message,
+        sha,
+        branch: config.branch,
+      }),
+      timeout: 30000,
+    });
+  }
+
+  async writeBackupSnapshot(config, library, createdAt) {
+    const animeText = library.animeFile.text ?? "";
+    const indexText = library.indexFile.text ?? "";
+    if (!animeText && !indexText) {
+      return;
+    }
+    const safeTime = cleanString(createdAt)
+      .replace(/[:.]/gu, "-")
+      .replace(/[^0-9A-Za-z_-]/gu, "");
+    const suffix = fnv1a(`${animeText}\n${indexText}`);
+    const backupPath = `${BACKUP_DIRECTORY}/library-${safeTime}-${suffix}.json`;
+    const snapshot = createBackupSnapshot({
+      animeText,
+      indexText,
+      createdAt,
+    });
+    await this.putContentFile(
+      config,
+      backupPath,
+      `${JSON.stringify(snapshot, null, 2)}\n`,
+      null,
+      `chore(backup): snapshot anime library ${safeTime}`,
+    );
+
+    const backups = (
+      await this.listDirectoryFiles(config, BACKUP_DIRECTORY, {
+        extension: ".json",
+      })
+    ).sort((left, right) => right.name.localeCompare(left.name, "en"));
+    for (const stale of backups.slice(MAX_BACKUP_SNAPSHOTS)) {
+      await this.deleteContentFile(
+        config,
+        stale.path,
+        stale.sha,
+        `chore(backup): prune ${stale.name}`,
+      );
+    }
   }
 
   async checkConnection(override = null) {

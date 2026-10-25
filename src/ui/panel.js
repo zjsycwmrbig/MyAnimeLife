@@ -1075,7 +1075,7 @@ export class ScoutPanel {
             element("h4", { text: "第一次使用" }),
             element("ol", {}, [
               element("li", {
-                text: "使用模板创建个人仓库。新仓库不继承上游提交历史，data/anime 保持为空。",
+                text: "使用模板创建个人仓库。新仓库不继承上游提交历史，data/anime.jsonl 与 data/anime-index.jsonl 保持为空。",
               }),
               element("li", {
                 text: "在仓库 Settings > Pages 中把 Source 设为 GitHub Actions。",
@@ -1140,7 +1140,7 @@ export class ScoutPanel {
           this.githubConnectionStatus,
           element("p", {
             className: "scout-note",
-            text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。",
+            text: "推荐用模板新建仓库；Fork 会连同所有公开分支和旧提交一起复制，无法只排除 data/anime.jsonl 与 data/anime-index.jsonl。若坚持使用 Fork，可让 main 保持模板空库，把记录放在 records 分支，但该分支仍不是私有的。Token 只保存在本机，请勿把模板仓库地址当作自己的数据仓库。",
           }),
         ]),
         element("footer", { className: "scout-footer" }, [
@@ -1840,9 +1840,7 @@ export class ScoutPanel {
           .split("/")
           .map(encodeURIComponent)
           .join("/");
-        href = `${repository.webUrl}/blob/${branch}/data/anime/${encodeURIComponent(
-          remoteRecord.id,
-        )}.json`;
+        href = `${repository.webUrl}/blob/${branch}/data/anime.jsonl`;
       } catch {
         href = "";
       }

@@ -286,6 +286,10 @@ test("loads and saves a rating through the configured GitHub repository", async 
 
   await host.getByRole("radio", { name: "9 分" }).click();
   await review.fill("更新后的 GitHub 评价。");
+  await expect(host.getByRole("radio", { name: "9 分" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await host.getByRole("button", { name: "保存到 GitHub" }).click();
 
   await expect(host.locator(".scout-record .scout-footer-status")).toContainText(
@@ -293,8 +297,8 @@ test("loads and saves a rating through the configured GitHub repository", async 
   );
   await expect(host.getByRole("link", { name: "查看 GitHub 记录" })).toBeVisible();
 
-  const putRequest = await page.evaluate(() =>
-    window.__previewRequests.find(
+  const putRequests = await page.evaluate(() =>
+    window.__previewRequests.filter(
       (request) =>
         request.method === "PUT" &&
         request.url.startsWith(
@@ -302,18 +306,48 @@ test("loads and saves a rating through the configured GitHub repository", async 
         ),
     ),
   );
-  expect(putRequest?.headers.Authorization).toBe("Bearer preview-token");
-  const putBody = JSON.parse(putRequest.data);
-  expect(putBody.sha).toBe("sha-preview-1");
+  const animePut = putRequests.find((request) =>
+    request.url.endsWith("/data/anime.jsonl"),
+  );
+  const indexPut = putRequests.find((request) =>
+    request.url.endsWith("/data/anime-index.jsonl"),
+  );
+  const backupPut = putRequests.find((request) =>
+    request.url.includes("/data/backups/library-"),
+  );
+  expect(animePut?.headers.Authorization).toBe("Bearer preview-token");
+  expect(indexPut?.headers.Authorization).toBe("Bearer preview-token");
+  expect(backupPut?.headers.Authorization).toBe("Bearer preview-token");
+
+  const animeBody = JSON.parse(animePut.data);
+  const indexBody = JSON.parse(indexPut.data);
+  expect(animeBody.sha).toBe("sha-preview-1");
+  expect(indexBody.sha).toBe("sha-preview-index-1");
   const savedRecord = await page.evaluate((content) => {
     const binary = atob(content.replace(/\s+/gu, ""));
     const bytes = Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
-    return JSON.parse(new TextDecoder().decode(bytes));
-  }, putBody.content);
+    return JSON.parse(new TextDecoder().decode(bytes).trim());
+  }, animeBody.content);
+  const savedIndex = await page.evaluate((content) => {
+    const binary = atob(content.replace(/\s+/gu, ""));
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    return JSON.parse(new TextDecoder().decode(bytes).trim());
+  }, indexBody.content);
   expect(savedRecord.rating).toBe(9);
   expect(savedRecord.review).toBe("更新后的 GitHub 评价。");
+  expect(savedIndex.id).toBe(savedRecord.id);
+  expect(savedIndex.rating).toBe(9);
+  expect(savedIndex.reviewExcerpt).toBe("更新后的 GitHub 评价。");
+  await expect(
+    host.getByRole("link", { name: "查看 GitHub 记录" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/preview-user/anime-records/blob/main/data/anime.jsonl",
+  );
 });
 
 test("keeps the local draft when GitHub writing fails", async ({ page }) => {
