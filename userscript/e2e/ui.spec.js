@@ -298,6 +298,33 @@ test("restores unsynced ratings and reviews until they are cleared", async ({
   await expect(host.locator(".scout-review")).toHaveValue("");
 });
 
+test("keeps plugin typing from triggering page keyboard shortcuts", async ({
+  page,
+}) => {
+  await page.goto("/demo/bangumi/media/md292073015.html", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+  await page.evaluate(() => {
+    window.__pageShortcutKeys = [];
+    for (const eventName of ["keydown", "keypress", "keyup"]) {
+      document.addEventListener(eventName, (event) => {
+        window.__pageShortcutKeys.push(`${eventName}:${event.key}`);
+      });
+    }
+  });
+
+  const host = page.locator("#bangumi-scout-host");
+  await host.locator(".scout-launcher").click();
+  await recognizeCurrentPage(host);
+  const review = host.locator(".scout-review");
+  await review.click();
+  await page.keyboard.type("abc 123");
+
+  await expect(review).toHaveValue(/abc 123/u);
+  expect(await page.evaluate(() => window.__pageShortcutKeys)).toEqual([]);
+});
+
 test("loads every Bilibili follow page and batch imports selected anime once", async ({
   page,
 }) => {

@@ -6105,6 +6105,15 @@ ${indexText}`);
       ]);
       this.shadow.append(this.root);
       document.documentElement.append(this.host);
+      for (const eventName of ["keydown", "keypress", "keyup"]) {
+        this.host.addEventListener(
+          eventName,
+          (event) => {
+            event.stopPropagation();
+          },
+          true
+        );
+      }
       this.updatePagePresentation();
       this.shadow.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
