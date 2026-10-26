@@ -1518,6 +1518,24 @@ a:focus-visible {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.share-dialog.is-record {
+  width: min(660px, calc(100vw - 32px));
+  border-color: transparent;
+}
+
+.share-dialog.is-record .share-dialog-preview {
+  min-height: 0;
+  padding: 12px;
+}
+
+.share-dialog.is-record .share-dialog-image {
+  max-height: calc(100dvh - 220px);
+}
+
+.share-dialog.is-record .share-dialog-footer {
+  padding: 10px 12px;
+}
+
 .share-dialog-options {
   display: grid;
   align-content: start;
@@ -1788,6 +1806,10 @@ a:focus-visible {
 
   .share-dialog-image {
     max-height: 52dvh;
+  }
+
+  .share-dialog.is-record .share-dialog-image {
+    max-height: 64dvh;
   }
 
   .share-dialog-footer {

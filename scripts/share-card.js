@@ -234,9 +234,39 @@
     return request;
   }
 
+  function fetchBangumiCover(subjectId) {
+    const id = clean(subjectId);
+    if (!id) {
+      return Promise.resolve(null);
+    }
+    const cacheKey = `bangumi-cover:${id}`;
+    if (!shareCache.has(cacheKey)) {
+      shareCache.set(
+        cacheKey,
+        fetch(`https://api.bgm.tv/v0/subjects/${encodeURIComponent(id)}`, {
+          headers: { Accept: "application/json" },
+          credentials: "omit",
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((payload) =>
+            normalizeUrl(
+              payload?.images?.large ??
+                payload?.images?.common ??
+                payload?.images?.medium,
+            ),
+          )
+          .catch(() => null),
+      );
+    }
+    return shareCache.get(cacheKey);
+  }
+
   async function coverBlock(record, x, y, width, height, palette, id) {
     const title = record.title || "未命名番剧";
-    const dataUrl = await imageDataUrl(record.coverUrl);
+    let dataUrl = await imageDataUrl(record.coverUrl);
+    if (!dataUrl && record.bangumiId) {
+      dataUrl = await imageDataUrl(await fetchBangumiCover(record.bangumiId));
+    }
     if (!dataUrl) {
       return {
         markup: fallbackCover(title, x, y, width, height, palette),
@@ -375,7 +405,6 @@
   function spotlightCard(record, palette, cover) {
     const titleLines = wrapText(record.title || "未命名番剧", 11, 4);
     const review = reviewLines(record, 20, 8);
-    const rating = ratingParts(record);
     const body = `<rect width="1200" height="1500" fill="#18211e" />
       ${cover.markup}
       <rect x="0" y="0" width="1200" height="1500" fill="#101714" opacity=".7" />
@@ -389,9 +418,7 @@
         "font-weight": 700,
       })}
       <text x="72" y="${190 + Math.max(1, titleLines.length) * 64 + 42}" fill="${palette.accent}" font-family="${FONT_STACK}" font-size="20" font-weight="700">${escapeXml(metaText(record))}</text>
-      <rect x="72" y="548" width="500" height="154" rx="18" fill="${palette.accent}" />
-      <text x="100" y="596" fill="#fff" font-family="${FONT_STACK}" font-size="16" font-weight="700">${escapeXml(rating.caption)}</text>
-      <text x="100" y="666" fill="#fff" font-family="${DISPLAY_FONT}" font-size="55" font-weight="700">${escapeXml(rating.value)}${rating.caption === "未评分" ? "" : " / 10"}</text>
+      ${ratingVisual(record, 72, 548, 500, 154, palette, { dark: true })}
       <text x="72" y="782" fill="#a8b5ae" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">SHORT REVIEW</text>
       <line x1="72" y1="812" x2="572" y2="812" stroke="#fff" opacity=".18" />
       ${textBlock(review, 72, 870, 38, {
@@ -437,8 +464,8 @@
         record,
         64,
         96,
-        1072,
-        800,
+        520,
+        1120,
         palette,
         "compact-cover-clip",
       );
@@ -822,10 +849,20 @@
   }
 
   function recordFromElement(element) {
+    const coverFrame = element.querySelector(
+      ".record-cover[data-bangumi-id], .detail-cover[data-bangumi-id]",
+    );
+    const coverImage = coverFrame?.querySelector("img");
     return {
       id: element.dataset.shareId,
       title: element.dataset.shareTitle,
-      coverUrl: element.dataset.shareCover,
+      coverUrl:
+        element.dataset.shareCover ||
+        coverImage?.currentSrc ||
+        coverImage?.src ||
+        "",
+      bangumiId:
+        element.dataset.shareBangumiId || coverFrame?.dataset.bangumiId || "",
       ratingDisplay: element.dataset.shareRating,
       review: element.dataset.shareReview,
       seasonLabel: element.dataset.shareSeason,
