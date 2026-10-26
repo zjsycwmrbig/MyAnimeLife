@@ -206,6 +206,57 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (url.pathname === "/api/library/batch" && request.method === "POST") {
+      assertLocalRequest(request);
+      const body = await readBody(request);
+      const edits = Array.isArray(body.edits) ? body.edits : [];
+      const selections = Array.isArray(body.additions) ? body.additions : [];
+      if (selections.length > 100) {
+        throw new Error("单次最多添加 100 部番剧");
+      }
+      const uniqueIds = [
+        ...new Set(
+          selections
+            .map((selection) => String(selection?.id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      const catalogItems = uniqueIds.length
+        ? await catalogStore.getItems(uniqueIds)
+        : [];
+      const byId = new Map(catalogItems.map((item) => [item.id, item]));
+      const missing = selections
+        .filter((selection) => !byId.has(String(selection?.id ?? "").trim()))
+        .map((selection) => ({
+          catalogId: String(selection?.id ?? "").trim() || null,
+          title: String(selection?.title ?? "未知候选").trim(),
+          reason: "catalog-not-found",
+          message: "全量索引中已找不到该候选",
+        }));
+      const additions = selections
+        .map((selection) => {
+          const item = byId.get(String(selection?.id ?? "").trim());
+          return item ? { item, ...selection } : null;
+        })
+        .filter(Boolean);
+      const result = await store.batchUpdate(edits, additions);
+      let sync = null;
+      let syncError = null;
+      if (body.sync && result.changed) {
+        try {
+          sync = await store.sync(body.message);
+        } catch (error) {
+          syncError = error.message;
+        }
+      }
+      sendJson(response, 200, {
+        ...result,
+        skipped: [...missing, ...(result.skipped ?? [])],
+        sync,
+        syncError,
+      });
+      return;
+    }
     if (
       url.pathname.startsWith("/api/catalog/") &&
       request.method === "POST"

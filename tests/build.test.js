@@ -288,6 +288,7 @@ test("ships three independently buildable templates", async () => {
     for (const file of [
       "admin/index.html",
       "admin/app.js",
+      "admin/draft-store.js",
       "admin/runtime.js",
       "admin/github-client.js",
       "scripts/library-data.mjs",
@@ -298,6 +299,12 @@ test("ships three independently buildable templates", async () => {
     ]) {
       await fs.access(path.join(fixtureRoot, "dist", file));
     }
+    const adminHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "admin", "index.html"),
+      "utf8",
+    );
+    assert.match(adminHtml, /id="pendingPanel"/u);
+    assert.match(adminHtml, /加入待提交/u);
 
     const modules = [];
     for (const directory of ["admin", "scripts"]) {

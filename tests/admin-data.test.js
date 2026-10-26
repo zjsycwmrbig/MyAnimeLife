@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   appendCatalogRecords,
+  applyLibraryChanges,
   buildLibraryData,
   removeLibraryRecords,
   updateLibraryRecord,
@@ -109,6 +110,35 @@ test("shared batch append skips duplicate catalog and external identities", () =
   assert.deepEqual(
     result.skipped.map((entry) => entry.reason),
     ["batch-duplicate", "existing-external-id"],
+  );
+});
+
+test("shared batch changes apply edits before additions and rebuild one index", () => {
+  const result = applyLibraryChanges(
+    [baseRecord],
+    {
+      edits: [
+        {
+          id: baseRecord.id,
+          changes: { rating: 9.4, review: "批量修改后的评价" },
+        },
+      ],
+      additions: [{ item: catalogItem, rating: 8.7, review: "批量新增" }],
+    },
+    "2026-10-25T14:00:00.000Z",
+  );
+
+  assert.equal(result.updatedRecords.length, 1);
+  assert.equal(result.addedRecords.length, 1);
+  assert.equal(result.records.length, 2);
+  assert.equal(result.index.length, 2);
+  assert.equal(
+    result.index.find((entry) => entry.id === baseRecord.id)?.rating,
+    9.4,
+  );
+  assert.equal(
+    result.index.find((entry) => entry.id === "bgm-400602")?.reviewExcerpt,
+    "批量新增",
   );
 });
 

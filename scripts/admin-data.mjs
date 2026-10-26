@@ -209,6 +209,37 @@ export function appendCatalogRecords(records, entries, now) {
   };
 }
 
+export function applyLibraryChanges(records, changes, now) {
+  let nextRecords = records;
+  const updatedRecords = [];
+  const edits = Array.isArray(changes?.edits) ? changes.edits : [];
+  for (const edit of edits) {
+    const result = updateLibraryRecord(
+      nextRecords,
+      cleanString(edit?.id),
+      edit?.changes ?? {},
+      now,
+    );
+    nextRecords = result.records;
+    updatedRecords.push(result.record);
+  }
+
+  const additions = Array.isArray(changes?.additions)
+    ? changes.additions
+    : [];
+  const appended = additions.length
+    ? appendCatalogRecords(nextRecords, additions, now)
+    : {
+        ...buildLibraryData(nextRecords),
+        addedRecords: [],
+        skipped: [],
+      };
+  return {
+    ...appended,
+    updatedRecords,
+  };
+}
+
 export function removeLibraryRecords(records, recordIds) {
   const ids = new Set(
     (recordIds ?? []).map((id) => cleanString(id)).filter(Boolean),

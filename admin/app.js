@@ -8,6 +8,13 @@ import {
   renderPagination,
 } from "./pagination.js";
 import { createRatingControl } from "./rating-control.js";
+import {
+  clearPendingDrafts,
+  commitPendingDrafts,
+  pendingCount,
+  readPendingDrafts,
+  writePendingDrafts,
+} from "./draft-store.js";
 
 const state = {
   records: [],
@@ -20,6 +27,7 @@ const state = {
   pageSize: 30,
   layout: "list",
   dirty: false,
+  pendingDrafts: { edits: [], additions: [] },
   backupLimit: 5,
   git: null,
   busy: false,
@@ -51,6 +59,10 @@ const elements = {
   seasonLabel: document.querySelector("#seasonLabel"),
   backupLabel: document.querySelector("#backupLabel"),
   saveButton: document.querySelector("#saveButton"),
+  pendingPanel: document.querySelector("#pendingPanel"),
+  pendingList: document.querySelector("#pendingList"),
+  pendingCount: document.querySelector("#pendingCount"),
+  pendingClear: document.querySelector("#pendingClear"),
   libraryPagination: document.querySelector("#libraryPagination"),
   libraryPageSummary: document.querySelector("#libraryPageSummary"),
   libraryPageButtons: document.querySelector("#libraryPageButtons"),
@@ -64,9 +76,38 @@ const elements = {
 let toastTimer = null;
 const ratingControl = createRatingControl({
   disabled: !getRuntime().writable,
-  onChange: () => setDirty(true),
+  onChange: () => scheduleCurrentDraft(),
 });
 elements.ratingControlMount.append(ratingControl.element);
+
+function refreshPendingDrafts() {
+  state.pendingDrafts = readPendingDrafts();
+  return state.pendingDrafts;
+}
+
+function pendingEdit(recordId) {
+  return (
+    state.pendingDrafts.edits.find((entry) => entry.id === recordId) ?? null
+  );
+}
+
+function hasPendingEdit(recordId) {
+  return Boolean(pendingEdit(recordId));
+}
+
+function scheduleCurrentDraft() {
+  if (queueCurrentRecordDraft()) {
+    updatePendingSummary();
+    setDirty(true);
+  }
+}
+
+function flushCurrentDraft() {
+  if (queueCurrentRecordDraft()) {
+    updatePendingSummary();
+    elements.pendingList.replaceChildren(...pendingRows());
+  }
+}
 
 function showToast(message, options = {}) {
   clearTimeout(toastTimer);
@@ -166,6 +207,144 @@ function setBusy(busy) {
   elements.saveButton.disabled = busy || !writable;
   elements.deleteButton.disabled =
     busy || !writable || state.selectedIds.size === 0;
+  renderPendingActions();
+}
+
+function renderPendingActions() {
+  const count = pendingCount(state.pendingDrafts);
+  const currentPending = state.selectedId && hasPendingEdit(state.selectedId);
+  elements.syncButton.textContent = count
+    ? `保存并推送 (${count})`
+    : "同步远端";
+  elements.saveButton.textContent = currentPending
+    ? "加入待提交 *"
+    : "加入待提交";
+}
+
+function pendingCover(entry) {
+  const cover = document.createElement("span");
+  cover.className = "catalog-row-cover pending-cover";
+  const fallback = document.createElement("span");
+  fallback.className = "catalog-row-fallback";
+  fallback.textContent = [...(entry.title || "A")][0] ?? "A";
+  cover.append(fallback);
+  if (entry.coverUrl) {
+    const image = document.createElement("img");
+    image.src = entry.coverUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => image.remove(), { once: true });
+    cover.append(image);
+  }
+  return cover;
+}
+
+function pendingRow(entry, kind) {
+  const isEdit = kind === "edit";
+  const item = isEdit ? null : entry.item;
+  const changes = entry.changes;
+  const title = changes.title || (isEdit ? entry.title : item.displayTitle);
+  const row = document.createElement("article");
+  row.className = "pending-row";
+  row.append(pendingCover({
+    title,
+    coverUrl: isEdit ? entry.coverUrl : item.coverUrl,
+  }));
+  const copy = document.createElement("div");
+  copy.className = "pending-row-copy";
+  const heading = document.createElement("div");
+  heading.className = "pending-row-heading";
+  const badge = document.createElement("span");
+  badge.className = `pending-kind ${isEdit ? "is-edit" : "is-add"}`;
+  badge.textContent = isEdit ? "修改" : "新增";
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  heading.append(badge, strong);
+  const meta = document.createElement("span");
+  meta.className = "pending-row-meta";
+  meta.textContent = [
+    changes.rating === null ? "未评分" : `${changes.rating} 分`,
+    excerpt(changes.review) || "未填写短评",
+  ].join(" · ");
+  copy.append(heading, meta);
+  row.append(copy);
+
+  const actions = document.createElement("div");
+  actions.className = "pending-row-actions";
+  if (isEdit) {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "text-button";
+    edit.textContent = "继续编辑";
+    edit.addEventListener("click", () => {
+      window.dispatchEvent(
+        new CustomEvent("anime-pending:open", {
+          detail: { recordId: entry.id },
+        }),
+      );
+    });
+    actions.append(edit);
+  }
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "text-button pending-remove";
+  remove.textContent = "移除";
+  remove.addEventListener("click", () => {
+    removePendingEntry(kind, entry);
+  });
+  actions.append(remove);
+  row.append(actions);
+  return row;
+}
+
+function pendingRows() {
+  return [
+    ...state.pendingDrafts.edits.map((entry) => pendingRow(entry, "edit")),
+    ...state.pendingDrafts.additions.map((entry) => pendingRow(entry, "add")),
+  ];
+}
+
+function renderPendingListOnly() {
+  updatePendingSummary();
+  elements.pendingList.replaceChildren(...pendingRows());
+}
+
+function updatePendingSummary() {
+  const count = pendingCount(state.pendingDrafts);
+  elements.pendingPanel.hidden = count === 0;
+  elements.pendingCount.textContent = String(count);
+  elements.pendingClear.disabled = state.busy || count === 0;
+  elements.editorEmpty.hidden = Boolean(currentRecord()) || count > 0;
+  renderPendingActions();
+}
+
+function renderPendingPanel() {
+  const pending = refreshPendingDrafts();
+  updatePendingSummary();
+  elements.pendingList.replaceChildren(...pendingRows());
+}
+
+function removePendingEntry(kind, entry) {
+  if (state.busy) {
+    return;
+  }
+  const pending = refreshPendingDrafts();
+  if (kind === "edit") {
+    pending.edits = pending.edits.filter((item) => item.id !== entry.id);
+  } else {
+    pending.additions = pending.additions.filter(
+      (item) => item.item.id !== entry.item.id,
+    );
+  }
+  state.pendingDrafts = writePendingDrafts(pending, { source: "editor" });
+  if (kind === "edit" && state.selectedId === entry.id) {
+    renderEditor();
+  }
+  renderPendingPanel();
+  renderPendingActions();
+  showToast("已从待提交列表移除");
 }
 
 function renderGitStatus() {
@@ -416,26 +595,94 @@ function renderRows() {
 
 function setDirty(dirty) {
   state.dirty = dirty;
-  elements.saveButton.textContent = dirty ? "保存修改 *" : "保存修改";
+  renderPendingActions();
+}
+
+function effectiveRecord(record) {
+  const pending = pendingEdit(record.id);
+  return pending ? { ...record, ...pending.changes } : record;
+}
+
+function currentEditorChanges() {
+  return {
+    title: elements.titleInput.value,
+    rating: ratingControl.getValue(),
+    review: elements.reviewInput.value,
+    note: elements.noteInput.value,
+  };
+}
+
+function sameRecordChanges(record, changes) {
+  return (
+    String(changes.title ?? "") === String(record.title ?? "") &&
+    (changes.rating ?? null) === (record.rating ?? null) &&
+    String(changes.review ?? "") === String(record.review ?? "") &&
+    String(changes.note ?? "") === String(record.note ?? "")
+  );
+}
+
+function queueCurrentRecordDraft() {
+  const record = currentRecord();
+  if (!record || !getRuntime().writable) {
+    return false;
+  }
+  const pending = refreshPendingDrafts();
+  const changes = currentEditorChanges();
+  const existing = pending.edits.find((entry) => entry.id === record.id);
+  if (sameRecordChanges(record, changes)) {
+    pending.edits = pending.edits.filter((entry) => entry.id !== record.id);
+  } else {
+    const entry = {
+      id: record.id,
+      title: record.title,
+      coverUrl: record.coverUrl ?? null,
+      season: record.season ?? null,
+      changes,
+      savedAt: new Date().toISOString(),
+    };
+    const position = pending.edits.findIndex((item) => item.id === record.id);
+    if (position >= 0) {
+      pending.edits[position] = entry;
+    } else {
+      pending.edits.push(entry);
+    }
+  }
+  const updated = pending.edits.find((entry) => entry.id === record.id);
+  if (
+    (!existing && !updated) ||
+    (existing &&
+      updated &&
+      JSON.stringify(existing.changes) === JSON.stringify(updated.changes))
+  ) {
+    return false;
+  }
+  state.pendingDrafts = writePendingDrafts(pending, { source: "editor" });
+  return true;
 }
 
 function renderEditor() {
   const record = currentRecord();
   const writable = getRuntime().writable;
-  elements.editorEmpty.hidden = Boolean(record);
+  elements.editorEmpty.hidden = Boolean(record) || pendingCount() > 0;
   elements.editorForm.hidden = !record;
   if (!record) {
     setDirty(false);
     return;
   }
-  elements.editorTitle.textContent = record.title;
-  elements.editorBadge.textContent = record.deletedAt ? "已删除" : "已收录";
+  const displayed = effectiveRecord(record);
+  const pending = hasPendingEdit(record.id);
+  elements.editorTitle.textContent = displayed.title;
+  elements.editorBadge.textContent = pending
+    ? "待保存"
+    : record.deletedAt
+      ? "已删除"
+      : "已收录";
   elements.editorBadge.classList.toggle("is-deleted", Boolean(record.deletedAt));
-  elements.titleInput.value = record.title;
-  ratingControl.setValue(record.rating);
+  elements.titleInput.value = displayed.title;
+  ratingControl.setValue(displayed.rating);
   elements.recordId.textContent = record.id;
-  elements.reviewInput.value = record.review ?? "";
-  elements.noteInput.value = record.note ?? "";
+  elements.reviewInput.value = displayed.review ?? "";
+  elements.noteInput.value = displayed.note ?? "";
   elements.seasonLabel.textContent = animeDateText(record) || "作品年代未标注";
   elements.backupLabel.textContent = `备份上限 ${state.backupLimit} 个`;
   for (const input of [
@@ -447,11 +694,12 @@ function renderEditor() {
   }
   ratingControl.setDisabled(state.busy || !writable);
   elements.saveButton.disabled = state.busy || !writable;
-  setDirty(false);
+  setDirty(pending);
 }
 
 function confirmDiscard() {
-  return !state.dirty || window.confirm("当前修改尚未保存，确定放弃吗？");
+  flushCurrentDraft();
+  return true;
 }
 
 function selectRecordById(recordId) {
@@ -504,46 +752,12 @@ async function loadLibrary(options = {}) {
 }
 
 async function saveCurrentRecord() {
-  const record = currentRecord();
-  if (!record || state.busy) {
+  if (!currentRecord() || state.busy) {
     return false;
   }
-  if (!getRuntime().writable) {
-    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
-    return false;
-  }
-  setBusy(true);
-  try {
-    const payload = await api(`/api/records/${encodeURIComponent(record.id)}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        title: elements.titleInput.value,
-        rating: ratingControl.getValue(),
-        review: elements.reviewInput.value,
-        note: elements.noteInput.value,
-      }),
-    });
-    state.records = payload.records;
-    state.index = payload.index;
-    state.git = await api("/api/status");
-    renderGitStatus();
-    renderRows();
-    renderEditor();
-    const online = getRuntime().mode === "github";
-    showToast(
-      online
-        ? `已提交到 GitHub${payload.commit ? ` (${payload.commit.slice(0, 7)})` : ""}`
-        : payload.backupPath
-          ? "已保存，并创建备份快照"
-          : "已保存",
-    );
-    return true;
-  } catch (error) {
-    showToast(error.message, { error: true });
-    return false;
-  } finally {
-    setBusy(false);
-  }
+  flushCurrentDraft();
+  showToast("修改已加入待提交列表；点击“保存并推送”统一提交");
+  return true;
 }
 
 async function deleteSelected() {
@@ -570,6 +784,9 @@ async function deleteSelected() {
     state.selectedIds.clear();
     state.records = payload.records;
     state.index = payload.index;
+    const pending = refreshPendingDrafts();
+    pending.edits = pending.edits.filter((entry) => !ids.includes(entry.id));
+    state.pendingDrafts = writePendingDrafts(pending);
     state.git = await api("/api/status");
     renderGitStatus();
     renderRows();
@@ -586,48 +803,57 @@ async function syncRemote() {
   if (state.busy) {
     return;
   }
-  if (state.dirty) {
-    const saved = await saveCurrentRecord();
-    if (!saved) {
-      return;
-    }
+  flushCurrentDraft();
+  if (!getRuntime().writable) {
+    showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
+    return;
   }
-  if (getRuntime().mode === "github") {
-    refreshRuntimeLibrary();
-    try {
-      await loadLibrary({ quiet: true });
-      showToast("已读取 GitHub 最新数据；在线保存会自动提交到远端");
-    } catch (error) {
-      showToast(error.message, { error: true });
-    }
+  const pending = refreshPendingDrafts();
+  const count = pendingCount(pending);
+  if (!count) {
+    showToast("没有待提交的修改或新增记录");
     return;
   }
   setBusy(true);
   elements.syncButton.textContent = "正在同步";
   try {
-    const message = window.prompt(
-      "提交说明",
-      `chore(data): update anime library ${new Date().toISOString().slice(0, 10)}`,
-    );
-    if (message === null) {
+    const payload = await commitPendingDrafts({
+      sync: getRuntime().mode === "local",
+    });
+    if (!payload.changed) {
+      refreshPendingDrafts();
+      renderPendingPanel();
+      showToast("没有可写入的修改或新增记录，草稿仍保留在浏览器中");
       return;
     }
-    const payload = await api("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({ message }),
-    });
+    refreshRuntimeLibrary();
+    await loadLibrary({ quiet: true });
     state.git = await api("/api/status");
     renderGitStatus();
+    renderRows();
+    renderEditor();
+    renderPendingPanel();
+    const skipped = payload.skipped ?? [];
+    const detail = [
+      `已提交 ${payload.updatedRecords?.length ?? 0} 条修改`,
+      `新增 ${payload.addedRecords?.length ?? 0} 条`,
+      skipped.length ? `跳过 ${skipped.length} 条` : "",
+      payload.commit || payload.sync?.commit
+        ? `提交 ${(payload.commit || payload.sync.commit).slice(0, 7)}`
+        : "",
+      payload.syncError ? `推送失败：${payload.syncError}` : "",
+    ]
+      .filter(Boolean)
+      .join("；");
     showToast(
-      payload.commit
-        ? `已提交 ${payload.commit} 并推送到 ${payload.branch}`
-        : `没有新提交，已执行推送`,
+      getRuntime().mode === "github" ? `${detail}；已提交到 GitHub` : detail,
+      { error: Boolean(payload.syncError), duration: 7000 },
     );
   } catch (error) {
     showToast(error.message, { error: true });
   } finally {
-    elements.syncButton.textContent = "同步远端";
     setBusy(false);
+    renderPendingActions();
   }
 }
 
@@ -667,7 +893,8 @@ for (const input of [
   elements.reviewInput,
   elements.noteInput,
 ]) {
-  input.addEventListener("input", () => setDirty(true));
+  input.addEventListener("input", scheduleCurrentDraft);
+  input.addEventListener("blur", flushCurrentDraft);
 }
 
 elements.libraryPageSize.addEventListener("change", () => {
@@ -720,6 +947,17 @@ elements.editorForm.addEventListener("submit", (event) => {
   event.preventDefault();
   saveCurrentRecord();
 });
+elements.editorForm.addEventListener("change", flushCurrentDraft);
+elements.editorForm.addEventListener("focusout", flushCurrentDraft);
+elements.pendingClear.addEventListener("click", () => {
+  if (pendingCount(state.pendingDrafts) && window.confirm("确定清空全部待提交草稿吗？")) {
+    clearPendingDrafts();
+    refreshPendingDrafts();
+    renderPendingPanel();
+    renderPendingActions();
+    renderEditor();
+  }
+});
 elements.refreshButton.addEventListener("click", async () => {
   if (!confirmDiscard()) {
     return;
@@ -741,8 +979,35 @@ window.addEventListener("anime-editor:request-close", (event) => {
 });
 
 window.addEventListener("anime-editor:discard", () => {
-  state.dirty = false;
+  flushCurrentDraft();
+  state.dirty = pendingCount() > 0;
   renderEditor();
+});
+
+window.addEventListener("anime-pending:open", (event) => {
+  const recordId = event.detail?.recordId;
+  if (!recordId || !state.records.some((record) => record.id === recordId)) {
+    return;
+  }
+  flushCurrentDraft();
+  state.selectedId = recordId;
+  revealRecordPage(recordId);
+  renderRows();
+  renderEditor();
+});
+
+window.addEventListener("anime-pending:committed", () => {
+  refreshPendingDrafts();
+  renderPendingPanel();
+  renderPendingActions();
+});
+
+window.addEventListener("anime-pending:changed", (event) => {
+  refreshPendingDrafts();
+  updatePendingSummary();
+  if (event.detail?.source !== "editor") {
+    elements.pendingList.replaceChildren(...pendingRows());
+  }
 });
 
 window.addEventListener("anime-library:edit", (event) => {
@@ -759,7 +1024,9 @@ window.addEventListener("anime-library:edit", (event) => {
 
 window.addEventListener("anime-library:changed", async (event) => {
   try {
+    refreshPendingDrafts();
     await loadLibrary({ quiet: true });
+    renderPendingPanel();
     const recordId = event.detail?.selectId;
     if (recordId && state.records.some((record) => record.id === recordId)) {
       state.selectedId = recordId;
@@ -775,6 +1042,8 @@ window.addEventListener("anime-library:changed", async (event) => {
 
 window.addEventListener("anime-runtime:changed", async () => {
   refreshRuntimeLibrary();
+  refreshPendingDrafts();
+  renderPendingPanel();
   if (!getRuntime().writable) {
     state.selectedIds.clear();
   }
@@ -785,14 +1054,15 @@ window.addEventListener("anime-runtime:changed", async () => {
   }
 });
 
-window.addEventListener("beforeunload", (event) => {
-  if (!state.dirty) {
-    return;
-  }
-  event.preventDefault();
-  event.returnValue = "";
+window.addEventListener("beforeunload", () => {
+  flushCurrentDraft();
 });
 
-loadLibrary({ quiet: true }).catch((error) => {
-  showToast(error.message, { error: true, duration: 8000 });
-});
+refreshPendingDrafts();
+renderPendingPanel();
+renderPendingActions();
+loadLibrary({ quiet: true })
+  .then(() => renderEditor())
+  .catch((error) => {
+    showToast(error.message, { error: true, duration: 8000 });
+  });

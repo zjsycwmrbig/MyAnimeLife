@@ -530,6 +530,49 @@ async function onlineApi(path, options) {
       syncError: null,
     };
   }
+  if (url.pathname === "/api/library/batch" && method === "POST") {
+    const body = parseBody(options);
+    const edits = Array.isArray(body.edits) ? body.edits : [];
+    const selections = Array.isArray(body.additions) ? body.additions : [];
+    if (selections.length > 100) {
+      throw new Error("单次最多添加 100 部番剧");
+    }
+    const uniqueIds = [
+      ...new Set(
+        selections
+          .map((selection) => cleanString(selection?.id))
+          .filter(Boolean),
+      ),
+    ];
+    const catalogItems = uniqueIds.length
+      ? await getCatalogStore().getItems(uniqueIds)
+      : [];
+    const byId = new Map(catalogItems.map((item) => [item.id, item]));
+    const missing = selections
+      .filter((selection) => !byId.has(cleanString(selection?.id)))
+      .map((selection) => ({
+        catalogId: cleanString(selection?.id) || null,
+        title: cleanString(selection?.title) || "未知候选",
+        reason: "catalog-not-found",
+        message: "全量索引中已找不到该候选",
+      }));
+    const additions = selections
+      .map((selection) => {
+        const item = byId.get(cleanString(selection?.id));
+        return item ? { item, ...selection } : null;
+      })
+      .filter(Boolean);
+    const result = await store.batchUpdate(edits, additions);
+    invalidateLibraryCache();
+    return {
+      ...result,
+      skipped: [...missing, ...(result.skipped ?? [])],
+      sync: result.changed
+        ? { commit: result.commitShort ?? result.commit ?? "", branch: settings.branch }
+        : null,
+      syncError: null,
+    };
+  }
   if (url.pathname.startsWith("/api/records/") && method === "PUT") {
     const recordId = decodeURIComponent(
       url.pathname.slice("/api/records/".length),

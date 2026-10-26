@@ -10,6 +10,13 @@ import {
 } from "./pagination.js";
 import { createRatingControl } from "./rating-control.js";
 import { resolveCatalogCovers } from "./cover-cache.js";
+import {
+  commitPendingDrafts,
+  compactCatalogItem,
+  pendingCount,
+  readPendingDrafts,
+  writePendingDrafts,
+} from "./draft-store.js";
 
 const MAX_BATCH_SIZE = 100;
 const LOCAL_APPEARANCE_KEY = "myanimelife.appearance.preferences";
@@ -389,39 +396,78 @@ function createDraft(item) {
   };
 }
 
+function restorePendingAdditions() {
+  const pending = readPendingDrafts();
+  state.selectedItems.clear();
+  state.drafts.clear();
+  for (const entry of pending.additions) {
+    state.selectedItems.set(entry.item.id, entry.item);
+    state.drafts.set(entry.item.id, {
+      title: entry.changes.title || entry.item.displayTitle,
+      rating: entry.changes.rating,
+      review: entry.changes.review,
+      note: entry.changes.note,
+    });
+  }
+  return pending;
+}
+
+function persistCatalogDrafts(options = {}) {
+  const pending = readPendingDrafts();
+  pending.additions = [...state.selectedItems.values()].map((item) => {
+    const draft = state.drafts.get(item.id) ?? createDraft(item);
+    return {
+      item: compactCatalogItem(item),
+      changes: {
+        title: draft.title,
+        rating: draft.rating,
+        review: draft.review,
+        note: draft.note,
+      },
+      savedAt: new Date().toISOString(),
+    };
+  });
+  state.pendingDrafts = writePendingDrafts(pending, {
+    source: "catalog",
+    ...options,
+  });
+}
+
+function saveCatalogDraft(item) {
+  if (!state.selectedItems.has(item.id)) {
+    return;
+  }
+  persistCatalogDrafts({ silent: true });
+  renderBatchActions();
+}
+
 function renderBatchActions() {
-  const count = state.selectedItems.size;
   const writable = getRuntime().writable;
-  const disabled = state.busy || count === 0 || !writable;
-  const online = getRuntime().mode === "github";
+  const totalPending = pendingCount();
+  const disabled = state.busy || totalPending === 0 || !writable;
   elements.catalogSaveButton.disabled = disabled;
   elements.catalogSyncButton.disabled = disabled;
-  elements.catalogSyncButton.hidden = online;
-  const suffix = state.dirty ? " *" : "";
   elements.catalogSaveButton.textContent = state.busy
     ? "正在写入"
     : !writable
       ? "填写 Token 后可编辑"
-    : online
-      ? `加入并提交 ${count} 部${suffix}`
-      : `加入 ${count} 部到本地${suffix}`;
+      : `保存并提交 (${totalPending})`;
   elements.catalogSyncButton.textContent = state.busy
     ? "正在同步"
-    : `加入并同步${suffix}`;
+    : `保存并推送 (${totalPending})`;
+  elements.catalogSyncButton.hidden = getRuntime().mode === "github";
   elements.catalogSaveButton.classList.toggle("is-loading", state.busy);
   elements.catalogSyncButton.classList.toggle("is-loading", state.busy);
 }
 
 function setDirty(dirty) {
   state.dirty = dirty;
+  persistCatalogDrafts();
   renderBatchActions();
 }
 
 function confirmCatalogDiscard() {
-  return (
-    !state.dirty ||
-    window.confirm("当前填写的评分或评价尚未加入本地，确定放弃吗？")
-  );
+  return true;
 }
 
 function requestLibraryDiscard() {
@@ -436,6 +482,7 @@ function resetSelectionState() {
   state.selectedItems.clear();
   state.drafts.clear();
   state.dirty = false;
+  persistCatalogDrafts();
   renderCatalogRows();
   renderBatchEditor();
 }
@@ -464,9 +511,7 @@ function activateView(view, options = {}) {
     window.dispatchEvent(new CustomEvent("anime-editor:discard"));
   }
   if (state.view === "catalog" && view !== "catalog" && state.dirty) {
-    state.selectedItems.clear();
-    state.drafts.clear();
-    state.dirty = false;
+    state.dirty = pendingCount() > 0;
   }
   state.view = view;
   for (const button of elements.switchButtons) {
@@ -669,7 +714,8 @@ function toggleSelection(item) {
     state.drafts.set(item.id, createDraft(item));
     void hydrateSelectedCover(item);
   }
-  state.dirty = false;
+  persistCatalogDrafts();
+  state.dirty = pendingCount() > 0;
   renderCatalogRows();
   renderBatchEditor();
 }
@@ -897,6 +943,7 @@ async function hydrateVisibleCovers(sequence) {
     }
     renderCatalogRows();
     if (state.selectedItems.size) {
+      persistCatalogDrafts({ silent: true });
       renderBatchEditor();
     }
   } catch {
@@ -927,6 +974,7 @@ async function hydrateSelectedCover(item) {
   }
   await hydrateCatalogCovers([item]);
   if (state.selectedItems.has(item.id)) {
+    persistCatalogDrafts({ silent: true });
     renderCatalogRows();
     renderBatchEditor();
   }
@@ -1063,7 +1111,7 @@ function createDraftRow(item) {
     disabled: !getRuntime().writable,
     onChange: (rating) => {
       draft.rating = rating;
-      setDirty(true);
+      saveCatalogDraft(item);
     },
   });
   ratingField.append(ratingControl.element);
@@ -1080,7 +1128,7 @@ function createDraftRow(item) {
   review.disabled = !getRuntime().writable;
   review.addEventListener("input", () => {
     draft.review = review.value;
-    setDirty(true);
+    saveCatalogDraft(item);
   });
   reviewLabel.append(reviewText, review);
 
@@ -1096,7 +1144,7 @@ function createDraftRow(item) {
   note.disabled = !getRuntime().writable;
   note.addEventListener("input", () => {
     draft.note = note.value;
-    setDirty(true);
+    saveCatalogDraft(item);
   });
   noteLabel.append(noteText, note);
 
@@ -1119,7 +1167,7 @@ function createDraftRow(item) {
   titleInput.disabled = !getRuntime().writable;
   titleInput.addEventListener("input", () => {
     draft.title = titleInput.value;
-    setDirty(true);
+    saveCatalogDraft(item);
   });
   titleLabel.append(titleText, titleInput);
   details.append(titleLabel);
@@ -1129,6 +1177,13 @@ function createDraftRow(item) {
   source.className = "catalog-draft-id";
   source.textContent = item.id;
   section.append(source);
+
+  const sync = document.createElement("div");
+  sync.className = "catalog-draft-sync";
+  sync.textContent = pendingCount()
+    ? `浏览器已缓存 · 共 ${pendingCount()} 条待提交`
+    : "正在加入待提交队列";
+  section.append(sync);
   return section;
 }
 
@@ -1176,48 +1231,35 @@ function skippedSummary(skipped) {
 }
 
 async function submitBatch(sync) {
-  if (state.busy || !state.selectedItems.size) {
+  if (state.busy) {
     return;
   }
   if (!getRuntime().writable) {
     showToast("当前为只读模式，请先连接 GitHub Token", { error: true });
     return;
   }
+  persistCatalogDrafts();
   const selectedItems = [...state.selectedItems.values()];
   state.busy = true;
   renderSelectionSummary();
   try {
     // Wait for lazy Bangumi covers so a successful lookup is persisted with the record.
     await hydrateCatalogCovers(selectedItems);
-    const items = selectedItems.map((item) => {
-      const draft = state.drafts.get(item.id) ?? createDraft(item);
-      return {
-        id: item.id,
-        title: draft.title,
-        rating: draft.rating,
-        review: draft.review,
-        note: draft.note,
-        coverUrl: item.coverUrl ?? null,
-      };
-    });
-    const payload = await api("/api/catalog/bulk", {
-      method: "POST",
-      body: JSON.stringify({ items, sync }),
-    });
-    const addedCount = payload.addedRecords?.length ?? 0;
-    const skippedText = skippedSummary(payload.skipped ?? []);
-    if (!addedCount) {
-      showToast(
-        skippedText
-          ? `没有新增记录：${skippedText}`
-          : "没有新增记录",
-        { error: true, duration: 6500 },
-      );
+    persistCatalogDrafts();
+    const payload = await commitPendingDrafts({ sync });
+    if (!payload.changed) {
+      refreshPendingDrafts();
+      renderBatchEditor();
+      showToast("没有可写入的修改或新增记录，草稿仍保留在浏览器中", {
+        duration: 6000,
+      });
       return;
     }
-
+    const addedCount = payload.addedRecords?.length ?? 0;
+    const skippedText = skippedSummary(payload.skipped ?? []);
     const resultText = [
-      `已加入 ${addedCount} 部`,
+      `已提交 ${payload.updatedRecords?.length ?? 0} 条修改`,
+      `新增 ${addedCount} 部`,
       skippedText ? `跳过 ${payload.skipped.length} 部（${skippedText}）` : "",
       payload.sync?.commit ? `已同步 ${payload.sync.commit}` : "",
       payload.syncError ? `同步失败：${payload.syncError}` : "",
@@ -1227,6 +1269,7 @@ async function submitBatch(sync) {
     state.selectedItems.clear();
     state.drafts.clear();
     state.dirty = false;
+    refreshPendingDrafts();
     window.dispatchEvent(
       new CustomEvent("anime-library:changed", {
         detail: {
@@ -1234,7 +1277,9 @@ async function submitBatch(sync) {
         },
       }),
     );
-    activateView("library", { force: true });
+    if (addedCount) {
+      activateView("library", { force: true });
+    }
     showToast(resultText, {
       error: Boolean(payload.syncError),
       duration: payload.syncError ? 8000 : 5000,
@@ -1244,6 +1289,7 @@ async function submitBatch(sync) {
   } finally {
     state.busy = false;
     renderSelectionSummary();
+    renderBatchEditor();
   }
 }
 
@@ -1349,7 +1395,8 @@ elements.catalogSelectAll.addEventListener("change", () => {
       state.drafts.delete(item.id);
     }
   }
-  state.dirty = false;
+  persistCatalogDrafts();
+  state.dirty = pendingCount() > 0;
   renderCatalogRows();
   renderBatchEditor();
 });
@@ -1364,20 +1411,14 @@ elements.catalogSyncButton.addEventListener("click", () => {
 });
 
 window.addEventListener("beforeunload", (event) => {
-  if (!state.dirty) {
-    return;
-  }
-  event.preventDefault();
-  event.returnValue = "";
+  persistCatalogDrafts();
 });
 
 window.addEventListener("anime-runtime:changed", () => {
   refreshRuntimeLibrary();
-  if (!getRuntime().writable) {
-    state.selectedItems.clear();
-    state.drafts.clear();
-    state.dirty = false;
-  }
+  persistCatalogDrafts({ silent: true });
+  restorePendingAdditions();
+  state.dirty = pendingCount() > 0;
   state.catalogLoaded = false;
   state.settingsLoaded = false;
   state.items = [];
@@ -1399,8 +1440,23 @@ window.addEventListener("anime-runtime:changed", () => {
   renderBatchEditor();
 });
 
+window.addEventListener("anime-pending:changed", (event) => {
+  if (["catalog", "editor"].includes(event.detail?.source)) {
+    return;
+  }
+  persistCatalogDrafts({ silent: true });
+  restorePendingAdditions();
+  state.dirty = pendingCount() > 0;
+  renderCatalogRows();
+  renderBatchEditor();
+});
+
 window.addEventListener("anime-catalog:changed", () => {
   if (state.view === "catalog") {
     loadCatalog();
   }
 });
+
+restorePendingAdditions();
+state.dirty = pendingCount() > 0;
+renderBatchEditor();

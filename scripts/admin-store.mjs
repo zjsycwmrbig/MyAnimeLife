@@ -17,6 +17,7 @@ import {
 import { createRecordFromCatalog } from "./catalog-data.mjs";
 import {
   appendCatalogRecords,
+  applyLibraryChanges,
   removeLibraryRecords,
   updateLibraryRecord,
 } from "./admin-data.mjs";
@@ -247,6 +248,32 @@ export class LibraryAdminStore {
       ...saved,
       addedRecords: result.addedRecords,
       skipped: result.skipped,
+    };
+  }
+
+  async batchUpdate(edits = [], additions = []) {
+    const library = await this.load();
+    const result = applyLibraryChanges(
+      library.records,
+      { edits, additions },
+      this.now(),
+    );
+    if (!result.updatedRecords.length && !result.addedRecords.length) {
+      return {
+        ...result,
+        records: library.records,
+        index: library.index,
+        backupPath: null,
+        changed: false,
+      };
+    }
+    const saved = await this.writeLibrary(result.records);
+    return {
+      ...saved,
+      updatedRecords: result.updatedRecords,
+      addedRecords: result.addedRecords,
+      skipped: result.skipped,
+      changed: true,
     };
   }
 

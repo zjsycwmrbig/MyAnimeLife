@@ -201,10 +201,26 @@
 
             <div class="editor-actions">
               <button id="saveButton" class="button button-primary" type="submit">
-                保存修改
+                加入待提交
               </button>
             </div>
           </form>
+
+          <section id="pendingPanel" class="pending-panel" hidden>
+            <div class="pending-panel-heading">
+              <div>
+                <p class="eyebrow">PENDING</p>
+                <h2>待提交记录 <span id="pendingCount">0</span></h2>
+              </div>
+              <button id="pendingClear" class="text-button" type="button">
+                清空草稿
+              </button>
+            </div>
+            <p class="pending-panel-note">
+              修改与索引新增都会保存在浏览器中，点击“保存并推送”后统一提交。
+            </p>
+            <div id="pendingList" class="catalog-selection-list"></div>
+          </section>
         </aside>
       </main>
 

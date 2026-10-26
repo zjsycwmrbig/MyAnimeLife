@@ -380,6 +380,77 @@ test("batch adds catalog candidates with one write and skips duplicate identitie
   }
 });
 
+test("commits queued edits and additions together with one backup", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    await writeLibrary(fixtureRoot, [baseRecord]);
+    const store = new LibraryAdminStore(fixtureRoot, {
+      now: () => "2026-10-25T14:00:00.000Z",
+    });
+    const result = await store.batchUpdate(
+      [
+        {
+          id: baseRecord.id,
+          changes: { rating: 9.6, review: "队列中的修改", note: "同步备注" },
+        },
+      ],
+      [
+        {
+          item: {
+            id: "bangumi:400602",
+            title: "葬送のフリーレン",
+            displayTitle: "葬送的芙莉莲",
+            names: ["葬送のフリーレン", "葬送的芙莉莲"],
+            type: "tv",
+            begin: "2023-09-29T15:00:00.000Z",
+            year: 2023,
+            sites: { bangumi: "400602" },
+            season: {
+              key: "bangumi:400602",
+              number: 1,
+              label: "第1季",
+              year: 2023,
+            },
+            coverUrl: "https://images.example.test/frieren.jpg",
+          },
+          rating: 8.8,
+          review: "队列中的新增",
+        },
+      ],
+    );
+
+    assert.equal(result.changed, true);
+    assert.equal(result.updatedRecords.length, 1);
+    assert.equal(result.addedRecords.length, 1);
+    assert.equal(result.records.length, 2);
+    assert.equal(result.index.length, 2);
+    const editedRecord = result.records.find(
+      (record) => record.id === baseRecord.id,
+    );
+    const addedRecord = result.records.find(
+      (record) => record.id === "bgm-400602",
+    );
+    assert.equal(editedRecord.rating, 9.6);
+    assert.equal(
+      addedRecord.coverUrl,
+      "https://images.example.test/frieren.jpg",
+    );
+    const library = await store.load();
+    assert.equal(library.records.length, 2);
+    assert.equal(library.index.length, 2);
+    const backupNames = (
+      await fs.readdir(path.join(fixtureRoot, "data", "backups"))
+    ).filter((name) => /^library-.*\.json$/u.test(name));
+    assert.equal(backupNames.length, 1);
+
+    const unchanged = await store.batchUpdate([], []);
+    assert.equal(unchanged.changed, false);
+    assert.equal(unchanged.backupPath, null);
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
 test("commits data changes and pushes them to origin", async () => {
   const fixtureRoot = await createFixture();
   const remoteRoot = `${fixtureRoot}-remote.git`;

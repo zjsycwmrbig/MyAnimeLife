@@ -9,6 +9,7 @@ import {
 } from "../scripts/library-data.mjs";
 import {
   appendCatalogRecords,
+  applyLibraryChanges,
   removeLibraryRecords,
   updateLibraryRecord,
 } from "../scripts/admin-data.mjs";
@@ -682,6 +683,38 @@ export class GitHubAdminStore {
       ...published,
       addedRecords: result.addedRecords,
       skipped: result.skipped,
+    };
+  }
+
+  async batchUpdate(edits = [], additions = []) {
+    this.requireWriteAccess();
+    const snapshot = await this.client.loadSnapshot({ includeBackups: true });
+    const result = applyLibraryChanges(
+      snapshot.records,
+      { edits, additions },
+      this.client.now(),
+    );
+    if (!result.updatedRecords.length && !result.addedRecords.length) {
+      return {
+        ...result,
+        commit: "",
+        backupPath: null,
+        records: snapshot.records,
+        index: snapshot.index,
+        changed: false,
+      };
+    }
+    const published = await this.client.publish(
+      snapshot,
+      result,
+      `chore(data): update anime library (${result.updatedRecords.length} edits, ${result.addedRecords.length} additions)`,
+    );
+    return {
+      ...published,
+      updatedRecords: result.updatedRecords,
+      addedRecords: result.addedRecords,
+      skipped: result.skipped,
+      changed: true,
     };
   }
 
