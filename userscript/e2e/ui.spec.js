@@ -325,6 +325,72 @@ test("keeps plugin typing from triggering page keyboard shortcuts", async ({
   expect(await page.evaluate(() => window.__pageShortcutKeys)).toEqual([]);
 });
 
+test("renders a presentation card, opens cover preview, and resizes fluidly", async ({
+  page,
+}) => {
+  await page.goto("/demo/bangumi/media/md292073015.html", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  const host = page.locator("#bangumi-scout-host");
+  await host.locator(".scout-launcher").click();
+  await recognizeCurrentPage(host);
+
+  const review = host.locator(".scout-review");
+  await review.fill("这是一段会变成展示样式的短评。");
+  await host.getByRole("radio", { name: "8 分", exact: true }).click();
+  const reviewDisplay = host.locator(".scout-review-display");
+  await expect(reviewDisplay).toBeVisible();
+  await expect(reviewDisplay).toContainText(
+    "这是一段会变成展示样式的短评。",
+  );
+  await expect(review).toBeHidden();
+
+  await reviewDisplay.click();
+  await expect(review).toBeVisible();
+  await host.locator(".scout-record-head").click();
+  await expect(reviewDisplay).toBeVisible();
+
+  const coverButton = host.locator(".scout-cover");
+  await expect(coverButton).toBeVisible();
+  await expect(host.locator(".scout-cover")).toHaveCount(1);
+  await coverButton.click();
+  const viewer = host.locator(".scout-cover-viewer");
+  await expect(viewer).toBeVisible();
+  await expect(viewer.locator("img")).toHaveAttribute(
+    "src",
+    /^data:image\/svg\+xml/,
+  );
+  await host.getByRole("button", { name: "关闭封面大图" }).click();
+  await expect(viewer).toBeHidden();
+
+  const panel = host.locator(".scout-panel");
+  const resizeHandle = host.getByRole("button", {
+    name: "拖拽调整面板大小",
+  });
+  const before = await panel.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+  expect(before).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+  await page.mouse.move(handleBox.x + 10, handleBox.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(handleBox.x + 130, handleBox.y - 70, { steps: 8 });
+  await page.mouse.up();
+  const after = await panel.boundingBox();
+  expect(after.width).toBeGreaterThan(before.width + 80);
+  expect(after.height).toBeLessThan(before.height - 40);
+  await expect(host.locator(".scout-record")).toBeVisible();
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+  const restoredHost = page.locator("#bangumi-scout-host");
+  await restoredHost.locator(".scout-launcher").click();
+  const restored = await restoredHost.locator(".scout-panel").boundingBox();
+  expect(restored.width).toBeGreaterThan(before.width + 80);
+  expect(restored.height).toBeLessThan(before.height - 40);
+});
+
 test("does not initialize on an unrelated website", async ({ page }) => {
   await page.goto("/", { waitUntil: "networkidle" });
   await page.addScriptTag({ path: userscriptPath });
@@ -581,6 +647,7 @@ test("loads and saves a rating through the configured GitHub repository", async 
   );
 
   await host.getByRole("radio", { name: "9 分" }).click();
+  await host.locator(".scout-review-display").click();
   await review.fill("更新后的 GitHub 评价。");
   await expect(host.getByRole("radio", { name: "9 分" })).toHaveAttribute(
     "aria-checked",

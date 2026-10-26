@@ -41,6 +41,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   },
   ui: {
     launcherVisible: true,
+    panelWidth: 420,
+    panelHeight: 680,
   },
 });
 
@@ -123,6 +125,12 @@ export function sanitizeSettings(input) {
   ).trim();
 
   settings.ui.launcherVisible = Boolean(settings.ui.launcherVisible);
+  settings.ui.panelWidth = Math.round(
+    clampNumber(settings.ui.panelWidth, 340, 1100, 420),
+  );
+  settings.ui.panelHeight = Math.round(
+    clampNumber(settings.ui.panelHeight, 420, 1000, 680),
+  );
   return settings;
 }
 

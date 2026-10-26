@@ -292,10 +292,15 @@ export class ScoutPanel {
     this.busy = false;
     this.searchTimer = null;
     this.dragState = null;
+    this.resizeState = null;
     this.launcherDragState = null;
     this.suppressLauncherClick = false;
     this.dockedSide = null;
     this.panelHasCustomPosition = false;
+    const initialUi = this.settingsStore.get().ui;
+    this.panelWidth = initialUi.panelWidth;
+    this.panelHeight = initialUi.panelHeight;
+    this.currentCoverUrl = null;
   }
 
   mount() {
@@ -415,6 +420,20 @@ export class ScoutPanel {
       [
         this.panelHeader,
         this.panelBody,
+        element("button", {
+          className: "scout-resize-handle",
+          attrs: {
+            type: "button",
+            title: "拖拽调整面板大小",
+            "aria-label": "拖拽调整面板大小",
+          },
+          on: {
+            pointerdown: (event) => this.startPanelResize(event),
+            pointermove: (event) => this.movePanelResize(event),
+            pointerup: (event) => this.finishPanelResize(event),
+            pointercancel: (event) => this.finishPanelResize(event),
+          },
+        }),
       ],
     );
 
@@ -454,9 +473,42 @@ export class ScoutPanel {
       on: { click: () => this.closeSettings() },
     });
 
+    this.coverViewerImage = element("img", {
+      className: "scout-cover-viewer-image",
+      attrs: { alt: "番剧封面大图" },
+    });
+    this.coverViewerTitle = element("p", {
+      className: "scout-cover-viewer-title",
+    });
+    this.coverViewer = element(
+      "div",
+      {
+        className: "scout-cover-viewer",
+        attrs: {
+          hidden: "",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-label": "番剧封面大图",
+        },
+        on: {
+          click: (event) => {
+            if (event.target === this.coverViewer) {
+              this.closeCoverViewer();
+            }
+          },
+        },
+      },
+      [
+        iconButton("关闭封面大图", X, () => this.closeCoverViewer(), "scout-cover-viewer-close"),
+        this.coverViewerImage,
+        this.coverViewerTitle,
+      ],
+    );
+
     this.root = element("div", { className: "scout-root" }, [
       this.settingsBackdrop,
       this.settingsWindow,
+      this.coverViewer,
       this.panel,
       this.launcher,
     ]);
@@ -472,10 +524,13 @@ export class ScoutPanel {
       );
     }
     this.updatePagePresentation();
+    this.applyPanelSize(this.panelWidth, this.panelHeight);
 
     this.shadow.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        if (!this.settingsWindow.hidden) {
+        if (!this.coverViewer.hidden) {
+          this.closeCoverViewer();
+        } else if (!this.settingsWindow.hidden) {
           this.closeSettings();
         } else if (!this.panel.hidden) {
           this.close();
@@ -556,8 +611,17 @@ export class ScoutPanel {
       },
     });
     this.coverFrame = element(
-      "div",
-      { className: "scout-cover", attrs: { hidden: "" } },
+      "button",
+      {
+        className: "scout-cover",
+        attrs: {
+          type: "button",
+          hidden: "",
+          title: "查看封面大图",
+          "aria-label": "查看封面大图",
+        },
+        on: { click: () => this.openCoverViewer() },
+      },
       [this.coverImage],
     );
 
@@ -792,7 +856,10 @@ export class ScoutPanel {
       placeholder: "写下你的评价或备注",
       attrs: { "aria-label": "个人评价" },
       on: {
+        focus: () => this.enterRecordReviewEdit(),
+        blur: () => setTimeout(() => this.renderRecordReview(), 80),
         input: () => {
+          this.enterRecordFocusMode();
           this.recordDirty = true;
           this.recordStatus.textContent = "正在缓存本机草稿";
           this.clearDuplicateWarning();
@@ -800,6 +867,38 @@ export class ScoutPanel {
         },
       },
     });
+    this.reviewDisplayText = element("span", {
+      className: "scout-review-display-text",
+    });
+    this.reviewDisplay = element(
+      "blockquote",
+      {
+        className: "scout-review-display",
+        attrs: {
+          hidden: "",
+          tabindex: "0",
+          role: "button",
+          "aria-label": "编辑短评",
+        },
+        on: {
+          click: () => this.enterRecordReviewEdit(),
+          keydown: (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              this.enterRecordReviewEdit();
+            }
+          },
+        },
+      },
+      [
+        element("span", {
+          className: "scout-review-display-mark",
+          text: "“",
+          attrs: { "aria-hidden": "true" },
+        }),
+        this.reviewDisplayText,
+      ],
+    );
     this.recordStatus = element("span", {
       className: "scout-footer-status",
       text: "尚未填写",
@@ -888,11 +987,12 @@ export class ScoutPanel {
           ]),
         ]),
         element("div", { className: "scout-record-rating-head" }, [
-          element("span", { className: "scout-range-label", text: "评分" }),
+          element("span", { className: "scout-range-label", text: "我的评分" }),
           this.recordRatingValue,
         ]),
         ratingOptions,
         this.reviewInput,
+        this.reviewDisplay,
         element("div", { className: "scout-record-footer" }, [
           this.recordStatus,
           element("div", { className: "scout-record-actions" }, [
@@ -1995,10 +2095,16 @@ export class ScoutPanel {
 
   setSelectedCover(url) {
     const safeUrl = normalizeCoverUrl(url);
+    this.currentCoverUrl = safeUrl;
+    this.coverFrame.disabled = !safeUrl;
+    this.coverFrame.classList.toggle("has-cover", Boolean(safeUrl));
     this.coverFrame.hidden = !safeUrl;
     this.resultHead.classList.toggle("has-cover", Boolean(safeUrl));
     if (safeUrl) {
       this.coverImage.src = safeUrl;
+      this.coverImage.alt = this.recordItem
+        ? `${itemDisplayTitle(this.recordItem)} 封面`
+        : "番剧封面";
     } else {
       this.coverImage.removeAttribute("src");
     }
@@ -2299,6 +2405,7 @@ export class ScoutPanel {
     this.recognitionCache?.clear(location.href);
     this.recordRating = null;
     this.reviewInput.value = "";
+    this.renderRecordReview();
     this.recordDirty = false;
     this.clearDuplicateWarning();
     this.syncRecordRating();
@@ -2311,11 +2418,65 @@ export class ScoutPanel {
       return;
     }
     this.recordRating = this.recordRating === rating ? null : rating;
+    this.enterRecordFocusMode();
     this.recordDirty = true;
     this.clearDuplicateWarning();
     this.recordStatus.textContent = "正在缓存本机草稿";
     this.syncRecordRating();
     this.scheduleRecognitionDraftSave();
+  }
+
+  enterRecordFocusMode() {
+    if (this.candidateCollapsed || !this.recordItem?.id) {
+      return;
+    }
+    this.candidateCollapsed = true;
+    this.resultListSection.hidden = true;
+    this.titleCandidateSection.hidden = true;
+    this.manualSearchSection.hidden = true;
+    this.batchSection.hidden = true;
+    this.recordSection.hidden = false;
+  }
+
+  enterRecordReviewEdit() {
+    if (this.reviewInput.disabled || !this.recordItem) {
+      return;
+    }
+    this.reviewDisplay.hidden = true;
+    this.reviewInput.hidden = false;
+    this.reviewInput.focus();
+    const end = this.reviewInput.value.length;
+    this.reviewInput.setSelectionRange?.(end, end);
+  }
+
+  renderRecordReview() {
+    const text = this.reviewInput.value.trim();
+    if (!text) {
+      this.reviewDisplay.hidden = true;
+      this.reviewInput.hidden = false;
+      return;
+    }
+    this.reviewDisplayText.textContent = text;
+    this.reviewInput.hidden = true;
+    this.reviewDisplay.hidden = false;
+  }
+
+  openCoverViewer() {
+    if (!this.currentCoverUrl) {
+      return;
+    }
+    this.coverViewerImage.src = this.currentCoverUrl;
+    this.coverViewerTitle.textContent = this.recordItem
+      ? itemDisplayTitle(this.recordItem)
+      : "";
+    this.coverViewer.hidden = false;
+    this.coverViewer.querySelector("button")?.focus({ preventScroll: true });
+  }
+
+  closeCoverViewer() {
+    this.coverViewer.hidden = true;
+    this.coverViewerImage.removeAttribute("src");
+    this.coverFrame.focus({ preventScroll: true });
   }
 
   syncRecordRating() {
@@ -2355,6 +2516,7 @@ export class ScoutPanel {
       this.recordRating = record?.rating ?? null;
       this.recordDirty = false;
       this.reviewInput.value = record?.review ?? "";
+      this.renderRecordReview();
       this.recordStatus.textContent =
         matchingDraft
           ? "已恢复本机未同步草稿"
@@ -2380,6 +2542,13 @@ export class ScoutPanel {
     this.recordSection.hidden = !enabled;
     this.recordItemLabel.textContent = displayTitle || "先选定一个候选";
     this.recordItemLabel.title = displayTitle;
+    if (this.currentCoverUrl) {
+      this.coverImage.alt = displayTitle ? `${displayTitle} 封面` : "番剧封面";
+      this.coverFrame.setAttribute(
+        "aria-label",
+        `${displayTitle || "番剧"}封面大图`,
+      );
+    }
     this.syncRecordRating();
     this.syncRecordGithubState();
     if (
@@ -2473,6 +2642,7 @@ export class ScoutPanel {
         ? Math.round(rating * 10) / 10
         : null;
     this.reviewInput.value = String(record?.review ?? "");
+    this.renderRecordReview();
     this.recordDirty = false;
     clearTimeout(this.draftSaveTimer);
     this.draftSaveTimer = null;
@@ -2563,6 +2733,8 @@ export class ScoutPanel {
     if (!this.recordItem?.id || !this.personalRecordStore) {
       return;
     }
+    clearTimeout(this.draftSaveTimer);
+    this.draftSaveTimer = null;
     const item = this.recordItem;
     const selectedResult =
       this.selectedResult?.item?.id === item.id ? this.selectedResult : null;
@@ -3425,6 +3597,78 @@ export class ScoutPanel {
     }
   }
 
+  applyPanelSize(width, height) {
+    if (window.matchMedia("(max-width: 520px)").matches) {
+      this.panel.style.removeProperty("width");
+      this.panel.style.removeProperty("height");
+      return;
+    }
+    const maximumWidth = Math.max(340, window.innerWidth - 24);
+    const maximumHeight = Math.max(420, window.innerHeight - 96);
+    this.panelWidth = Math.round(
+      clampNumber(width, Math.min(340, maximumWidth), Math.min(1100, maximumWidth)),
+    );
+    this.panelHeight = Math.round(
+      clampNumber(height, Math.min(420, maximumHeight), Math.min(900, maximumHeight)),
+    );
+    this.panel.style.width = `${this.panelWidth}px`;
+    this.panel.style.height = `${this.panelHeight}px`;
+  }
+
+  startPanelResize(event) {
+    if (
+      event.button !== 0 ||
+      window.matchMedia("(max-width: 520px)").matches
+    ) {
+      return;
+    }
+    const rect = this.panel.getBoundingClientRect();
+    this.resizeState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+    };
+    this.panel.classList.add("is-resizing");
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  movePanelResize(event) {
+    if (!this.resizeState || event.pointerId !== this.resizeState.pointerId) {
+      return;
+    }
+    this.applyPanelSize(
+      this.resizeState.startWidth + event.clientX - this.resizeState.startX,
+      this.resizeState.startHeight + event.clientY - this.resizeState.startY,
+    );
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  finishPanelResize(event) {
+    if (!this.resizeState || event.pointerId !== this.resizeState.pointerId) {
+      return;
+    }
+    const handle = event.currentTarget;
+    this.resizeState = null;
+    this.panel.classList.remove("is-resizing");
+    if (handle.hasPointerCapture?.(event.pointerId)) {
+      handle.releasePointerCapture(event.pointerId);
+    }
+    const settings = this.settingsStore.get();
+    this.settingsStore.update({
+      ui: {
+        ...settings.ui,
+        panelWidth: this.panelWidth,
+        panelHeight: this.panelHeight,
+      },
+    });
+    this.clampPanelToViewport();
+  }
+
   startPanelDrag(event) {
     if (
       event.button !== 0 ||
@@ -3579,8 +3823,10 @@ export class ScoutPanel {
   handleViewportResize() {
     if (window.matchMedia("(max-width: 520px)").matches) {
       this.clearPanelPosition();
+      this.applyPanelSize(this.panelWidth, this.panelHeight);
       return;
     }
+    this.applyPanelSize(this.panelWidth, this.panelHeight);
     if (!this.panel.hidden) {
       if (this.panelHasCustomPosition) {
         this.clampPanelToViewport();
