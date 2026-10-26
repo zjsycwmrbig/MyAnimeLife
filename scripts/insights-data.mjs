@@ -21,6 +21,19 @@ function average(values) {
     : null;
 }
 
+function median(values) {
+  const numbers = values
+    .filter((value) => Number.isFinite(value))
+    .sort((left, right) => left - right);
+  if (!numbers.length) {
+    return null;
+  }
+  const middle = Math.floor(numbers.length / 2);
+  return numbers.length % 2
+    ? round(numbers[middle])
+    : round((numbers[middle - 1] + numbers[middle]) / 2);
+}
+
 function percent(value, total) {
   return total > 0 ? round((value / total) * 100) : 0;
 }
@@ -75,6 +88,11 @@ function decadeFor(record) {
   return Number.isInteger(year) && year >= 1900 ? Math.floor(year / 10) * 10 : null;
 }
 
+function yearFor(record) {
+  const year = Number(record.season?.year);
+  return Number.isInteger(year) && year >= 1900 ? year : null;
+}
+
 function buildDistribution(records, keyFor, total) {
   const groups = new Map();
   for (const record of records) {
@@ -112,6 +130,22 @@ export function calculateInsights(records, now = new Date()) {
       averageRating: average(group.ratings) ?? "—",
     }));
 
+  const years = [...buildDistribution(records, yearFor, total).values()]
+    .sort((left, right) => {
+      if (left.key === null) return 1;
+      if (right.key === null) return -1;
+      return right.key - left.key;
+    })
+    .map((group) => ({
+      key: group.key,
+      label: group.key === null ? "年份未知" : `${group.key}`,
+      count: group.count,
+      rated: group.ratings.length,
+      percent: percent(group.count, total),
+      ratedPercent: percent(group.ratings.length, group.count),
+      averageRating: average(group.ratings) ?? "—",
+    }));
+
   const ratingBuckets = [
     { key: "0-5.9", label: "0 - 5.9", test: (rating) => rating < 6 },
     { key: "6-6.9", label: "6 - 6.9", test: (rating) => rating >= 6 && rating < 7 },
@@ -133,6 +167,20 @@ export function calculateInsights(records, now = new Date()) {
     count: total - ratings.length,
     percent: percent(total - ratings.length, total),
   });
+
+  const ratingFineMap = new Map();
+  for (const rating of ratings) {
+    const value = round(rating, 1).toFixed(1);
+    ratingFineMap.set(value, (ratingFineMap.get(value) ?? 0) + 1);
+  }
+  const ratingFine = [...ratingFineMap.entries()]
+    .sort(([left], [right]) => Number(right) - Number(left))
+    .map(([value, count]) => ({
+      key: value,
+      label: `${value} 分`,
+      count,
+      percent: percent(count, total),
+    }));
 
   const sourceCounts = new Map();
   let sourcedCount = 0;
@@ -167,6 +215,9 @@ export function calculateInsights(records, now = new Date()) {
       total,
       rated: ratings.length,
       averageRating: averageRating === null ? "—" : averageRating.toFixed(1),
+      medianRating: median(ratings) === null ? "—" : median(ratings).toFixed(1),
+      highestRating: ratings.length ? Math.max(...ratings).toFixed(1) : "—",
+      lowestRating: ratings.length ? Math.min(...ratings).toFixed(1) : "—",
       ratedPercent: percent(ratings.length, total),
       seasonPercent: percent(seasonCount, total),
       sourcePercent: percent(sourcedCount, total),
@@ -179,7 +230,16 @@ export function calculateInsights(records, now = new Date()) {
     ],
     months: monthSeries(records, now),
     decades,
+    years,
     ratings: ratingBuckets,
+    ratingFine,
+    items: records.map((record) => ({
+      id: record.id,
+      title: record.title,
+      rating: record.rating ?? null,
+      year: yearFor(record),
+      createdAt: record.createdAt,
+    })),
     sources,
     bestDecade: ratedDecades[0] ?? null,
   };

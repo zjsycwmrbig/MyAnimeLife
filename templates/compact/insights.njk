@@ -43,6 +43,14 @@
           <dt>本月新增</dt>
           <dd>{{ insights.summary.latestMonth }}</dd>
         </div>
+        <div>
+          <dt>评分中位数</dt>
+          <dd>{{ insights.summary.medianRating }}</dd>
+        </div>
+        <div>
+          <dt>评分范围</dt>
+          <dd>{{ insights.summary.lowestRating }}-{{ insights.summary.highestRating }}</dd>
+        </div>
       </dl>
     </div>
   </section>
@@ -72,6 +80,37 @@
             <small>有年代数据</small>
           </article>
         </div>
+      </section>
+
+      <section class="insights-filter-bar" aria-label="分析筛选">
+        <div>
+          <span class="section-index">FILTER / 细分查看</span>
+          <p id="insights-filter-summary">调整年份范围、逐年排序和评分明细。</p>
+        </div>
+        <label>
+          <span>年份范围</span>
+          <input id="insights-year-min" type="number" min="1900" max="2200" placeholder="起始年" aria-label="分析起始年份" />
+          <span aria-hidden="true">-</span>
+          <input id="insights-year-max" type="number" min="1900" max="2200" placeholder="结束年" aria-label="分析结束年份" />
+        </label>
+        <label>
+          <span>逐年排序</span>
+          <select id="insights-year-sort">
+            <option value="year-desc">年份：新到旧</option>
+            <option value="year-asc">年份：旧到新</option>
+            <option value="count-desc">数量：多到少</option>
+            <option value="average-desc">均分：高到低</option>
+          </select>
+        </label>
+        <label>
+          <span>评分明细</span>
+          <select id="insights-rating-filter">
+            <option value="all">全部评分</option>
+            <option value="high">8 分及以上</option>
+            <option value="mid">6 - 7.9 分</option>
+            <option value="low">低于 6 分</option>
+          </select>
+        </label>
       </section>
 
       <div class="insights-grid">
@@ -124,6 +163,28 @@
           </div>
         </article>
 
+        <article class="insight-panel insight-panel-wide" aria-labelledby="year-title">
+          <div class="panel-heading">
+            <div>
+              <p class="section-index">04 / YEAR</p>
+              <h2 id="year-title">逐年分布</h2>
+            </div>
+            <span>作品年份 · 评分完成度</span>
+          </div>
+          <div id="year-distribution" class="distribution-list year-distribution">
+            {% for year in insights.years %}
+              <div class="distribution-row" data-year="{{ year.key or '' }}" data-count="{{ year.count }}" data-average="{{ year.averageRating }}">
+                <span class="distribution-label">{{ year.label }}</span>
+                <span class="distribution-track">
+                  <span class="distribution-bar" style="--bar-size: {{ year.percent }}%"></span>
+                </span>
+                <span class="distribution-count">{{ year.count }} 部</span>
+                <span class="distribution-note">均分 {{ year.averageRating }} · 已评 {{ year.ratedPercent }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        </article>
+
         <article class="insight-panel" aria-labelledby="rating-title">
           <div class="panel-heading">
             <div>
@@ -146,6 +207,21 @@
                 <small>{{ rating.percent }}%</small>
               </div>
             {% endfor %}
+          </div>
+          <div class="rating-fine-section">
+            <div class="rating-fine-heading">
+              <span>精确到 0.1 分</span>
+              <span>{{ insights.summary.rated }} 部已评分</span>
+            </div>
+            <div class="rating-fine-list">
+              {% for rating in insights.ratingFine %}
+                <div class="rating-fine-item" data-rating="{{ rating.key }}" title="{{ rating.label }}：{{ rating.count }} 部">
+                  <span>{{ rating.key }}</span>
+                  <span class="rating-fine-track"><span style="--bar-size: {{ rating.percent }}%"></span></span>
+                  <strong>{{ rating.count }}</strong>
+                </div>
+              {% endfor %}
+            </div>
           </div>
         </article>
 

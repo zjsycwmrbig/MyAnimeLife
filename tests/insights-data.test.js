@@ -72,6 +72,9 @@ test("calculates collection windows, decades, and rating distributions", () => {
   assert.equal(insights.summary.total, 4);
   assert.equal(insights.summary.rated, 3);
   assert.equal(insights.summary.averageRating, "7.7");
+  assert.equal(insights.summary.medianRating, "8.0");
+  assert.equal(insights.summary.highestRating, "9.0");
+  assert.equal(insights.summary.lowestRating, "6.0");
   assert.deepEqual(
     insights.windows.map((window) => window.count),
     [1, 2, 3],
@@ -84,6 +87,23 @@ test("calculates collection windows, decades, and rating distributions", () => {
       [2010, 1],
       [2020, 2],
       [null, 1],
+    ],
+  );
+  assert.deepEqual(
+    insights.years.map((year) => [year.key, year.count, year.ratedPercent]),
+    [
+      [2024, 1, 100],
+      [2023, 1, 100],
+      [2015, 1, 100],
+      [null, 1, 0],
+    ],
+  );
+  assert.deepEqual(
+    insights.ratingFine.map((rating) => [rating.key, rating.count]),
+    [
+      ["9.0", 1],
+      ["8.0", 1],
+      ["6.0", 1],
     ],
   );
   assert.equal(

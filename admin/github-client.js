@@ -34,6 +34,22 @@ function cleanString(value) {
   return String(value ?? "").trim();
 }
 
+function commitTitle(value) {
+  return cleanString(value).replace(/\s+/gu, " ").slice(0, 48);
+}
+
+function commitTitleSummary(records, limit = 5) {
+  const titles = [...new Set(
+    (records ?? []).map((record) => commitTitle(record?.title)).filter(Boolean),
+  )];
+  if (!titles.length) {
+    return "";
+  }
+  const visible = titles.slice(0, limit);
+  const suffix = titles.length > visible.length ? ` 等 ${titles.length} 部` : "";
+  return `${visible.join("、")}${suffix}`;
+}
+
 function encodePath(value) {
   return String(value)
     .split("/")
@@ -677,7 +693,7 @@ export class GitHubAdminStore {
     const published = await this.client.publish(
       snapshot,
       result,
-      `chore(data): add ${result.addedRecords.length} anime records`,
+      `chore(data): add ${result.addedRecords.length} anime records: ${commitTitleSummary(result.addedRecords)}`,
     );
     return {
       ...published,
@@ -707,7 +723,7 @@ export class GitHubAdminStore {
     const published = await this.client.publish(
       snapshot,
       result,
-      `chore(data): update anime library (${result.updatedRecords.length} edits, ${result.addedRecords.length} additions)`,
+      `chore(data): update anime library (修改 ${result.updatedRecords.length} · 新增 ${result.addedRecords.length}): ${commitTitleSummary([...result.updatedRecords, ...result.addedRecords])}`,
     );
     return {
       ...published,

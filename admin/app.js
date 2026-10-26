@@ -98,6 +98,8 @@ function hasPendingEdit(recordId) {
 function scheduleCurrentDraft() {
   if (queueCurrentRecordDraft()) {
     updatePendingSummary();
+    renderRows();
+    renderPendingListOnly();
     setDirty(true);
   }
 }
@@ -176,6 +178,7 @@ function recordMatches(record) {
 
 function filteredRecords() {
   return state.records
+    .map(effectiveRecord)
     .filter(recordMatches)
     .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
 }
@@ -217,7 +220,7 @@ function renderPendingActions() {
     ? `保存并推送 (${count})`
     : "同步远端";
   elements.saveButton.textContent = currentPending
-    ? "加入待提交 *"
+    ? "更新待提交"
     : "加入待提交";
 }
 
@@ -342,6 +345,7 @@ function removePendingEntry(kind, entry) {
   if (kind === "edit" && state.selectedId === entry.id) {
     renderEditor();
   }
+  renderRows();
   renderPendingPanel();
   renderPendingActions();
   showToast("已从待提交列表移除");
@@ -392,6 +396,9 @@ function createRecordCard(record) {
   if (record.id === state.selectedId) {
     card.classList.add("is-selected");
   }
+  if (hasPendingEdit(record.id)) {
+    card.classList.add("is-pending-edit");
+  }
 
   const cover = document.createElement("div");
   cover.className = "record-card-cover";
@@ -415,6 +422,12 @@ function createRecordCard(record) {
   body.className = "record-card-body";
   const top = document.createElement("div");
   top.className = "record-card-top";
+  if (hasPendingEdit(record.id)) {
+    const pendingLabel = document.createElement("span");
+    pendingLabel.className = "record-pending-label";
+    pendingLabel.textContent = "待提交修改";
+    top.append(pendingLabel);
+  }
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = state.selectedIds.has(record.id);
@@ -490,6 +503,9 @@ function renderRows() {
     if (record.id === state.selectedId) {
       row.classList.add("is-selected");
     }
+    if (hasPendingEdit(record.id)) {
+      row.classList.add("is-pending-edit");
+    }
 
     const checkCell = document.createElement("td");
     const checkbox = document.createElement("input");
@@ -514,6 +530,12 @@ function renderRows() {
     const title = document.createElement("span");
     title.className = "record-title";
     title.textContent = record.title;
+    if (hasPendingEdit(record.id)) {
+      const pendingLabel = document.createElement("span");
+      pendingLabel.className = "record-pending-label";
+      pendingLabel.textContent = "待提交修改";
+      title.append(pendingLabel);
+    }
     const subtitle = document.createElement("span");
     subtitle.className = "record-subtitle";
     subtitle.textContent = [animeDateText(record), sourceText(record)]

@@ -73,6 +73,50 @@
   border-bottom: 1px solid var(--line);
 }
 
+.insights-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(210px, auto) 190px 190px;
+  gap: 14px;
+  align-items: end;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.insights-filter-bar > div p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.insights-filter-bar label {
+  display: flex;
+  min-width: 0;
+  height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.insights-filter-bar input,
+.insights-filter-bar select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.insights-filter-bar label:focus-within {
+  border-color: var(--accent);
+}
+
 .section-heading {
   display: flex;
   align-items: end;
@@ -281,6 +325,62 @@
   color: var(--muted);
   text-align: right;
   font-size: 10px;
+}
+
+.rating-fine-section {
+  margin-top: 25px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.rating-fine-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rating-fine-list {
+  display: grid;
+  max-height: 232px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 14px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.rating-fine-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 24px;
+  gap: 7px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rating-fine-item strong {
+  color: var(--ink);
+  text-align: right;
+}
+
+.rating-fine-track {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--paper);
+}
+
+.rating-fine-track span {
+  display: block;
+  width: var(--bar-size);
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
 }
 
 .rating-distribution,
@@ -758,6 +858,14 @@
 }
 
 @media (max-width: 760px) {
+  .insights-filter-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .insights-filter-bar > div {
+    grid-column: 1 / -1;
+  }
+
   .header-nav > a.insights-nav-link {
     display: inline;
   }

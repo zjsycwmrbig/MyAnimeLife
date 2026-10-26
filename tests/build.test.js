@@ -223,6 +223,9 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);
     assert.match(indexHtml, /id="pagination-size-custom"/u);
+    assert.match(indexHtml, /id="year-filter"/u);
+    assert.match(indexHtml, /id="rating-min"/u);
+    assert.match(indexHtml, /value="created-desc"/u);
     assert.match(indexHtml, /<option value="10">10<\/option>/u);
     assert.match(indexHtml, /<option value="100">100<\/option>/u);
     assert.match(indexHtml, /styles\.css\?v=20261025T120000000Z/u);
@@ -250,6 +253,9 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(insightsHtml, /数据洞察/u);
     assert.match(insightsHtml, /近 7 天/u);
+    assert.match(insightsHtml, /逐年分布/u);
+    assert.match(insightsHtml, /精确到 0.1 分/u);
+    assert.match(insightsHtml, /id="insights-year-sort"/u);
     assert.match(
       insightsHtml,
       /data-own-repository="example\/anime-records"/u,

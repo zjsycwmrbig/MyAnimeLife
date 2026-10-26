@@ -29,9 +29,7 @@
             class="detail-cover"
             data-bangumi-id="{{ record.externalIds.bangumi or '' }}"
           >
-            <span class="cover-fallback" aria-hidden="true">
-              <span>{{ record.title }}</span>
-            </span>
+            <span class="cover-fallback" aria-hidden="true"></span>
             {% if record.coverUrl %}
               <img
                 src="{{ record.coverUrl }}"

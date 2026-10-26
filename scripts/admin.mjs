@@ -60,6 +60,27 @@ async function readBody(request) {
   }
 }
 
+function commitTitle(value) {
+  return String(value ?? "").replace(/\s+/gu, " ").trim().slice(0, 48);
+}
+
+function commitTitleSummary(records, limit = 5) {
+  const titles = [...new Set(
+    (records ?? []).map((record) => commitTitle(record?.title)).filter(Boolean),
+  )];
+  const visible = titles.slice(0, limit);
+  if (!visible.length) {
+    return "待处理番剧";
+  }
+  return `${visible.join("、")}${titles.length > visible.length ? ` 等 ${titles.length} 部` : ""}`;
+}
+
+function batchCommitMessage(result) {
+  const updated = result.updatedRecords ?? [];
+  const added = result.addedRecords ?? [];
+  return `chore(data): update anime library (修改 ${updated.length} · 新增 ${added.length}): ${commitTitleSummary([...updated, ...added])}`;
+}
+
 function assertLocalRequest(request) {
   const origin = request.headers.origin;
   if (!origin) {
@@ -188,7 +209,10 @@ const server = http.createServer(async (request, response) => {
       let syncError = null;
       if (body.sync && result.addedRecords.length) {
         try {
-          sync = await store.sync(body.message);
+          sync = await store.sync(
+            String(body.message ?? "").trim() ||
+              `chore(data): add ${result.addedRecords.length} anime records: ${commitTitleSummary(result.addedRecords)}`,
+          );
         } catch (error) {
           syncError = error.message;
         }
@@ -244,7 +268,9 @@ const server = http.createServer(async (request, response) => {
       let syncError = null;
       if (body.sync && result.changed) {
         try {
-          sync = await store.sync(body.message);
+          sync = await store.sync(
+            String(body.message ?? "").trim() || batchCommitMessage(result),
+          );
         } catch (error) {
           syncError = error.message;
         }

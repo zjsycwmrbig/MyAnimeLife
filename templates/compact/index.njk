@@ -73,11 +73,32 @@
           </label>
 
           <label class="select-field">
+            <span>年份</span>
+            <select id="year-filter">
+              <option value="all">全部年份</option>
+            </select>
+          </label>
+
+          <div class="filter-range-field">
+            <span>评分</span>
+            <input id="rating-min" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最低" aria-label="最低评分" />
+            <span aria-hidden="true">-</span>
+            <input id="rating-max" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最高评分" aria-label="最高评分" />
+          </div>
+
+          <label class="select-field">
             <span>排序</span>
             <select id="sort-order">
-              <option value="year">作品年份</option>
-              <option value="rating">评分最高</option>
-              <option value="title">标题顺序</option>
+              <option value="year-desc">作品年份：新到旧</option>
+              <option value="year-asc">作品年份：旧到新</option>
+              <option value="rating-desc">评分：高到低</option>
+              <option value="rating-asc">评分：低到高</option>
+              <option value="created-desc">添加顺序：新到旧</option>
+              <option value="created-asc">添加顺序：旧到新</option>
+              <option value="updated-desc">修改时间：新到旧</option>
+              <option value="updated-asc">修改时间：旧到新</option>
+              <option value="title-asc">标题：正序</option>
+              <option value="title-desc">标题：倒序</option>
             </select>
           </label>
         </div>
@@ -100,6 +121,8 @@
               data-title="{{ record.title }}"
               data-rating="{{ record.ratingValue }}"
               data-year="{{ record.year or '' }}"
+              data-created="{{ record.createdAt }}"
+              data-updated="{{ record.updatedAt }}"
               data-search="{{ record.searchText }}"
               data-original-index="{{ loop.index0 }}"
             >
@@ -112,9 +135,7 @@
                   class="record-cover"
                   data-bangumi-id="{{ record.externalIds.bangumi or '' }}"
                 >
-                  <span class="cover-fallback" aria-hidden="true">
-                    <span>{{ record.title }}</span>
-                  </span>
+                  <span class="cover-fallback" aria-hidden="true"></span>
                   {% if record.coverUrl %}
                     <img
                       src="{{ record.coverUrl }}"

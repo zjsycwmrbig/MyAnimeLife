@@ -1,4 +1,54 @@
 (() => {
+  const yearDistribution = document.querySelector("#year-distribution");
+  const yearMinInput = document.querySelector("#insights-year-min");
+  const yearMaxInput = document.querySelector("#insights-year-max");
+  const yearSort = document.querySelector("#insights-year-sort");
+  const ratingFilter = document.querySelector("#insights-rating-filter");
+  const filterSummary = document.querySelector("#insights-filter-summary");
+  if (!yearDistribution || !yearMinInput || !yearMaxInput || !yearSort || !ratingFilter) return;
+  const yearRows = [...yearDistribution.querySelectorAll(".distribution-row")];
+  const fineRatings = [...document.querySelectorAll(".rating-fine-item")];
+  const numberValue = (value) => {
+    const number = Number.parseFloat(String(value ?? ""));
+    return Number.isFinite(number) ? number : null;
+  };
+  const applyInsightFilters = () => {
+    const minimum = numberValue(yearMinInput.value);
+    const maximum = numberValue(yearMaxInput.value);
+    const visibleYears = yearRows.filter((row) => {
+      const year = numberValue(row.dataset.year);
+      const visible = year === null || ((minimum === null || year >= minimum) && (maximum === null || year <= maximum));
+      row.hidden = !visible;
+      return visible;
+    });
+    visibleYears.sort((left, right) => {
+      const leftYear = numberValue(left.dataset.year) ?? -1;
+      const rightYear = numberValue(right.dataset.year) ?? -1;
+      const leftCount = numberValue(left.dataset.count) ?? 0;
+      const rightCount = numberValue(right.dataset.count) ?? 0;
+      const leftAverage = numberValue(left.dataset.average) ?? -1;
+      const rightAverage = numberValue(right.dataset.average) ?? -1;
+      if (yearSort.value === "count-desc") return rightCount - leftCount || rightYear - leftYear;
+      if (yearSort.value === "average-desc") return rightAverage - leftAverage || rightYear - leftYear;
+      return yearSort.value === "year-asc" ? leftYear - rightYear : rightYear - leftYear;
+    });
+    yearDistribution.append(...visibleYears);
+    let visibleRatings = 0;
+    for (const item of fineRatings) {
+      const rating = numberValue(item.dataset.rating);
+      const visible = ratingFilter.value === "all" || (ratingFilter.value === "high" && rating >= 8) || (ratingFilter.value === "mid" && rating >= 6 && rating < 8) || (ratingFilter.value === "low" && rating < 6);
+      item.hidden = !visible;
+      if (visible) visibleRatings += 1;
+    }
+    if (filterSummary) filterSummary.textContent = `显示 ${visibleYears.length} 个年份分组 · ${visibleRatings} 个评分档位`;
+  };
+  [yearMinInput, yearMaxInput].forEach((input) => input.addEventListener("change", applyInsightFilters));
+  yearSort.addEventListener("change", applyInsightFilters);
+  ratingFilter.addEventListener("change", applyInsightFilters);
+  applyInsightFilters();
+})();
+
+(() => {
   const section = document.querySelector("#repository-compare");
   if (!section) {
     return;

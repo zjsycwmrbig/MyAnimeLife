@@ -46,6 +46,22 @@ function cleanString(value) {
   return String(value ?? "").trim();
 }
 
+function commitTitle(value) {
+  return cleanString(value).replace(/\s+/gu, " ").slice(0, 48);
+}
+
+function commitTitleSummary(records, limit = 5) {
+  const titles = [...new Set(
+    (records ?? []).map((record) => commitTitle(record?.title)).filter(Boolean),
+  )];
+  if (!titles.length) {
+    return "";
+  }
+  const visible = titles.slice(0, limit);
+  const suffix = titles.length > visible.length ? ` 等 ${titles.length} 部` : "";
+  return `${visible.join("、")}${suffix}`;
+}
+
 function fnv1a(text) {
   let hash = 0x811c9dc5;
   for (let index = 0; index < text.length; index += 1) {
@@ -925,14 +941,14 @@ export class GitHubRecordsService {
           ANIME_JSONL_PATH,
           animeText,
           library.animeFile.sha,
-          `chore(data): sync ${id}`,
+          `chore(data): save ${commitTitle(merged.title)} (${id})`,
         );
         const indexWrite = await this.putContentFile(
           config,
           ANIME_INDEX_JSONL_PATH,
           indexText,
           library.indexFile.sha,
-          `chore(data): refresh anime index for ${id}`,
+          `chore(index): refresh after ${commitTitle(merged.title)}`,
         );
         this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
         this.cacheWrittenFile(
@@ -1057,7 +1073,7 @@ export class GitHubRecordsService {
           ANIME_JSONL_PATH,
           animeText,
           library.animeFile.sha,
-          `chore(data): import ${added.length || queued.length} Bilibili anime`,
+          `chore(data): import ${added.length || queued.length} Bilibili anime: ${commitTitleSummary(added) || "待处理番剧"}`,
         );
         for (const record of added) {
           importedById.set(record.id, {
@@ -1071,7 +1087,7 @@ export class GitHubRecordsService {
           ANIME_INDEX_JSONL_PATH,
           indexText,
           library.indexFile.sha,
-          `chore(data): refresh index after Bilibili import`,
+          `chore(index): refresh after Bilibili import: ${commitTitleSummary(added) || "批量导入"}`,
         );
         this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
         this.cacheWrittenFile(

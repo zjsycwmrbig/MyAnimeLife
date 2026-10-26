@@ -2,6 +2,9 @@
   const searchInput = document.querySelector("#record-search");
   const clearSearchButton = document.querySelector("#clear-search");
   const ratingFilter = document.querySelector("#rating-filter");
+  const yearFilter = document.querySelector("#year-filter");
+  const ratingMinInput = document.querySelector("#rating-min");
+  const ratingMaxInput = document.querySelector("#rating-max");
   const sortOrder = document.querySelector("#sort-order");
   const recordsGrid = document.querySelector("#records-grid");
   const resultsSummary = document.querySelector("#results-summary");
@@ -19,6 +22,9 @@
     !searchInput ||
     !clearSearchButton ||
     !ratingFilter ||
+    !yearFilter ||
+    !ratingMinInput ||
+    !ratingMaxInput ||
     !sortOrder ||
     !recordsGrid ||
     !resultsSummary ||
@@ -53,20 +59,56 @@
   let currentResultCount = 0;
 
   const allowedFilters = new Set(["all", "rated", "unrated"]);
-  const allowedSorts = new Set(["year", "rating", "title"]);
+  const allowedSorts = new Set([
+    "year-desc",
+    "year-asc",
+    "rating-desc",
+    "rating-asc",
+    "created-desc",
+    "created-asc",
+    "updated-desc",
+    "updated-asc",
+    "title-asc",
+    "title-desc",
+  ]);
+  const sortAliases = {
+    year: "year-desc",
+    rating: "rating-desc",
+    title: "title-asc",
+  };
+
+  const yearValues = [...new Set(
+    cards
+      .map((card) => Number.parseInt(card.dataset.year ?? "", 10))
+      .filter((year) => Number.isInteger(year)),
+  )].sort((left, right) => right - left);
+  for (const year of yearValues) {
+    const option = document.createElement("option");
+    option.value = String(year);
+    option.textContent = `${year} 年`;
+    yearFilter.append(option);
+  }
 
   const initialState = {
     query: params.get("q") ?? "",
     filter: allowedFilters.has(params.get("status"))
       ? params.get("status")
       : "all",
+    year: yearValues.includes(Number(params.get("year")))
+      ? params.get("year")
+      : "all",
     sort: allowedSorts.has(params.get("sort"))
       ? params.get("sort")
-      : "year",
+      : sortAliases[params.get("sort")] ?? "year-desc",
+    ratingMin: params.get("minRating") ?? "",
+    ratingMax: params.get("maxRating") ?? "",
   };
 
   searchInput.value = initialState.query;
   ratingFilter.value = initialState.filter;
+  yearFilter.value = initialState.year;
+  ratingMinInput.value = initialState.ratingMin;
+  ratingMaxInput.value = initialState.ratingMax;
   sortOrder.value = initialState.sort;
 
   function syncPageSizeControls() {
@@ -105,29 +147,53 @@
       .replace(/[\s\u3000·・:：,，.。!！?？'"“”‘’()（）[\]【】《》<>_\-]/gu, "");
   }
 
+  function parseRating(value) {
+    const parsed = Number.parseFloat(String(value ?? ""));
+    return Number.isFinite(parsed) ? Math.min(10, Math.max(0, parsed)) : null;
+  }
+
+  function dateValue(value) {
+    const parsed = Date.parse(String(value ?? ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   function compareCards(left, right) {
-    if (sortOrder.value === "rating") {
+    const leftIndex = Number(left.dataset.originalIndex);
+    const rightIndex = Number(right.dataset.originalIndex);
+    if (sortOrder.value === "rating-desc" || sortOrder.value === "rating-asc") {
       const leftRating = Number(left.dataset.rating);
       const rightRating = Number(right.dataset.rating);
-      const leftValue = Number.isFinite(leftRating) ? leftRating : -1;
-      const rightValue = Number.isFinite(rightRating) ? rightRating : -1;
+      const leftValue = Number.isFinite(leftRating) ? leftRating : null;
+      const rightValue = Number.isFinite(rightRating) ? rightRating : null;
+      if (leftValue === null || rightValue === null) {
+        return (leftValue === null) - (rightValue === null) || leftIndex - rightIndex;
+      }
       return (
-        rightValue - leftValue ||
-        left.dataset.title.localeCompare(right.dataset.title, "zh-CN")
+        (sortOrder.value === "rating-desc" ? rightValue - leftValue : leftValue - rightValue) ||
+        leftIndex - rightIndex
       );
     }
 
-    if (sortOrder.value === "title") {
-      return left.dataset.title.localeCompare(right.dataset.title, "zh-CN");
+    if (sortOrder.value === "title-asc" || sortOrder.value === "title-desc") {
+      const direction = sortOrder.value === "title-asc" ? 1 : -1;
+      return direction * left.dataset.title.localeCompare(right.dataset.title, "zh-CN") || leftIndex - rightIndex;
+    }
+
+    if (sortOrder.value === "created-desc" || sortOrder.value === "created-asc" || sortOrder.value === "updated-desc" || sortOrder.value === "updated-asc") {
+      const field = sortOrder.value.startsWith("created") ? "created" : "updated";
+      const direction = sortOrder.value.endsWith("desc") ? -1 : 1;
+      return direction * (dateValue(left.dataset[field]) - dateValue(right.dataset[field])) || leftIndex - rightIndex;
     }
 
     const leftYear = Number(left.dataset.year);
     const rightYear = Number(right.dataset.year);
-    return (
-      (Number.isFinite(rightYear) ? rightYear : -1) -
-        (Number.isFinite(leftYear) ? leftYear : -1) ||
-      Number(left.dataset.originalIndex) - Number(right.dataset.originalIndex)
-    );
+    const leftValue = Number.isFinite(leftYear) ? leftYear : null;
+    const rightValue = Number.isFinite(rightYear) ? rightYear : null;
+    if (leftValue === null || rightValue === null) {
+      return (leftValue === null) - (rightValue === null) || leftIndex - rightIndex;
+    }
+    const direction = sortOrder.value === "year-asc" ? 1 : -1;
+    return direction * (leftValue - rightValue) || leftIndex - rightIndex;
   }
 
   function syncUrl() {
@@ -138,9 +204,16 @@
     if (ratingFilter.value !== "all") {
       next.set("status", ratingFilter.value);
     }
-    if (sortOrder.value !== "year") {
+    if (sortOrder.value !== "year-desc") {
       next.set("sort", sortOrder.value);
     }
+    if (yearFilter.value !== "all") {
+      next.set("year", yearFilter.value);
+    }
+    const minimum = parseRating(ratingMinInput.value);
+    const maximum = parseRating(ratingMaxInput.value);
+    if (minimum !== null) next.set("minRating", String(minimum));
+    if (maximum !== null) next.set("maxRating", String(maximum));
     if (pageSize !== defaultPageSize) {
       next.set("size", String(pageSize));
     }
@@ -244,6 +317,8 @@
     }
 
     const query = normalize(searchInput.value);
+    const minimum = parseRating(ratingMinInput.value);
+    const maximum = parseRating(ratingMaxInput.value);
     const filteredCards = [];
 
     for (const card of cards) {
@@ -254,8 +329,16 @@
         ratingFilter.value === "all" ||
         (ratingFilter.value === "rated" && hasRating) ||
         (ratingFilter.value === "unrated" && !hasRating);
+      const cardRating = hasRating ? Number(card.dataset.rating) : null;
+      const matchesRange =
+        (minimum === null && maximum === null) ||
+        (cardRating !== null &&
+          (minimum === null || cardRating >= minimum) &&
+          (maximum === null || cardRating <= maximum));
+      const matchesYear =
+        yearFilter.value === "all" || card.dataset.year === yearFilter.value;
       card.hidden = true;
-      if (matchesQuery && matchesRating) {
+      if (matchesQuery && matchesRating && matchesRange && matchesYear) {
         filteredCards.push(card);
       }
     }
@@ -299,6 +382,9 @@
   ratingFilter.addEventListener("change", () =>
     applyState({ resetPage: true }),
   );
+  yearFilter.addEventListener("change", () => applyState({ resetPage: true }));
+  ratingMinInput.addEventListener("change", () => applyState({ resetPage: true }));
+  ratingMaxInput.addEventListener("change", () => applyState({ resetPage: true }));
   sortOrder.addEventListener("change", () => applyState({ resetPage: true }));
   paginationSizeSelect.addEventListener("change", () => {
     if (paginationSizeSelect.value === "custom") {
@@ -333,7 +419,10 @@
   resetFiltersButton?.addEventListener("click", () => {
     searchInput.value = "";
     ratingFilter.value = "all";
-    sortOrder.value = "year";
+    yearFilter.value = "all";
+    ratingMinInput.value = "";
+    ratingMaxInput.value = "";
+    sortOrder.value = "year-desc";
     applyState({ resetPage: true });
     searchInput.focus();
   });
