@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Ajv from "ajv";
@@ -524,6 +525,14 @@ function createNunjucksEnvironment(templateDirectory) {
   return environment;
 }
 
+function dataVersion(dataText, indexText) {
+  return crypto
+    .createHash("sha256")
+    .update(`${dataText}\n${indexText}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+
 async function writeFile(filePath, contents) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, contents);
@@ -560,6 +569,10 @@ export async function buildSite(options = {}) {
   const environment = createNunjucksEnvironment(template.directory);
   const generatedAt = now.toISOString();
   const generatedAtLabel = formatDateTime(generatedAt);
+  const libraryDataVersion = dataVersion(
+    libraryData.dataText,
+    libraryData.indexText,
+  );
 
   await fs.rm(outputDirectory, { recursive: true, force: true });
   await fs.mkdir(outputDirectory, { recursive: true });
@@ -578,6 +591,7 @@ export async function buildSite(options = {}) {
     repository,
     generatedAt,
     generatedAtLabel,
+    dataVersion: libraryDataVersion,
     assetVersion: generatedAt.replace(/[^0-9A-Za-z]/gu, ""),
     share: normalizeShareConfig(config.share, config.template),
     dataEndpoint: "data/library.json",
@@ -654,6 +668,7 @@ export async function buildSite(options = {}) {
   const library = {
     schemaVersion: 1,
     generatedAt,
+    dataVersion: libraryDataVersion,
     site: {
       title: config.site.title,
       description: config.site.description,

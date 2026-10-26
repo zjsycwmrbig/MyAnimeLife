@@ -7,6 +7,8 @@ import { findDuplicateGroups } from "../scripts/duplicate-data.mjs";
 
 const SETTINGS_KEY = "myanimelife.admin.github.settings";
 const TOKEN_KEY = "myanimelife.admin.github.token";
+const LIBRARY_CACHE_VERSION = 1;
+const LIBRARY_REVALIDATE_INTERVAL = 30 * 1000;
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -67,6 +69,8 @@ let token = readCachedToken();
 let onlineStore = null;
 let catalogStore = null;
 let libraryCache = null;
+let libraryRevalidatePromise = null;
+let lastLibraryRevalidateAt = 0;
 
 const elements = {
   runtimeBadge: document.querySelector("#runtimeBadge"),
@@ -107,8 +111,115 @@ function getCatalogStore() {
   return catalogStore;
 }
 
-function invalidateLibraryCache() {
+function libraryCacheKey() {
+  return `myanimelife.admin.library.v${LIBRARY_CACHE_VERSION}:${encodeURIComponent(
+    settings.repository,
+  )}:${encodeURIComponent(settings.branch)}`;
+}
+
+function readPersistentLibraryCache() {
+  if (!settings.repository) {
+    return null;
+  }
+  try {
+    const cached = readStorage(localStorage, libraryCacheKey());
+    if (!cached || !Array.isArray(cached.records) || !Array.isArray(cached.index)) {
+      return null;
+    }
+    return {
+      ...cached,
+      config: cached.config ?? {},
+      backups: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistentLibraryCache(snapshot) {
+  if (!settings.repository || !snapshot) {
+    return;
+  }
+  try {
+    localStorage.setItem(
+      libraryCacheKey(),
+      JSON.stringify({
+        version: LIBRARY_CACHE_VERSION,
+        repository: settings.repository,
+        branch: settings.branch,
+        headSha: snapshot.headSha ?? "",
+        fetchedAt: new Date().toISOString(),
+        config: snapshot.config ?? {},
+        records: snapshot.records ?? [],
+        index: snapshot.index ?? [],
+        backupLimit: snapshot.config?.backupLimit ?? 5,
+      }),
+    );
+  } catch {
+    // Large repositories or private browsing must not break online mode.
+  }
+}
+
+function clearPersistentLibraryCache() {
+  if (!settings.repository) {
+    return;
+  }
+  try {
+    localStorage.removeItem(libraryCacheKey());
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+}
+
+function notifyLibraryChanged(source, headSha) {
+  window.dispatchEvent(
+    new CustomEvent("anime-library:changed", {
+      detail: { source, headSha },
+    }),
+  );
+}
+
+async function revalidateLibraryCache(previousHeadSha) {
+  if (libraryRevalidatePromise) {
+    return libraryRevalidatePromise;
+  }
+  lastLibraryRevalidateAt = Date.now();
+  libraryRevalidatePromise = getOnlineStore()
+    .load()
+    .then((snapshot) => {
+      const changed =
+        Boolean(previousHeadSha) && previousHeadSha !== snapshot.headSha;
+      libraryCache = snapshot;
+      writePersistentLibraryCache(snapshot);
+      if (changed) {
+        notifyLibraryChanged("remote", snapshot.headSha);
+      }
+      return snapshot;
+    })
+    .finally(() => {
+      libraryRevalidatePromise = null;
+    });
+  return libraryRevalidatePromise;
+}
+
+function scheduleLibraryRevalidation(snapshot) {
+  if (
+    Date.now() - lastLibraryRevalidateAt < LIBRARY_REVALIDATE_INTERVAL ||
+    libraryRevalidatePromise
+  ) {
+    return;
+  }
+  void revalidateLibraryCache(snapshot?.headSha).catch(() => {
+    // Keep the cached snapshot available when GitHub is temporarily offline.
+  });
+}
+
+function invalidateLibraryCache(options = {}) {
   libraryCache = null;
+  lastLibraryRevalidateAt = 0;
+  if (options.clearPersistent !== false) {
+    clearPersistentLibraryCache();
+  }
 }
 
 function renderRuntime() {
@@ -288,11 +399,22 @@ function parseBody(options) {
 }
 
 async function githubLibrary(fresh = false) {
-  if (!fresh && libraryCache) {
-    return libraryCache;
+  if (!fresh) {
+    if (libraryCache) {
+      scheduleLibraryRevalidation(libraryCache);
+      return libraryCache;
+    }
+    const cached = readPersistentLibraryCache();
+    if (cached) {
+      libraryCache = cached;
+      scheduleLibraryRevalidation(cached);
+      return cached;
+    }
   }
   const snapshot = await getOnlineStore().load();
   libraryCache = snapshot;
+  writePersistentLibraryCache(snapshot);
+  lastLibraryRevalidateAt = Date.now();
   return snapshot;
 }
 

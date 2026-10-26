@@ -287,13 +287,13 @@
     const imageSource = escapeXml(sourceUrl);
     return {
       markup: `${fallbackCover(title, x, y, width, height, palette)}
-        <image href="${imageSource}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" referrerpolicy="no-referrer" clip-path="url(#${id})" />`,
+        <image href="${imageSource}" xlink:href="${imageSource}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" referrerpolicy="no-referrer" clip-path="url(#${id})" />`,
       definition: `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" /></clipPath>`,
     };
   }
 
   function svgDocument(width, height, body, definitions = "") {
-    return `<svg xmlns="${SVG_NS}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    return `<svg xmlns="${SVG_NS}" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
       <defs>${definitions}</defs>
       ${body}
     </svg>`;
@@ -1005,6 +1005,7 @@
             <span class="share-dialog-spinner" aria-hidden="true"></span>
             <p>正在生成预览</p>
           </div>
+          <div class="share-dialog-svg-preview" role="img" aria-label="分享图片预览" hidden></div>
           <img class="share-dialog-image" alt="分享图片预览" hidden />
           <p class="share-dialog-preview-error" hidden>预览生成失败，请重试。</p>
         </section>
@@ -1062,8 +1063,11 @@
       }
       shareDialogState = null;
       const image = dialog.querySelector(".share-dialog-image");
+      const svgPreview = dialog.querySelector(".share-dialog-svg-preview");
       image.removeAttribute("src");
       image.hidden = true;
+      svgPreview.replaceChildren();
+      svgPreview.hidden = true;
       dialog.querySelector(".share-dialog-loading").hidden = false;
     });
     return dialog;
@@ -1094,10 +1098,12 @@
       return;
     }
     const loading = dialog.querySelector(".share-dialog-loading");
+    const svgPreview = dialog.querySelector(".share-dialog-svg-preview");
     const image = dialog.querySelector(".share-dialog-image");
     const error = dialog.querySelector(".share-dialog-preview-error");
     loading.hidden = state !== "loading";
-    image.hidden = state !== "ready";
+    svgPreview.hidden = state !== "ready";
+    image.hidden = true;
     error.hidden = state !== "error";
     dialog.classList.toggle("is-loading", state === "loading");
   }
@@ -1154,17 +1160,22 @@
       if (token !== state.generation || shareDialogState !== state) {
         return;
       }
-      const previewUrl = URL.createObjectURL(svgBlob(result.svg));
       if (state.previewUrl) {
         URL.revokeObjectURL(state.previewUrl);
+        state.previewUrl = null;
       }
-      state.previewUrl = previewUrl;
       state.svg = result.svg;
       state.width = result.width;
       state.height = result.height;
+      const svgPreview = dialog.querySelector(".share-dialog-svg-preview");
+      svgPreview.replaceChildren();
+      svgPreview.innerHTML = result.svg;
+      svgPreview.querySelector("svg")?.setAttribute(
+        "aria-label",
+        state.kind === "overview" ? "档案分享图片预览" : "番剧分享卡片预览",
+      );
       const image = dialog.querySelector(".share-dialog-image");
       image.alt = state.kind === "overview" ? "档案分享图片预览" : "番剧分享卡片预览";
-      image.src = previewUrl;
       setDialogPreviewState("ready");
       setDialogStatus(
         result.width === 1600

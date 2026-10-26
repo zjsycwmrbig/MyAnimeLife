@@ -1385,3 +1385,9 @@ window.addEventListener("anime-runtime:changed", () => {
   }
   renderBatchEditor();
 });
+
+window.addEventListener("anime-catalog:changed", () => {
+  if (state.view === "catalog") {
+    loadCatalog();
+  }
+});

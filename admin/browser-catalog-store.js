@@ -46,6 +46,16 @@ export class BrowserCatalogStore {
     }
     this.worker = this.createWorker();
     this.worker.addEventListener("message", (event) => {
+      if (event.data.type === "catalog-updated") {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("anime-catalog:changed", {
+              detail: event.data.payload,
+            }),
+          );
+        }
+        return;
+      }
       const requestId = event.data?.requestId;
       const pending = this.pending.get(requestId);
       if (!pending) {

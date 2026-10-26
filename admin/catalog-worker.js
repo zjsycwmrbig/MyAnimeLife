@@ -134,6 +134,11 @@ async function loadCatalog(refresh) {
     return cached;
   }
 
+  if (cached && !refresh) {
+    void refreshStaleCatalog(cached);
+    return cached;
+  }
+
   try {
     const version = await fetchLatestVersion();
     if (cached?.source?.version === version) {
@@ -155,6 +160,33 @@ async function loadCatalog(refresh) {
       return cached;
     }
     throw new Error(`全量番剧索引下载失败：${error.message || "网络错误"}`);
+  }
+}
+
+async function refreshStaleCatalog(cached) {
+  try {
+    const version = await fetchLatestVersion();
+    const updated =
+      cached.source?.version === version
+        ? {
+            ...cached,
+            source: {
+              ...cached.source,
+              checkedAt: new Date().toISOString(),
+            },
+          }
+        : await downloadCatalog(version);
+    await writeCache(updated);
+    catalog = updated;
+    self.postMessage({
+      type: "catalog-updated",
+      payload: {
+        version: updated.source.version,
+        checkedAt: updated.source.checkedAt,
+      },
+    });
+  } catch {
+    // The stale local index remains usable while the network is unavailable.
   }
 }
 

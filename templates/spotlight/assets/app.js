@@ -351,7 +351,11 @@
     }
   });
 
-  const coverCacheKey = "myanimelife.display-covers.v1";
+  const coverCacheKey = "myanimelife.display-covers.v2";
+  const coverCacheVersion =
+    document.querySelector('meta[name="myanimelife-data-version"]')?.content ||
+    "unknown";
+  const coverCacheTtl = 90 * 24 * 60 * 60 * 1000;
   const coverRequests = new Map();
   const coverQueue = [];
   const queuedCoverFrames = new Set();
@@ -377,8 +381,16 @@
 
   function readCoverCache() {
     try {
-      const value = JSON.parse(localStorage.getItem(coverCacheKey) ?? "{}");
-      return value && typeof value === "object" ? value : {};
+      const value = JSON.parse(localStorage.getItem(coverCacheKey) ?? "null");
+      if (!value || typeof value !== "object") {
+        return {};
+      }
+      if (value.version && value.version !== coverCacheVersion) {
+        return {};
+      }
+      return value.items && typeof value.items === "object"
+        ? value.items
+        : value;
     } catch {
       return {};
     }
@@ -386,10 +398,27 @@
 
   function writeCoverCache(cache) {
     try {
-      localStorage.setItem(coverCacheKey, JSON.stringify(cache));
+      localStorage.setItem(
+        coverCacheKey,
+        JSON.stringify({
+          version: coverCacheVersion,
+          updatedAt: new Date().toISOString(),
+          items: cache,
+        }),
+      );
     } catch {
       // Private browsing and full storage should not break the archive page.
     }
+  }
+
+  function cachedCover(subjectId) {
+    const entry = coverCache[subjectId];
+    const url = typeof entry === "string" ? entry : entry?.url;
+    const checkedAt = Number(entry?.checkedAt) || 0;
+    if (checkedAt && Date.now() - checkedAt > coverCacheTtl) {
+      return null;
+    }
+    return normalizeCoverUrl(url);
   }
 
   function fetchBangumiCover(subjectId) {
@@ -455,7 +484,10 @@
           if (!url) {
             return;
           }
-          coverCache[frame.dataset.bangumiId] = url;
+          coverCache[frame.dataset.bangumiId] = {
+            url,
+            checkedAt: Date.now(),
+          };
           writeCoverCache(coverCache);
           appendCoverImage(frame, url);
         })
@@ -478,7 +510,7 @@
       return;
     }
 
-    const cached = normalizeCoverUrl(coverCache[frame.dataset.bangumiId]);
+    const cached = cachedCover(frame.dataset.bangumiId);
     if (cached) {
       appendCoverImage(frame, cached);
       return;
@@ -536,7 +568,7 @@
         );
       }
       frames.forEach((frame) => {
-        const cached = normalizeCoverUrl(coverCache[frame.dataset.bangumiId]);
+        const cached = cachedCover(frame.dataset.bangumiId);
         if (cached) {
           coverObserver.unobserve(frame);
           appendCoverImage(frame, cached);

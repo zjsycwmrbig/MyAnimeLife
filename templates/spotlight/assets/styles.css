@@ -1637,12 +1637,23 @@ a:focus-visible {
   place-items: center;
 }
 
-.share-dialog-image {
+.share-dialog-image,
+.share-dialog-svg-preview {
   display: block;
   width: auto;
   max-width: 100%;
   max-height: calc(100dvh - 260px);
   object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 18px 46px rgb(0 0 0 / 42%);
+}
+
+.share-dialog-svg-preview svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 260px);
+  height: auto;
   border-radius: 6px;
   box-shadow: 0 18px 46px rgb(0 0 0 / 42%);
 }
@@ -1804,11 +1815,13 @@ a:focus-visible {
     padding: 12px;
   }
 
-  .share-dialog-image {
+  .share-dialog-image,
+  .share-dialog-svg-preview svg {
     max-height: 52dvh;
   }
 
-  .share-dialog.is-record .share-dialog-image {
+  .share-dialog.is-record .share-dialog-image,
+  .share-dialog.is-record .share-dialog-svg-preview svg {
     max-height: 64dvh;
   }
 
