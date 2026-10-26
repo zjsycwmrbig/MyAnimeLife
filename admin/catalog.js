@@ -12,12 +12,16 @@ import { createRatingControl } from "./rating-control.js";
 import { resolveCatalogCovers } from "./cover-cache.js";
 
 const MAX_BATCH_SIZE = 100;
+const LOCAL_APPEARANCE_KEY = "myanimelife.appearance.preferences";
 
 const state = {
   view: "library",
   catalogLoaded: false,
+  settingsLoaded: false,
   loading: false,
   busy: false,
+  settingsBusy: false,
+  remoteSettings: null,
   items: [],
   total: 0,
   page: 1,
@@ -37,6 +41,7 @@ const elements = {
   libraryWorkspace: document.querySelector("#libraryWorkspace"),
   catalogWorkspace: document.querySelector("#catalogWorkspace"),
   duplicateWorkspace: document.querySelector("#duplicateWorkspace"),
+  settingsWorkspace: document.querySelector("#settingsWorkspace"),
   aboutWorkspace: document.querySelector("#aboutWorkspace"),
   catalogSearch: document.querySelector("#catalogSearch"),
   catalogYear: document.querySelector("#catalogYear"),
@@ -82,6 +87,27 @@ const elements = {
   templateUpdateStatus: document.querySelector("#templateUpdateStatus"),
   templateCheckButton: document.querySelector("#templateCheckButton"),
   templateUpdateButton: document.querySelector("#templateUpdateButton"),
+  siteSettingsForm: document.querySelector("#siteSettingsForm"),
+  settingsWriteBadge: document.querySelector("#settingsWriteBadge"),
+  settingsStatus: document.querySelector("#settingsStatus"),
+  siteSettingsSave: document.querySelector("#siteSettingsSave"),
+  siteTitleInput: document.querySelector("#siteTitleInput"),
+  siteBrandInput: document.querySelector("#siteBrandInput"),
+  siteDescriptionInput: document.querySelector("#siteDescriptionInput"),
+  siteFooterInput: document.querySelector("#siteFooterInput"),
+  displayTemplateInputs: [
+    ...document.querySelectorAll('input[name="displayTemplate"]'),
+  ],
+  shareTemplateInputs: [
+    ...document.querySelectorAll('input[name="shareTemplate"]'),
+  ],
+  shareAccentInputs: [
+    ...document.querySelectorAll('input[name="shareAccent"]'),
+  ],
+  localAppearanceBadge: document.querySelector("#localAppearanceBadge"),
+  localAppearanceStatus: document.querySelector("#localAppearanceStatus"),
+  siteSettingsLocalSave: document.querySelector("#siteSettingsLocalSave"),
+  siteSettingsLocalClear: document.querySelector("#siteSettingsLocalClear"),
 };
 
 let searchTimer = null;
@@ -110,6 +136,215 @@ function formatDate(value) {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+function setSettingsStatus(message, tone = "") {
+  elements.settingsStatus.textContent = message;
+  elements.settingsStatus.classList.toggle("is-error", tone === "error");
+  elements.settingsStatus.classList.toggle("is-success", tone === "success");
+}
+
+function readLocalAppearance() {
+  try {
+    const value = JSON.parse(localStorage.getItem(LOCAL_APPEARANCE_KEY) || "null");
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function setLocalAppearanceStatus(message, tone = "") {
+  elements.localAppearanceStatus.textContent = message;
+  elements.localAppearanceStatus.classList.toggle("is-error", tone === "error");
+  elements.localAppearanceStatus.classList.toggle("is-success", tone === "success");
+}
+
+function renderLocalAppearance() {
+  const local = readLocalAppearance();
+  const active = Boolean(local?.share);
+  elements.localAppearanceBadge.textContent = active ? "已启用" : "未启用";
+  elements.localAppearanceBadge.classList.toggle("is-success", active);
+  setLocalAppearanceStatus(
+    active
+      ? `当前分享样式来自本机缓存${local.savedAt ? ` · ${formatDate(local.savedAt)}` : ""}`
+      : "当前使用仓库配置。",
+    active ? "success" : "",
+  );
+}
+
+function renderSettingsAccess() {
+  const writable = getRuntime().writable;
+  const disabled = state.settingsBusy || !writable;
+  for (const control of elements.siteSettingsForm.elements) {
+    control.disabled = control.dataset.localAppearanceControl === "true"
+      ? state.settingsBusy
+      : disabled;
+  }
+  elements.siteSettingsSave.classList.toggle("is-loading", state.settingsBusy);
+  elements.siteSettingsSave.textContent =
+    getRuntime().mode === "local" ? "保存设置" : "保存并发布";
+  elements.settingsWriteBadge.textContent = state.settingsBusy
+    ? "正在保存"
+    : writable
+      ? "可修改"
+      : "只读";
+}
+
+function selectRadio(inputs, value) {
+  for (const input of inputs) {
+    input.checked = input.value === value;
+  }
+}
+
+function renderSiteSettings(settings) {
+  state.remoteSettings = settings;
+  elements.siteTitleInput.value = settings.site?.title ?? "";
+  elements.siteBrandInput.value = settings.site?.brand ?? "";
+  elements.siteDescriptionInput.value = settings.site?.description ?? "";
+  elements.siteFooterInput.value = settings.site?.footer ?? "";
+  selectRadio(elements.displayTemplateInputs, settings.template);
+  selectRadio(elements.shareTemplateInputs, settings.share?.template ?? "auto");
+  selectRadio(elements.shareAccentInputs, settings.share?.accent ?? "coral");
+  const local = readLocalAppearance();
+  if (local?.share) {
+    selectRadio(
+      elements.shareTemplateInputs,
+      local.share.template ?? settings.share?.template ?? "auto",
+    );
+    selectRadio(
+      elements.shareAccentInputs,
+      local.share.accent ?? settings.share?.accent ?? "coral",
+    );
+  }
+  state.settingsLoaded = true;
+  renderLocalAppearance();
+  renderSettingsAccess();
+}
+
+async function loadSiteSettings(options = {}) {
+  if (state.settingsBusy || (state.settingsLoaded && !options.force)) {
+    return;
+  }
+  state.settingsBusy = true;
+  renderSettingsAccess();
+  setSettingsStatus("正在读取站点设置...");
+  try {
+    const settings = await api("/api/settings");
+    renderSiteSettings(settings);
+    setSettingsStatus(writableMessage());
+  } catch (error) {
+    setSettingsStatus(error.message, "error");
+  } finally {
+    state.settingsBusy = false;
+    renderSettingsAccess();
+  }
+}
+
+function writableMessage() {
+  if (!getRuntime().writable) {
+    return "填写具有 Contents 读写权限的 Token 后才能保存。";
+  }
+  return getRuntime().mode === "local"
+    ? "保存后写入 config/site.json，可在同步远端时一并提交。"
+    : "保存后会提交配置并触发 Pages 重新构建。";
+}
+
+function readAppearanceForm() {
+  return {
+    share: {
+      template:
+        elements.shareTemplateInputs.find((input) => input.checked)?.value ??
+        "auto",
+      accent:
+        elements.shareAccentInputs.find((input) => input.checked)?.value ??
+        "coral",
+    },
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function saveLocalAppearance() {
+  try {
+    localStorage.setItem(
+      LOCAL_APPEARANCE_KEY,
+      JSON.stringify(readAppearanceForm()),
+    );
+    renderLocalAppearance();
+    showToast("分享样式已保存到本机");
+  } catch {
+    setLocalAppearanceStatus("浏览器不允许保存本机缓存。", "error");
+    showToast("无法保存本机样式缓存", { error: true });
+  }
+}
+
+function clearLocalAppearance() {
+  try {
+    localStorage.removeItem(LOCAL_APPEARANCE_KEY);
+    if (state.remoteSettings) {
+      selectRadio(
+        elements.shareTemplateInputs,
+        state.remoteSettings.share?.template ?? "auto",
+      );
+      selectRadio(
+        elements.shareAccentInputs,
+        state.remoteSettings.share?.accent ?? "coral",
+      );
+    }
+    renderLocalAppearance();
+    showToast("已清除本机样式缓存");
+  } catch {
+    setLocalAppearanceStatus("无法清除本机缓存。", "error");
+  }
+}
+
+async function saveSiteSettings(event) {
+  event.preventDefault();
+  if (state.settingsBusy || !getRuntime().writable) {
+    setSettingsStatus(writableMessage(), getRuntime().writable ? "" : "error");
+    return;
+  }
+  const payload = {
+    site: {
+      title: elements.siteTitleInput.value,
+      brand: elements.siteBrandInput.value,
+      description: elements.siteDescriptionInput.value,
+      footer: elements.siteFooterInput.value,
+    },
+    template:
+      elements.displayTemplateInputs.find((input) => input.checked)?.value ??
+      "default",
+    share: {
+      template:
+        elements.shareTemplateInputs.find((input) => input.checked)?.value ??
+        "auto",
+      accent:
+        elements.shareAccentInputs.find((input) => input.checked)?.value ??
+        "coral",
+    },
+  };
+  state.settingsBusy = true;
+  renderSettingsAccess();
+  setSettingsStatus("正在保存站点设置...");
+  try {
+    const result = await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    renderSiteSettings(result.settings);
+    setSettingsStatus(
+      result.commitShort
+        ? `已提交 ${result.commitShort}，Pages 构建完成后生效。`
+        : "站点设置已保存。",
+      "success",
+    );
+    showToast(result.commitShort ? `站点设置已提交 ${result.commitShort}` : "站点设置已保存");
+  } catch (error) {
+    setSettingsStatus(error.message, "error");
+    showToast(error.message, { error: true, duration: 7000 });
+  } finally {
+    state.settingsBusy = false;
+    renderSettingsAccess();
+  }
 }
 
 function seasonText(season) {
@@ -229,6 +464,7 @@ function activateView(view, options = {}) {
   elements.libraryWorkspace.hidden = view !== "library";
   elements.catalogWorkspace.hidden = view !== "catalog";
   elements.duplicateWorkspace.hidden = view !== "duplicates";
+  elements.settingsWorkspace.hidden = view !== "settings";
   elements.aboutWorkspace.hidden = view !== "about";
   if (view === "catalog") {
     renderBatchEditor();
@@ -238,6 +474,9 @@ function activateView(view, options = {}) {
   }
   if (view === "duplicates") {
     window.dispatchEvent(new CustomEvent("anime-duplicates:activate"));
+  }
+  if (view === "settings") {
+    void loadSiteSettings();
   }
   if (view === "about") {
     renderAbout();
@@ -325,7 +564,7 @@ async function updateTemplate() {
     ].filter(Boolean).join(" · ");
     elements.templateCommitLink.href = result.templateCommitUrl || elements.templateCommitLink.href;
     elements.templateUpdateBadge.textContent = `已更新 ${result.commitShort}`;
-    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
+    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
     showToast(`管理页已更新，提交 ${result.commitShort}`, { duration: 7000 });
   } catch (error) {
     elements.templateUpdateStatus.textContent = error.message;
@@ -1003,6 +1242,9 @@ for (const button of elements.switchButtons) {
 
 elements.templateCheckButton.addEventListener("click", () => checkTemplate(true));
 elements.templateUpdateButton.addEventListener("click", updateTemplate);
+elements.siteSettingsForm.addEventListener("submit", saveSiteSettings);
+elements.siteSettingsLocalSave.addEventListener("click", saveLocalAppearance);
+elements.siteSettingsLocalClear.addEventListener("click", clearLocalAppearance);
 
 elements.catalogSearch.addEventListener("input", () => {
   clearTimeout(searchTimer);
@@ -1124,6 +1366,7 @@ window.addEventListener("anime-runtime:changed", () => {
     state.dirty = false;
   }
   state.catalogLoaded = false;
+  state.settingsLoaded = false;
   state.items = [];
   state.total = 0;
   state.page = 1;
@@ -1136,6 +1379,9 @@ window.addEventListener("anime-runtime:changed", () => {
   }
   if (state.view === "catalog") {
     loadCatalog();
+  }
+  if (state.view === "settings") {
+    loadSiteSettings({ force: true });
   }
   renderBatchEditor();
 });

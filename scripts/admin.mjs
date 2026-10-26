@@ -113,6 +113,19 @@ const server = http.createServer(async (request, response) => {
       });
       return;
     }
+    if (url.pathname === "/api/settings" && request.method === "GET") {
+      sendJson(response, 200, await store.siteSettings());
+      return;
+    }
+    if (url.pathname === "/api/settings" && request.method === "PUT") {
+      assertLocalRequest(request);
+      sendJson(
+        response,
+        200,
+        await store.saveSiteSettings(await readBody(request)),
+      );
+      return;
+    }
     if (url.pathname === "/api/catalog" && request.method === "GET") {
       const library = await store.load();
       const result = await catalogStore.search(

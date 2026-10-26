@@ -14,10 +14,38 @@ function isDataPath(path) {
   return path === "data" || path.startsWith(DATA_PREFIX);
 }
 
+function isPreservedPath(path) {
+  return isDataPath(path) || path === "config/site.json";
+}
+
 function blobEntries(tree) {
   return (tree?.tree ?? []).filter(
     (entry) => entry?.type === "blob" && typeof entry.path === "string" && entry.sha,
   );
+}
+
+function commitDetails(commit, repository, commitSha) {
+  const nested = commit?.commit && typeof commit.commit === "object"
+    ? commit.commit
+    : null;
+  const message = String(nested?.message ?? commit?.message ?? "").trim();
+  return {
+    message: message.split("\n", 1)[0] || "无提交说明",
+    author:
+      nested?.author?.name ??
+      commit?.author?.name ??
+      commit?.author?.login ??
+      "未知作者",
+    date:
+      nested?.author?.date ??
+      commit?.author?.date ??
+      nested?.committer?.date ??
+      commit?.committer?.date ??
+      null,
+    url:
+      commit?.html_url ??
+      `https://github.com/${repository}/commit/${commitSha}`,
+  };
 }
 
 export function buildTemplateTree(templateTree, targetTree) {
@@ -29,14 +57,14 @@ export function buildTemplateTree(templateTree, targetTree) {
       path: entry.path,
       mode: entry.mode || "100644",
       type: "blob",
-      sha: isDataPath(entry.path) && targetByPath.has(entry.path)
+      sha: isPreservedPath(entry.path) && targetByPath.has(entry.path)
         ? targetByPath.get(entry.path).sha
         : entry.sha,
     });
   }
 
   for (const entry of blobEntries(targetTree)) {
-    if (isDataPath(entry.path) && !entries.has(entry.path)) {
+    if (isPreservedPath(entry.path) && !entries.has(entry.path)) {
       entries.set(entry.path, {
         path: entry.path,
         mode: entry.mode || "100644",
@@ -82,17 +110,16 @@ export async function getTemplateStatus(client, options = {}) {
     throw new Error(`找不到模板分支 ${branch}`);
   }
   const commit = await client.getCommitFor(repository, commitSha);
-  const commitData = commit?.commit ?? {};
-  const commitAuthor = commitData.author?.name ?? commit?.author?.login ?? "未知作者";
+  const details = commitDetails(commit, repository, commitSha);
   return {
     repository,
     branch,
     commit: commitSha,
     commitShort: commitSha.slice(0, 7),
-    commitMessage: String(commitData.message ?? "").split("\n", 1)[0] || "无提交说明",
-    commitAuthor,
-    commitDate: commitData.author?.date ?? commitData.committer?.date ?? null,
-    commitUrl: commit?.html_url ?? `https://github.com/${repository}/commit/${commitSha}`,
+    commitMessage: details.message,
+    commitAuthor: details.author,
+    commitDate: details.date,
+    commitUrl: details.url,
   };
 }
 
@@ -117,19 +144,30 @@ export async function updateFromTemplate(client, options = {}) {
     throw new Error("无法读取模板或数据仓库的 Git 树");
   }
   const templateCommit = await client.getCommitFor(templateRepository, templateHead);
+  const templateDetails = commitDetails(
+    templateCommit,
+    templateRepository,
+    templateHead,
+  );
   const [templateTree, targetTree] = await Promise.all([
     client.getTreeFor(templateRepository, templateHead),
     client.getTreeFor(client.repository, targetCommit.tree.sha),
   ]);
-  const targetDataPaths = new Set(
-    blobEntries(targetTree).filter((entry) => isDataPath(entry.path)).map((entry) => entry.path),
+  const targetPreservedPaths = new Set(
+    blobEntries(targetTree)
+      .filter((entry) => isPreservedPath(entry.path))
+      .map((entry) => entry.path),
   );
   const sourceEntries = blobEntries(templateTree);
   const limiter = createLimiter(4);
   const copiedSha = new Map();
   await Promise.all(
     sourceEntries
-      .filter((entry) => !isDataPath(entry.path) || !targetDataPaths.has(entry.path))
+      .filter(
+        (entry) =>
+          !isPreservedPath(entry.path) ||
+          !targetPreservedPaths.has(entry.path),
+      )
       .map((entry) => limiter(async () => {
         const content = await client.getRawBase64For(
           templateRepository,
@@ -178,19 +216,21 @@ export async function updateFromTemplate(client, options = {}) {
     commit: commit.sha,
     commitShort: commit.sha.slice(0, 7),
     templateCommit: templateHead,
-    templateCommitMessage:
-      String(templateCommit?.commit?.message ?? "").split("\n", 1)[0] || "无提交说明",
-    templateCommitAuthor:
-      templateCommit?.commit?.author?.name ?? templateCommit?.author?.login ?? "未知作者",
-    templateCommitDate:
-      templateCommit?.commit?.author?.date ?? templateCommit?.commit?.committer?.date ?? null,
-    templateCommitUrl:
-      templateCommit?.html_url ??
-      `https://github.com/${templateRepository}/commit/${templateHead}`,
+    templateCommitMessage: templateDetails.message,
+    templateCommitAuthor: templateDetails.author,
+    templateCommitDate: templateDetails.date,
+    templateCommitUrl: templateDetails.url,
     preservedDataFiles: tree.filter((entry) => isDataPath(entry.path)).length,
+    preservedConfigFiles: tree.some(
+      (entry) => entry.path === "config/site.json",
+    )
+      ? 1
+      : 0,
     updatedFiles: copiedSha.size,
     removedFiles: blobEntries(targetTree).filter(
-      (entry) => !isDataPath(entry.path) && !tree.some((next) => next.path === entry.path),
+      (entry) =>
+        !isPreservedPath(entry.path) &&
+        !tree.some((next) => next.path === entry.path),
     ).length,
   };
 }

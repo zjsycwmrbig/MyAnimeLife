@@ -11,6 +11,10 @@
     "branch": "main"
   },
   "template": "default",
+  "share": {
+    "template": "auto",
+    "accent": "coral"
+  },
   "dataFile": "data/anime.jsonl",
   "indexFile": "data/anime-index.jsonl",
   "backupDirectory": "data/backups",

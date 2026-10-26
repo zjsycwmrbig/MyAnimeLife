@@ -16,6 +16,10 @@ import {
   getTemplateStatus,
   updateFromTemplate,
 } from "./template-updater.js";
+import {
+  applySiteSettings,
+  siteSettingsPayload,
+} from "../scripts/site-settings.mjs";
 
 const API_ROOT = "https://api.github.com";
 const RAW_ROOT = "https://raw.githubusercontent.com";
@@ -450,6 +454,51 @@ export class GitHubClient {
     return payload.sha;
   }
 
+  async publishFileChange(snapshot, filePath, text, message) {
+    const blob = await this.createBlob(text);
+    const tree = await this.request("/git/trees", {
+      method: "POST",
+      body: {
+        base_tree: snapshot.baseTreeSha,
+        tree: [
+          {
+            path: filePath,
+            mode: "100644",
+            type: "blob",
+            sha: blob,
+          },
+        ],
+      },
+    });
+    const commit = await this.request("/git/commits", {
+      method: "POST",
+      body: {
+        message,
+        tree: tree.sha,
+        parents: [snapshot.headSha],
+      },
+    });
+    try {
+      await this.request(`/git/refs/heads/${encodePath(this.branch)}`, {
+        method: "PATCH",
+        body: { sha: commit.sha, force: false },
+      });
+    } catch (error) {
+      if (error instanceof GitHubApiError && [409, 422].includes(error.status)) {
+        throw new GitHubApiError(
+          409,
+          "远端分支在保存设置期间已有新提交，未覆盖任何内容。请刷新后重试",
+          error.payload,
+        );
+      }
+      throw error;
+    }
+    return {
+      commit: commit.sha,
+      commitShort: commit.sha.slice(0, 7),
+    };
+  }
+
   async publish(snapshot, library, message) {
     if (sameLibrary(snapshot, library)) {
       return {
@@ -666,6 +715,28 @@ export class GitHubAdminStore {
       pushed: false,
       branch: this.client.branch,
       online: true,
+    };
+  }
+
+  async siteSettings() {
+    const snapshot = await this.client.loadSnapshot();
+    return siteSettingsPayload(snapshot.config);
+  }
+
+  async saveSiteSettings(input) {
+    this.requireWriteAccess();
+    const snapshot = await this.client.loadSnapshot();
+    const next = applySiteSettings(snapshot.config, input);
+    const result = await this.client.publishFileChange(
+      snapshot,
+      "config/site.json",
+      `${JSON.stringify(next, null, 2)}\n`,
+      "chore(config): update site appearance",
+    );
+    return {
+      ...result,
+      settings: siteSettingsPayload(next),
+      file: "config/site.json",
     };
   }
 

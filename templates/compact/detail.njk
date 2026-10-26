@@ -20,7 +20,7 @@
       data-share-review="{{ record.review }}"
       data-share-season="{{ record.seasonLabel }}"
       data-share-year="{{ record.yearLabel }}"
-      data-share-updated="{{ record.updatedLabel }}"
+      data-share-release="{{ record.releaseLabel }}"
     >
       <header class="detail-hero">
         <div class="detail-cover-wrap">
@@ -62,14 +62,14 @@
               {% if record.hasRating %}<span>/ 10</span>{% endif %}
             </p>
             <p class="detail-updated">
-              最后更新
-              <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
+              作品年代
+              <span>{{ record.releaseLabel or "未标注" }}</span>
             </p>
             <button
               class="share-trigger detail-share-trigger"
               data-share-trigger
               type="button"
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-label="分享《{{ record.title }}》"
               title="分享图片"
             >

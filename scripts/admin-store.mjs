@@ -20,6 +20,10 @@ import {
   removeLibraryRecords,
   updateLibraryRecord,
 } from "./admin-data.mjs";
+import {
+  applySiteSettings,
+  siteSettingsPayload,
+} from "./site-settings.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -65,9 +69,28 @@ export class LibraryAdminStore {
     const config = await loadSiteConfig(this.root);
     return {
       config,
+      configFile: path.join(this.root, "config", "site.json"),
       dataFile: path.join(this.root, config.dataFile),
       indexFile: path.join(this.root, config.indexFile),
       backupDirectory: path.join(this.root, config.backupDirectory),
+    };
+  }
+
+  async siteSettings() {
+    const context = await this.context();
+    return siteSettingsPayload(context.config);
+  }
+
+  async saveSiteSettings(input) {
+    const context = await this.context();
+    const next = applySiteSettings(context.config, input);
+    await writeFileAtomic(
+      context.configFile,
+      `${JSON.stringify(next, null, 2)}\n`,
+    );
+    return {
+      settings: siteSettingsPayload(next),
+      file: path.relative(this.root, context.configFile),
     };
   }
 
@@ -236,6 +259,7 @@ export class LibraryAdminStore {
   async gitStatus() {
     const context = await this.context();
     const paths = [
+      context.configFile,
       context.config.dataFile,
       context.config.indexFile,
       context.config.backupDirectory,
@@ -263,6 +287,7 @@ export class LibraryAdminStore {
     }
     const context = await this.context();
     const paths = [
+      context.configFile,
       context.config.dataFile,
       context.config.indexFile,
       context.config.backupDirectory,

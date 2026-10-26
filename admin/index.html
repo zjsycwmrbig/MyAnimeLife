@@ -23,6 +23,7 @@
           </button>
           <button data-view="catalog" type="button">全量索引</button>
           <button data-view="duplicates" type="button">重复检查</button>
+          <button data-view="settings" type="button">站点样式</button>
           <button data-view="about" type="button">关于我们</button>
         </nav>
         <div class="topbar-actions">
@@ -192,7 +193,6 @@
 
             <div class="record-meta">
               <span id="seasonLabel"></span>
-              <span id="updatedLabel"></span>
               <span id="backupLabel">备份上限 5 个</span>
             </div>
 
@@ -454,6 +454,196 @@
         </section>
       </main>
 
+      <main id="settingsWorkspace" class="settings-workspace" hidden>
+        <section class="settings-page" aria-label="站点样式设置">
+          <header class="settings-heading">
+            <div>
+              <p class="eyebrow">APPEARANCE</p>
+              <h1>站点样式</h1>
+            </div>
+            <span id="settingsWriteBadge" class="status-badge">读取中</span>
+          </header>
+
+          <form id="siteSettingsForm" class="site-settings-form">
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">SITE</p>
+                  <h2>站点信息</h2>
+                </div>
+              </div>
+              <div class="settings-fields">
+                <label class="field">
+                  <span>站点标题</span>
+                  <input id="siteTitleInput" maxlength="80" required />
+                </label>
+                <label class="field">
+                  <span>品牌标识</span>
+                  <input id="siteBrandInput" maxlength="40" required />
+                </label>
+                <label class="field settings-field-wide">
+                  <span>简介</span>
+                  <textarea id="siteDescriptionInput" rows="3" maxlength="240" required></textarea>
+                </label>
+                <label class="field settings-field-wide">
+                  <span>页脚</span>
+                  <input id="siteFooterInput" maxlength="120" />
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">DISPLAY</p>
+                  <h2>展示模板</h2>
+                </div>
+              </div>
+              <div class="template-choice-grid">
+                <label class="template-choice">
+                  <input type="radio" name="displayTemplate" value="default" />
+                  <span class="template-preview template-preview--default" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Archive</strong>
+                    <small>均衡档案</small>
+                  </span>
+                </label>
+                <label class="template-choice">
+                  <input type="radio" name="displayTemplate" value="compact" />
+                  <span class="template-preview template-preview--compact" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Compact</strong>
+                    <small>紧凑清单</small>
+                  </span>
+                </label>
+                <label class="template-choice">
+                  <input type="radio" name="displayTemplate" value="spotlight" />
+                  <span class="template-preview template-preview--spotlight" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Spotlight</strong>
+                    <small>海报聚焦</small>
+                  </span>
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <div class="settings-section-heading">
+                <div>
+                  <p class="eyebrow">SHARE CARD</p>
+                  <h2>分享模板</h2>
+                </div>
+              </div>
+              <div class="template-choice-grid share-choice-grid">
+                <label class="template-choice share-choice">
+                  <input type="radio" name="shareTemplate" value="auto" />
+                  <span class="share-preview share-preview--auto" aria-hidden="true">
+                    <span class="share-preview-cover"></span>
+                    <span class="share-preview-copy"></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Auto</strong>
+                    <small>跟随展示模板</small>
+                  </span>
+                </label>
+                <label class="template-choice share-choice">
+                  <input type="radio" name="shareTemplate" value="default" />
+                  <span class="share-preview share-preview--archive" aria-hidden="true">
+                    <span class="share-preview-cover"></span>
+                    <span class="share-preview-copy"></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Archive</strong>
+                    <small>封面与短评并排</small>
+                  </span>
+                </label>
+                <label class="template-choice share-choice">
+                  <input type="radio" name="shareTemplate" value="compact" />
+                  <span class="share-preview share-preview--compact" aria-hidden="true">
+                    <span class="share-preview-cover"></span>
+                    <span class="share-preview-copy"></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Compact</strong>
+                    <small>大封面信息流</small>
+                  </span>
+                </label>
+                <label class="template-choice share-choice">
+                  <input type="radio" name="shareTemplate" value="spotlight" />
+                  <span class="share-preview share-preview--spotlight" aria-hidden="true">
+                    <span class="share-preview-cover"></span>
+                    <span class="share-preview-copy"></span>
+                  </span>
+                  <span class="template-choice-copy">
+                    <strong>Spotlight</strong>
+                    <small>深色海报卡片</small>
+                  </span>
+                </label>
+              </div>
+
+              <fieldset class="accent-settings">
+                <legend>分享配色</legend>
+                <label class="accent-choice">
+                  <input type="radio" name="shareAccent" value="coral" />
+                  <span class="accent-swatch accent-swatch--coral"></span>
+                  <span>珊瑚</span>
+                </label>
+                <label class="accent-choice">
+                  <input type="radio" name="shareAccent" value="teal" />
+                  <span class="accent-swatch accent-swatch--teal"></span>
+                  <span>青绿</span>
+                </label>
+                <label class="accent-choice">
+                  <input type="radio" name="shareAccent" value="blue" />
+                  <span class="accent-swatch accent-swatch--blue"></span>
+                  <span>靛蓝</span>
+                </label>
+                <label class="accent-choice">
+                  <input type="radio" name="shareAccent" value="amber" />
+                  <span class="accent-swatch accent-swatch--amber"></span>
+                  <span>琥珀</span>
+                </label>
+              </fieldset>
+
+              <div class="local-style-cache">
+                <div class="settings-section-heading">
+                  <div>
+                    <p class="eyebrow">THIS BROWSER</p>
+                    <h2>本机样式缓存</h2>
+                  </div>
+                  <span id="localAppearanceBadge" class="status-badge">未启用</span>
+                </div>
+                <p class="local-style-cache-copy">
+                  保存后只对当前浏览器生效，不会写入 GitHub。分享模板和配色会优先读取这里的设置；清除后恢复仓库配置。
+                </p>
+                <div class="local-style-cache-actions">
+                  <button id="siteSettingsLocalSave" class="button button-quiet" data-local-appearance-control="true" type="button">
+                    保存到本机
+                  </button>
+                  <button id="siteSettingsLocalClear" class="button button-quiet" data-local-appearance-control="true" type="button">
+                    清除本机缓存
+                  </button>
+                  <span id="localAppearanceStatus" class="local-style-cache-status" role="status" aria-live="polite"></span>
+                </div>
+              </div>
+            </section>
+
+            <div class="settings-actions">
+              <p id="settingsStatus" class="settings-status" role="status" aria-live="polite"></p>
+              <button id="siteSettingsSave" class="button button-primary" type="submit">
+                保存并发布
+              </button>
+            </div>
+          </form>
+        </section>
+      </main>
+
       <main id="aboutWorkspace" class="about-workspace" hidden>
         <section class="about-page" aria-label="关于 MyAnimeLife">
           <div class="about-heading">
@@ -476,7 +666,7 @@
               </div>
               <p class="about-copy">
                 从公开模板仓库读取最新代码，并写入当前数据仓库的分支。更新会保留整个
-                <code>data/</code> 目录，包括番剧记录、索引和备份。
+                <code>data/</code> 目录与 <code>config/site.json</code>，包括番剧记录、索引、备份和站点样式设置。
               </p>
               <div class="about-repository-list">
                 <div>
@@ -507,8 +697,8 @@
               <div class="about-warning">
                 <strong>更新前请确认</strong>
                 <span>
-                  更新会覆盖当前仓库中除 <code>data/</code> 外的全部文件，包括你自行修改的页面、配置、工作流和脚本。
-                  这是一次新的 Git 提交；请先把自己的非数据修改推送或备份，再继续。
+                  更新会覆盖当前仓库中除 <code>data/</code> 和 <code>config/site.json</code> 外的全部文件，包括你自行修改的页面、工作流和脚本。
+                  这是一次新的 Git 提交；请先把自己的其他页面和脚本修改推送或备份，再继续。
                 </span>
               </div>
               <p id="templateUpdateStatus" class="about-status" role="status" aria-live="polite"></p>

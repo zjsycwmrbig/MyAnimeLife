@@ -12,6 +12,8 @@
   const paginationPrevious = document.querySelector("#pagination-previous");
   const paginationNext = document.querySelector("#pagination-next");
   const paginationPages = document.querySelector("#pagination-pages");
+  const paginationSizeSelect = document.querySelector("#pagination-size");
+  const paginationSizeInput = document.querySelector("#pagination-size-custom");
 
   if (
     !searchInput ||
@@ -25,25 +27,33 @@
     !paginationSummary ||
     !paginationPrevious ||
     !paginationNext ||
-    !paginationPages
+    !paginationPages ||
+    !paginationSizeSelect ||
+    !paginationSizeInput
   ) {
     return;
   }
 
   const cards = [...recordsGrid.querySelectorAll(".record-card")];
   const total = cards.length;
-  const pageSize = Math.max(
+  const defaultPageSize = Math.max(
     1,
-    Number.parseInt(recordsGrid.dataset.pageSize ?? "24", 10) || 24,
+    Number.parseInt(recordsGrid.dataset.pageSize ?? "25", 10) || 25,
   );
+  const pageSizeOptions = new Set([10, 25, 50, 100]);
   const params = new URLSearchParams(window.location.search);
+  const requestedPageSize = Number.parseInt(params.get("size") ?? "", 10);
+  let pageSize =
+    Number.isFinite(requestedPageSize) && requestedPageSize >= 1 && requestedPageSize <= 200
+      ? requestedPageSize
+      : defaultPageSize;
   const requestedPage = Number.parseInt(params.get("page") ?? "1", 10);
   let currentPage =
     Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   let currentResultCount = 0;
 
   const allowedFilters = new Set(["all", "rated", "unrated"]);
-  const allowedSorts = new Set(["updated", "rating", "title"]);
+  const allowedSorts = new Set(["year", "rating", "title"]);
 
   const initialState = {
     query: params.get("q") ?? "",
@@ -52,12 +62,41 @@
       : "all",
     sort: allowedSorts.has(params.get("sort"))
       ? params.get("sort")
-      : "updated",
+      : "year",
   };
 
   searchInput.value = initialState.query;
   ratingFilter.value = initialState.filter;
   sortOrder.value = initialState.sort;
+
+  function syncPageSizeControls() {
+    paginationSizeSelect.value = pageSizeOptions.has(pageSize)
+      ? String(pageSize)
+      : "custom";
+    paginationSizeInput.value = String(pageSize);
+    paginationSizeInput.hidden = paginationSizeSelect.value !== "custom";
+  }
+
+  function parsePageSize(value) {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+    return Math.min(200, Math.max(1, parsed));
+  }
+
+  function setPageSize(value) {
+    const nextPageSize = parsePageSize(value);
+    if (nextPageSize === null) {
+      syncPageSizeControls();
+      return;
+    }
+    pageSize = nextPageSize;
+    syncPageSizeControls();
+    applyState({ resetPage: true });
+  }
+
+  syncPageSizeControls();
 
   function normalize(value) {
     return String(value ?? "")
@@ -82,9 +121,11 @@
       return left.dataset.title.localeCompare(right.dataset.title, "zh-CN");
     }
 
+    const leftYear = Number(left.dataset.year);
+    const rightYear = Number(right.dataset.year);
     return (
-      new Date(right.dataset.updated).getTime() -
-        new Date(left.dataset.updated).getTime() ||
+      (Number.isFinite(rightYear) ? rightYear : -1) -
+        (Number.isFinite(leftYear) ? leftYear : -1) ||
       Number(left.dataset.originalIndex) - Number(right.dataset.originalIndex)
     );
   }
@@ -97,8 +138,11 @@
     if (ratingFilter.value !== "all") {
       next.set("status", ratingFilter.value);
     }
-    if (sortOrder.value !== "updated") {
+    if (sortOrder.value !== "year") {
       next.set("sort", sortOrder.value);
+    }
+    if (pageSize !== defaultPageSize) {
+      next.set("size", String(pageSize));
     }
     if (currentPage > 1) {
       next.set("page", String(currentPage));
@@ -159,7 +203,7 @@
   }
 
   function renderPagination(page, pageCount, visibleStart, visibleEnd, count) {
-    paginationNav.hidden = count === 0 || pageCount <= 1;
+    paginationNav.hidden = count === 0;
     paginationSummary.textContent = count
       ? `显示第 ${visibleStart}-${visibleEnd} 条，共 ${count} 条`
       : "没有可显示的记录";
@@ -217,6 +261,9 @@
     }
 
     filteredCards.sort(compareCards);
+    filteredCards.forEach((card, index) => {
+      card.dataset.coverPriority = String(index);
+    });
     recordsGrid.append(...filteredCards);
 
     const pageCount = Math.max(1, Math.ceil(filteredCards.length / pageSize));
@@ -245,6 +292,7 @@
       filteredCards.length,
     );
     syncUrl();
+    recoverMissingCovers();
   }
 
   searchInput.addEventListener("input", () => applyState({ resetPage: true }));
@@ -252,6 +300,18 @@
     applyState({ resetPage: true }),
   );
   sortOrder.addEventListener("change", () => applyState({ resetPage: true }));
+  paginationSizeSelect.addEventListener("change", () => {
+    if (paginationSizeSelect.value === "custom") {
+      paginationSizeInput.hidden = false;
+      paginationSizeInput.focus();
+      paginationSizeInput.select();
+      return;
+    }
+    setPageSize(paginationSizeSelect.value);
+  });
+  paginationSizeInput.addEventListener("change", () => {
+    setPageSize(paginationSizeInput.value);
+  });
   paginationPrevious.addEventListener("click", () => {
     if (currentPage > 1) {
       goToPage(currentPage - 1);
@@ -273,7 +333,7 @@
   resetFiltersButton?.addEventListener("click", () => {
     searchInput.value = "";
     ratingFilter.value = "all";
-    sortOrder.value = "updated";
+    sortOrder.value = "year";
     applyState({ resetPage: true });
     searchInput.focus();
   });
@@ -293,6 +353,11 @@
 
   const coverCacheKey = "myanimelife.display-covers.v1";
   const coverRequests = new Map();
+  const coverQueue = [];
+  const queuedCoverFrames = new Set();
+  const maxConcurrentCoverRequests = 3;
+  let activeCoverRequests = 0;
+  let coverObserver = null;
 
   function normalizeCoverUrl(value) {
     const candidate = String(value ?? "").trim();
@@ -353,6 +418,79 @@
     return coverRequests.get(id);
   }
 
+  const coverCache = readCoverCache();
+
+  function isCoverFrameVisible(frame) {
+    const card = frame.closest(".record-card");
+    return !card || !card.hidden;
+  }
+
+  function getCoverPriority(frame) {
+    const card = frame.closest(".record-card");
+    if (!card) {
+      return -1;
+    }
+    return Number(card.dataset.coverPriority ?? card.dataset.originalIndex ?? 0);
+  }
+
+  function processCoverQueue() {
+    while (
+      activeCoverRequests < maxConcurrentCoverRequests &&
+      coverQueue.length
+    ) {
+      const frame = coverQueue.shift();
+      queuedCoverFrames.delete(frame);
+      if (
+        !isCoverFrameVisible(frame) ||
+        frame.querySelector("img") ||
+        frame.dataset.coverLoading === "true"
+      ) {
+        continue;
+      }
+
+      frame.dataset.coverLoading = "true";
+      activeCoverRequests += 1;
+      fetchBangumiCover(frame.dataset.bangumiId)
+        .then((url) => {
+          if (!url) {
+            return;
+          }
+          coverCache[frame.dataset.bangumiId] = url;
+          writeCoverCache(coverCache);
+          appendCoverImage(frame, url);
+        })
+        .finally(() => {
+          delete frame.dataset.coverLoading;
+          activeCoverRequests -= 1;
+          processCoverQueue();
+        });
+    }
+  }
+
+  function enqueueCover(frame) {
+    if (
+      !frame.dataset.bangumiId ||
+      frame.querySelector("img") ||
+      frame.dataset.coverAttempted === "true" ||
+      queuedCoverFrames.has(frame) ||
+      !isCoverFrameVisible(frame)
+    ) {
+      return;
+    }
+
+    const cached = normalizeCoverUrl(coverCache[frame.dataset.bangumiId]);
+    if (cached) {
+      appendCoverImage(frame, cached);
+      return;
+    }
+
+    frame.dataset.coverAttempted = "true";
+    queuedCoverFrames.add(frame);
+    coverQueue.push(frame);
+    coverQueue.sort((left, right) => getCoverPriority(left) - getCoverPriority(right));
+    processCoverQueue();
+  }
+
   function appendCoverImage(frame, url) {
     if (!url || frame.querySelector("img")) {
       return;
@@ -373,47 +511,43 @@
   }
 
   function recoverMissingCovers() {
-    const cache = readCoverCache();
     const frames = [...
       document.querySelectorAll(
         ".record-cover[data-bangumi-id], .detail-cover[data-bangumi-id]",
       ),
     ].filter((frame) => frame.dataset.bangumiId && !frame.querySelector("img"));
 
-    const recover = (frame) => {
-      const subjectId = frame.dataset.bangumiId;
-      const cached = normalizeCoverUrl(cache[subjectId]);
-      if (cached) {
-        appendCoverImage(frame, cached);
-        return;
-      }
-      fetchBangumiCover(subjectId).then((url) => {
-        if (!url) {
-          return;
-        }
-        cache[subjectId] = url;
-        writeCoverCache(cache);
-        appendCoverImage(frame, url);
-      });
-    };
-
     if ("IntersectionObserver" in window) {
-      const observer = new IntersectionObserver(
+      if (!coverObserver) {
+        coverObserver = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
             if (!entry.isIntersecting) {
               continue;
             }
-            observer.unobserve(entry.target);
-            recover(entry.target);
+            if (!isCoverFrameVisible(entry.target)) {
+              continue;
+            }
+            coverObserver.unobserve(entry.target);
+            enqueueCover(entry.target);
           }
         },
         { rootMargin: "500px 0px" },
-      );
-      frames.forEach((frame) => observer.observe(frame));
+        );
+      }
+      frames.forEach((frame) => {
+        const cached = normalizeCoverUrl(coverCache[frame.dataset.bangumiId]);
+        if (cached) {
+          coverObserver.unobserve(frame);
+          appendCoverImage(frame, cached);
+          return;
+        }
+        coverObserver.observe(frame);
+        enqueueCover(frame);
+      });
       return;
     }
-    frames.forEach(recover);
+    frames.forEach((frame) => enqueueCover(frame));
   }
 
   for (const image of document.querySelectorAll(
@@ -427,8 +561,6 @@
       markMissing();
     }
   }
-
-  recoverMissingCovers();
 
   applyState();
 })();

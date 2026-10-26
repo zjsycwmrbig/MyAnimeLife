@@ -54,10 +54,10 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 
 ## 页面能力
 
-- 首页展示全部番剧、封面、评分、评价摘要和匹配状态；没有记录时显示空白引导
+- 首页展示全部番剧、封面、评分、作品年份、季度、评价摘要和匹配状态；公开页面中的日期指作品年代，不使用记录更新时间代替
 - 封面优先使用记录中的地址；旧的 `http` 地址会在构建时升级为 `https`，缺少封面的 Bangumi 记录会在展示页按需恢复并缓存
 - 支持标题、评价、备注和跨站索引 ID 搜索
-- 支持已评分/未评分筛选，以及更新时间、评分、标题排序
+- 支持已评分/未评分筛选，以及作品年份、评分、标题排序
 - 每部番剧有独立详情页
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
@@ -67,7 +67,10 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 管理页可集中检查站点 ID、同季度同名和相似标题重复项，并定位编辑或批量删除
 - 提供 `/insights/` 数据洞察页，统计收录节奏、年代分布、评分分布和索引覆盖
 - 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
-- 内置三套可切换模板和两份不同职责的说明文档
+- 内置三套展示模板、三套分享图版式和四套分享配色，可在管理页“站点样式”中切换
+- 单番剧分享会先打开大卡片预览，可复制图片、下载 PNG 或下载 SVG
+- 洞察页分享可勾选摘要、趋势、年代、评分、索引和 PK 模块，并切换长图或社交卡片版式
+- 展示页导航提供直接进入在线管理页的入口
 
 完整截图素材位于 [`docs/screenshots/`](docs/screenshots/)，可用于了解展示页、详情页、管理页和油猴脚本的实际界面。
 
@@ -254,7 +257,7 @@ https://<owner>.github.io/<repository>/admin/
 
 ### 从模板更新管理页
 
-GitHub Pages 在线管理页的“关于我们”页面提供“检查模板更新”和“拉取最新管理页”。它会读取公开模板仓库 `zjsycwmrbig/MyAnimeLife` 的 `main` 分支，并在当前数据仓库创建一次新的 Git 提交。整个 `data/` 目录会沿用数据仓库中的版本，包括 `anime.jsonl`、`anime-index.jsonl` 和备份；模板之外的其他文件会按模板当前版本重建，当前仓库自行修改的页面、配置、工作流和脚本可能被覆盖。
+GitHub Pages 在线管理页的“关于我们”页面提供“检查模板更新”和“拉取最新管理页”。它会读取公开模板仓库 `zjsycwmrbig/MyAnimeLife` 的 `main` 分支，并在当前数据仓库创建一次新的 Git 提交。整个 `data/` 目录和 `config/site.json` 会沿用数据仓库中的版本，包括番剧记录、索引、备份和站点样式设置；其他文件会按模板当前版本重建，当前仓库自行修改的页面、工作流和脚本可能被覆盖。
 
 更新需要对当前数据仓库拥有 `Contents: Read and write` 权限的细粒度 Token。执行前页面会显示覆盖提醒并要求确认；如果更新期间分支产生了新提交，操作会被拒绝，不会强制覆盖远端改动。
 
@@ -266,6 +269,8 @@ GitHub Pages 在线管理页的“关于我们”页面提供“检查模板更�
 - 最近 12 个月收录趋势
 - 番剧年代分布、各年代平均评分和评分最高年代
 - 评分区间、未评分比例、外部站点索引及季度信息覆盖率
+
+页面顶部的“分享洞察图”会打开分享工作台。用户可以只选择需要的统计模块，并在长图和 1600 × 1000 卡片之间切换；图案完全在浏览器本地生成，支持复制 PNG、下载 PNG 和下载 SVG。“仓库 PK”模块只会在当前页面已经完成一次 PK 后启用。
 
 页面下方的“仓库 PK”会读取当前站点的 `/data/library.json`，并根据 `owner/repository` 和分支，从以下公开地址读取对方轻量索引：
 
@@ -416,13 +421,19 @@ manual-01jabcdef
 | `compact` | 单列高密度清单，缩小封面和工具栏 | 记录很多、频繁搜索和快速扫描 |
 | `spotlight` | 深色海报墙，放大封面和标题 | 以视觉浏览和作品回顾为主 |
 
-在 `config/site.json` 中切换模板，不需要迁移 `data/anime.jsonl` 或 `data/anime-index.jsonl`：
+在管理页“站点样式”中切换模板，或直接修改 `config/site.json`。这些设置不需要迁移 `data/anime.jsonl` 或 `data/anime-index.jsonl`：
 
 ```json
 {
-  "template": "compact"
+  "template": "compact",
+  "share": {
+    "template": "auto",
+    "accent": "teal"
+  }
 }
 ```
+
+分享模板支持 `auto`、`default`、`compact`、`spotlight`。`auto` 会跟随展示模板；分享配色支持 `coral`、`teal`、`blue`、`amber`。单番剧分享图统一读取封面、标题、10 分评分、短评和作品年代；洞察分享图使用同一套模板与配色，并支持按模块生成长图或卡片。
 
 模板目录必须包含自己的 `template.json`：
 

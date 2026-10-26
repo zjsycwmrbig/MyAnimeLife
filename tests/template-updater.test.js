@@ -5,7 +5,7 @@ import {
   getTemplateStatus,
 } from "../admin/template-updater.js";
 
-test("template tree keeps every target data file and replaces non-data files", () => {
+test("template tree keeps target data and personal site settings", () => {
   const next = buildTemplateTree(
     {
       tree: [
@@ -26,6 +26,7 @@ test("template tree keeps every target data file and replaces non-data files", (
 
   assert.deepEqual(next, [
     { path: "admin/index.html", mode: "100644", type: "blob", sha: "template-admin" },
+    { path: "config/site.json", mode: "100644", type: "blob", sha: "personal-config" },
     { path: "data/anime.jsonl", mode: "100644", type: "blob", sha: "personal-records" },
     { path: "data/backups/library-old.json", mode: "100644", type: "blob", sha: "personal-backup" },
     { path: "data/README.md", mode: "100644", type: "blob", sha: "template-data-readme" },
@@ -41,13 +42,10 @@ test("reads the latest template commit details", async () => {
       async getCommitFor() {
         return {
           html_url: "https://github.com/example/template/commit/abc",
-          author: { login: "maintainer" },
-          commit: {
-            message: "feat: improve archive\n\nDetails",
-            author: {
-              name: "Template Maintainer",
-              date: "2026-10-25T12:00:00Z",
-            },
+          message: "feat: improve archive\n\nDetails",
+          author: {
+            name: "Template Maintainer",
+            date: "2026-10-25T12:00:00Z",
           },
         };
       },

@@ -75,14 +75,14 @@
           <label class="select-field">
             <span>排序</span>
             <select id="sort-order">
-              <option value="updated">最近更新</option>
+              <option value="year">作品年份</option>
               <option value="rating">评分最高</option>
               <option value="title">标题顺序</option>
             </select>
           </label>
         </div>
 
-        <div id="records-grid" class="records-grid" data-page-size="24">
+        <div id="records-grid" class="records-grid" data-page-size="25">
           {% for record in records %}
             <article
               class="record-card"
@@ -94,11 +94,11 @@
               data-share-review="{{ record.reviewExcerpt }}"
               data-share-season="{{ record.seasonLabel }}"
               data-share-year="{{ record.yearLabel }}"
-              data-share-updated="{{ record.updatedLabel }}"
+              data-share-release="{{ record.releaseLabel }}"
               data-record-id="{{ record.id }}"
               data-title="{{ record.title }}"
               data-rating="{{ record.ratingValue }}"
-              data-updated="{{ record.updatedAt }}"
+              data-year="{{ record.year or '' }}"
               data-search="{{ record.searchText }}"
               data-original-index="{{ loop.index0 }}"
             >
@@ -147,12 +147,12 @@
 
                 <div class="record-card-footer">
                   <span>{{ "有索引" if record.sourceCount else "手动记录" }}</span>
-                  <time datetime="{{ record.updatedAt }}">{{ record.updatedLabel }}</time>
+                  <span>{{ record.releaseLabel or "年代未标注" }}</span>
                   <button
                     class="share-trigger record-share-trigger"
                     data-share-trigger
                     type="button"
-                    aria-haspopup="menu"
+                    aria-haspopup="dialog"
                     aria-label="分享《{{ record.title }}》"
                     title="分享图片"
                   >
@@ -172,6 +172,27 @@
         >
           <p id="pagination-summary" class="pagination-summary" aria-live="polite"></p>
           <div class="pagination-controls">
+            <label class="pagination-size">
+              <span>每页</span>
+              <select id="pagination-size" aria-label="每页显示数量">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="custom">自定义</option>
+              </select>
+              <input
+                id="pagination-size-custom"
+                type="number"
+                min="1"
+                max="200"
+                inputmode="numeric"
+                aria-label="自定义每页数量"
+                placeholder="数量"
+                hidden
+              />
+              <span>条</span>
+            </label>
             <button
               id="pagination-previous"
               class="pagination-step"

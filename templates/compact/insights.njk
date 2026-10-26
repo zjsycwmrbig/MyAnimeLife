@@ -19,11 +19,11 @@
           data-share-trigger
           data-share-kind="overview"
           type="button"
-          aria-haspopup="menu"
-          title="导出档案总览图"
+          aria-haspopup="dialog"
+          title="选择模块并导出档案洞察图"
         >
           {{ icon("share") }}
-          <span>分享总览图</span>
+          <span>分享洞察图</span>
         </button>
       </div>
       <dl class="insights-snapshot" aria-label="档案摘要">
@@ -324,5 +324,6 @@
 {% endblock %}
 
 {% block scripts %}
+  <script src="{{ assetRoot }}share.js?v={{ assetVersion }}" defer></script>
   <script src="{{ assetRoot }}insights.js" defer></script>
 {% endblock %}

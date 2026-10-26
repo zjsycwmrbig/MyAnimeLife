@@ -319,6 +319,12 @@ async function onlineApi(path, options) {
   if (url.pathname === "/api/status" && method === "GET") {
     return store.status();
   }
+  if (url.pathname === "/api/settings" && method === "GET") {
+    return store.siteSettings();
+  }
+  if (url.pathname === "/api/settings" && method === "PUT") {
+    return store.saveSiteSettings(parseBody(options));
+  }
   if (url.pathname === "/api/template/status" && method === "GET") {
     return store.templateStatus();
   }

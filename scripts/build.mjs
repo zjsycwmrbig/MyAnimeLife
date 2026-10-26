@@ -13,6 +13,7 @@ import {
   sortRecordsById,
 } from "./library-data.mjs";
 import { calculateInsights } from "./insights-data.mjs";
+import { normalizeShareConfig } from "./site-settings.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(scriptDirectory, "..");
@@ -207,6 +208,7 @@ export async function loadSiteConfig(root = defaultRoot) {
   ) {
     throw new Error("config/site.json 的 backupLimit 必须是 1 到 20 的整数");
   }
+  normalizeShareConfig(config.share, config.template);
 
   return config;
 }
@@ -427,6 +429,7 @@ function createRecordViewModel(record) {
   const seasonLabel = formatSeasonLabel(record);
   const year = Number.isInteger(record.season?.year) ? record.season.year : null;
   const yearLabel = year === null ? "" : String(year);
+  const releaseLabel = [yearLabel, seasonLabel].filter(Boolean).join(" · ");
 
   return {
     ...record,
@@ -434,6 +437,7 @@ function createRecordViewModel(record) {
     seasonLabel,
     year,
     yearLabel,
+    releaseLabel,
     detailPath: `anime/${record.id}/`,
     ratingDisplay: formatRating(record.rating),
     ratingValue: record.rating === null ? "" : String(record.rating),
@@ -544,10 +548,11 @@ export async function buildSite(options = {}) {
   const records = publicEntries
     .map(createRecordViewModel)
     .sort((left, right) => {
+      const byYear = (right.year ?? -1) - (left.year ?? -1);
       const byUpdatedAt =
         new Date(right.updatedAt).getTime() -
         new Date(left.updatedAt).getTime();
-      return byUpdatedAt || left.title.localeCompare(right.title, "zh-CN");
+      return byYear || byUpdatedAt || left.title.localeCompare(right.title, "zh-CN");
     });
   const insights = calculateInsights(records, now);
   const stats = insights.summary;
@@ -574,6 +579,7 @@ export async function buildSite(options = {}) {
     generatedAt,
     generatedAtLabel,
     assetVersion: generatedAt.replace(/[^0-9A-Za-z]/gu, ""),
+    share: normalizeShareConfig(config.share, config.template),
     dataEndpoint: "data/library.json",
   };
 
@@ -678,6 +684,7 @@ export async function buildSite(options = {}) {
     "catalog-data.mjs",
     "duplicate-data.mjs",
     "admin-data.mjs",
+    "site-settings.mjs",
   ];
   await fs.mkdir(path.join(outputDirectory, "scripts"), { recursive: true });
   await Promise.all(

@@ -1,3 +1,4 @@
+{% from "icons.njk" import icon %}
 <!doctype html>
 <html lang="{{ site.language }}">
   <head>
@@ -14,6 +15,7 @@
     {% block head %}{% endblock %}
   </head>
   <body class="{% block bodyClass %}{% endblock %}">
+    <script id="share-config" type="application/json">{{ share | json }}</script>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
 
     <header class="site-header">
@@ -28,6 +30,15 @@
         <nav class="header-nav" aria-label="站点">
           <a href="{{ homeUrl }}">档案</a>
           <a class="insights-nav-link" href="{{ homeUrl }}insights/">数据洞察</a>
+          <a
+            class="header-icon-link header-admin-link"
+            href="{{ homeUrl }}admin/"
+            aria-label="打开管理页"
+            title="管理页"
+          >
+            {{ icon("settings") }}
+            <span>管理</span>
+          </a>
           {% if repository.url %}
             <a
               class="header-icon-link"

@@ -49,7 +49,6 @@ const elements = {
   reviewInput: document.querySelector("#reviewInput"),
   noteInput: document.querySelector("#noteInput"),
   seasonLabel: document.querySelector("#seasonLabel"),
-  updatedLabel: document.querySelector("#updatedLabel"),
   backupLabel: document.querySelector("#backupLabel"),
   saveButton: document.querySelector("#saveButton"),
   libraryPagination: document.querySelector("#libraryPagination"),
@@ -80,18 +79,6 @@ function showToast(message, options = {}) {
   );
 }
 
-function formatDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "未知";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
 function seasonText(record) {
   if (record.season?.label) {
     return record.season.label;
@@ -100,6 +87,15 @@ function seasonText(record) {
     return `第${record.season.number}季`;
   }
   return "";
+}
+
+function animeDateText(record) {
+  return [
+    record.season?.year ? String(record.season.year) : "",
+    seasonText(record),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function sourceText(record) {
@@ -268,7 +264,9 @@ function createRecordCard(record) {
   body.append(title);
   const meta = document.createElement("span");
   meta.className = "record-card-meta";
-  meta.textContent = [seasonText(record), sourceText(record)].filter(Boolean).join(" · ");
+  meta.textContent = [animeDateText(record), sourceText(record)]
+    .filter(Boolean)
+    .join(" · ");
   body.append(meta);
 
   for (const [label, value] of [["短评", record.review], ["备注", record.note]]) {
@@ -339,7 +337,7 @@ function renderRows() {
     title.textContent = record.title;
     const subtitle = document.createElement("span");
     subtitle.className = "record-subtitle";
-    subtitle.textContent = [seasonText(record), sourceText(record)]
+    subtitle.textContent = [animeDateText(record), sourceText(record)]
       .filter(Boolean)
       .join(" · ");
     titleCell.append(title, subtitle);
@@ -438,8 +436,7 @@ function renderEditor() {
   elements.recordId.textContent = record.id;
   elements.reviewInput.value = record.review ?? "";
   elements.noteInput.value = record.note ?? "";
-  elements.seasonLabel.textContent = seasonText(record) || "季度未标注";
-  elements.updatedLabel.textContent = `更新于 ${formatDate(record.updatedAt)}`;
+  elements.seasonLabel.textContent = animeDateText(record) || "作品年代未标注";
   elements.backupLabel.textContent = `备份上限 ${state.backupLimit} 个`;
   for (const input of [
     elements.titleInput,

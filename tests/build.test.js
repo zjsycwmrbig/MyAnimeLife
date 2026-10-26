@@ -218,12 +218,18 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, new RegExp(heading, "u"));
     assert.match(indexHtml, /测试番剧/u);
     assert.match(indexHtml, /insights\//u);
-    assert.match(indexHtml, /data-page-size="24"/u);
+    assert.match(indexHtml, /data-page-size="25"/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
+    assert.match(indexHtml, /id="pagination-size"/u);
+    assert.match(indexHtml, /id="pagination-size-custom"/u);
+    assert.match(indexHtml, /<option value="10">10<\/option>/u);
+    assert.match(indexHtml, /<option value="100">100<\/option>/u);
     assert.match(indexHtml, /styles\.css\?v=20261025T120000000Z/u);
     assert.match(indexHtml, /share\.js\?v=20261025T120000000Z/u);
     assert.match(indexHtml, /app\.js\?v=20261025T120000000Z/u);
+    assert.match(indexHtml, /class="header-icon-link header-admin-link"/u);
+    assert.match(indexHtml, /aria-haspopup="dialog"/u);
 
     const detailHtml = await fs.readFile(
       path.join(
@@ -236,6 +242,7 @@ test("ships three independently buildable templates", async () => {
       "utf8",
     );
     assert.match(detailHtml, /我的评价/u);
+    assert.match(detailHtml, /aria-haspopup="dialog"/u);
 
     const insightsHtml = await fs.readFile(
       path.join(fixtureRoot, "dist", "insights", "index.html"),
@@ -248,6 +255,28 @@ test("ships three independently buildable templates", async () => {
       /data-own-repository="example\/anime-records"/u,
     );
     assert.match(insightsHtml, /data-own-branch="main"/u);
+    assert.match(insightsHtml, /分享洞察图/u);
+    assert.match(insightsHtml, /aria-haspopup="dialog"/u);
+    assert.match(
+      insightsHtml,
+      /share\.js\?v=20261025T120000000Z/u,
+    );
+
+    const shareScript = await fs.readFile(
+      path.join(fixtureRoot, "dist", "assets", "share.js"),
+      "utf8",
+    );
+    assert.match(shareScript, /share-dialog/u);
+    assert.match(shareScript, /share-module/u);
+    assert.match(shareScript, /longOverviewSvg/u);
+    assert.match(shareScript, /cardOverviewSvg/u);
+    const shareStyles = await fs.readFile(
+      path.join(fixtureRoot, "dist", "assets", "styles.css"),
+      "utf8",
+    );
+    assert.match(shareStyles, /\.share-dialog/u);
+    assert.match(shareStyles, /\.share-dialog-actions/u);
+    assert.match(shareStyles, /\.header-admin-link/u);
 
     const adminConfig = await fs.readFile(
       path.join(fixtureRoot, "dist", "admin", "config.js"),
@@ -336,6 +365,15 @@ test("shows the season label on every detail template", async () => {
     );
     assert.match(detailHtml, /第2季/u);
     assert.match(detailHtml, /2026/u);
+
+    const indexHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "index.html"),
+      "utf8",
+    );
+    assert.match(indexHtml, /id="share-config"/u);
+    assert.match(indexHtml, /data-share-release="2026 · 第2季"/u);
+    assert.match(indexHtml, /data-year="2026"/u);
+    assert.doesNotMatch(indexHtml, /data-share-updated/u);
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });

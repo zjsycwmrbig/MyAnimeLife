@@ -119,6 +119,45 @@ test("saves edits and rebuilds the lightweight JSONL index", async () => {
   }
 });
 
+test("saves display and share preferences to the site config", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    const store = new LibraryAdminStore(fixtureRoot);
+    const initial = await store.siteSettings();
+    assert.equal(initial.template, "default");
+    assert.equal(initial.share.template, "auto");
+
+    const saved = await store.saveSiteSettings({
+      site: {
+        title: "季度动画日记",
+        brand: "ANIME LOG",
+        description: "按季度整理的私人番剧档案。",
+        footer: "由 MyAnimeLife 构建",
+      },
+      template: "spotlight",
+      share: { template: "compact", accent: "blue" },
+    });
+
+    assert.equal(saved.settings.template, "spotlight");
+    assert.equal(saved.settings.share.resolvedTemplate, "compact");
+    const config = JSON.parse(
+      await fs.readFile(
+        path.join(fixtureRoot, "config", "site.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(config.site.title, "季度动画日记");
+    assert.equal(config.template, "spotlight");
+    assert.deepEqual(config.share, {
+      template: "compact",
+      accent: "blue",
+    });
+    assert.equal(config.dataFile, "data/anime.jsonl");
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
 test("keeps a saved edit loadable when the stored timestamp is ahead", async () => {
   const fixtureRoot = await createFixture();
   try {
