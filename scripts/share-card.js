@@ -2,6 +2,7 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
   const FONT_STACK = "'Noto Sans SC', 'Microsoft YaHei', Arial, sans-serif";
   const DISPLAY_FONT = "'Noto Serif SC', 'Songti SC', Georgia, serif";
+  const COVER_REQUEST_TIMEOUT = 1600;
   const shareCache = new Map();
   const PALETTES = {
     coral: {
@@ -83,6 +84,14 @@
     return /^(?:https:\/\/|data:image\/)/iu.test(candidate)
       ? candidate
       : null;
+  }
+
+  function fetchWithTimeout(url, options = {}, timeout = COVER_REQUEST_TIMEOUT) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+      clearTimeout(timer),
+    );
   }
 
   function readShareConfig() {
@@ -210,7 +219,7 @@
     if (shareCache.has(normalized)) {
       return shareCache.get(normalized);
     }
-    const request = fetch(normalized, {
+    const request = fetchWithTimeout(normalized, {
       credentials: "omit",
       mode: "cors",
     })
@@ -243,10 +252,13 @@
     if (!shareCache.has(cacheKey)) {
       shareCache.set(
         cacheKey,
-        fetch(`https://api.bgm.tv/v0/subjects/${encodeURIComponent(id)}`, {
-          headers: { Accept: "application/json" },
-          credentials: "omit",
-        })
+        fetchWithTimeout(
+          `https://api.bgm.tv/v0/subjects/${encodeURIComponent(id)}`,
+          {
+            headers: { Accept: "application/json" },
+            credentials: "omit",
+          },
+        )
           .then((response) => (response.ok ? response.json() : null))
           .then((payload) =>
             normalizeUrl(
@@ -263,19 +275,19 @@
 
   async function coverBlock(record, x, y, width, height, palette, id) {
     const title = record.title || "未命名番剧";
-    let dataUrl = await imageDataUrl(record.coverUrl);
-    if (!dataUrl && record.bangumiId) {
-      dataUrl = await imageDataUrl(await fetchBangumiCover(record.bangumiId));
-    }
-    if (!dataUrl) {
+    const sourceUrl =
+      normalizeUrl(record.coverUrl) ||
+      (record.bangumiId ? await fetchBangumiCover(record.bangumiId) : null);
+    if (!sourceUrl) {
       return {
         markup: fallbackCover(title, x, y, width, height, palette),
         definition: "",
       };
     }
+    const imageSource = escapeXml(sourceUrl);
     return {
-      markup: `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" fill="${palette.soft}" />
-        <image href="${escapeXml(dataUrl)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id})" />`,
+      markup: `${fallbackCover(title, x, y, width, height, palette)}
+        <image href="${imageSource}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" referrerpolicy="no-referrer" clip-path="url(#${id})" />`,
       definition: `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" /></clipPath>`,
     };
   }
@@ -807,10 +819,46 @@
     }
   }
 
+  async function inlineExternalImages(svg) {
+    const matches = [
+      ...svg.matchAll(/<image\b[^>]*\bhref="([^"]+)"/gu),
+    ];
+    let result = svg;
+    let changed = false;
+    for (const match of matches) {
+      const source = match[1]
+        .replace(/&amp;/gu, "&")
+        .replace(/&quot;/gu, '"');
+      if (source.startsWith("data:image/")) {
+        continue;
+      }
+      const dataUrl = await imageDataUrl(source);
+      if (!dataUrl) {
+        continue;
+      }
+      result = result.replace(
+        `href="${match[1]}"`,
+        `href="${escapeXml(dataUrl)}"`,
+      );
+      changed = true;
+    }
+    return changed ? result : svg;
+  }
+
   async function createImage(svg, width, height) {
+    let png;
+    try {
+      png = await pngBlob(svg, width, height);
+    } catch {
+      const inlineSvg = await inlineExternalImages(svg);
+      if (inlineSvg === svg) {
+        throw new Error("封面服务器不允许跨域导出 PNG，请使用下载 SVG");
+      }
+      png = await pngBlob(inlineSvg, width, height);
+    }
     return {
       svg: svgBlob(svg),
-      png: await pngBlob(svg, width, height),
+      png,
     };
   }
 
