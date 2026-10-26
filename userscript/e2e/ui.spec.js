@@ -266,7 +266,8 @@ test("restores unsynced ratings and reviews until they are cleared", async ({
   await page.waitForFunction(() => Boolean(window.BangumiScout));
   host = page.locator("#bangumi-scout-host");
   await host.locator(".scout-launcher").click();
-  await recognizeCurrentPage(host);
+  await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
+  await expect(host.locator(".scout-evidence")).toContainText("简介已读取");
   await expect(
     host.getByRole("radio", { name: "9 分", exact: true }),
   ).toHaveAttribute("aria-checked", "true");
@@ -276,6 +277,16 @@ test("restores unsynced ratings and reviews until they are cleared", async ({
   await expect(host.locator(".scout-record")).toContainText(
     "已恢复本机未同步草稿",
   );
+  await expect(
+    host.getByRole("button", { name: "重新识别" }),
+  ).toBeVisible();
+
+  await host.getByRole("button", { name: "重新识别" }).click();
+  await expect(host.locator(".scout-panel")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
 
   await host.getByRole("button", { name: "清除草稿" }).click();
   await expect(host.locator(".scout-review")).toHaveValue("");

@@ -48,6 +48,36 @@ function loadDrafts() {
   }
 }
 
+function sanitizeRecognitionResult(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const context = result.context ?? {};
+  return {
+    status: String(result.status ?? "unmatched"),
+    best: result.best ?? null,
+    results: Array.isArray(result.results) ? result.results.slice(0, 10) : [],
+    titleCandidates: Array.isArray(result.titleCandidates)
+      ? result.titleCandidates.slice(0, 8)
+      : [],
+    aiResult: result.aiResult ?? null,
+    bilibiliMetadata: result.bilibiliMetadata ?? null,
+    diagnostics: Array.isArray(result.diagnostics)
+      ? result.diagnostics.slice(0, 8)
+      : [],
+    context: {
+      ...context,
+      summary: String(context.summary ?? "").slice(0, 5000),
+      comments: Array.isArray(context.comments)
+        ? context.comments.slice(0, 8)
+        : [],
+      titleMentions: Array.isArray(context.titleMentions)
+        ? context.titleMentions.slice(0, 12)
+        : [],
+    },
+  };
+}
+
 function sanitizeDraft(draft) {
   const item = draft?.item;
   const selectedResult = draft?.selectedResult;
@@ -58,6 +88,7 @@ function sanitizeDraft(draft) {
   return {
     item: item?.id ? item : selectedResult.item,
     selectedResult: selectedResult?.item?.id ? selectedResult : null,
+    recognitionResult: sanitizeRecognitionResult(draft?.recognitionResult),
     rating:
       Number.isFinite(rating) && rating >= 1 && rating <= 10
         ? Math.round(rating)

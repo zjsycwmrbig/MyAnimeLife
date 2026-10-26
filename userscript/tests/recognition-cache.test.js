@@ -26,6 +26,12 @@ test("restores an unsynced recognition draft for the same page", () => {
   store.save("https://www.bilibili.com/bangumi/play/ep1?from=search", {
     item: selectedResult.item,
     selectedResult,
+    recognitionResult: {
+      status: "matched",
+      best: selectedResult,
+      results: [selectedResult],
+      context: { summary: "缓存的简介", comments: ["缓存的评论"] },
+    },
     rating: 9,
     review: "尚未同步的短评",
     updatedAt: "2026-10-26T08:00:00.000Z",
@@ -37,6 +43,8 @@ test("restores an unsynced recognition draft for the same page", () => {
   assert.equal(restored.item.id, "bangumi:525565");
   assert.equal(restored.rating, 9);
   assert.equal(restored.review, "尚未同步的短评");
+  assert.equal(restored.recognitionResult.status, "matched");
+  assert.equal(restored.recognitionResult.context.summary, "缓存的简介");
 });
 
 test("clears recognition drafts by page or anime identity", () => {

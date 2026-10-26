@@ -340,6 +340,27 @@
       return {};
     }
   }
+  function sanitizeRecognitionResult(result) {
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+    const context = result.context ?? {};
+    return {
+      status: String(result.status ?? "unmatched"),
+      best: result.best ?? null,
+      results: Array.isArray(result.results) ? result.results.slice(0, 10) : [],
+      titleCandidates: Array.isArray(result.titleCandidates) ? result.titleCandidates.slice(0, 8) : [],
+      aiResult: result.aiResult ?? null,
+      bilibiliMetadata: result.bilibiliMetadata ?? null,
+      diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics.slice(0, 8) : [],
+      context: {
+        ...context,
+        summary: String(context.summary ?? "").slice(0, 5e3),
+        comments: Array.isArray(context.comments) ? context.comments.slice(0, 8) : [],
+        titleMentions: Array.isArray(context.titleMentions) ? context.titleMentions.slice(0, 12) : []
+      }
+    };
+  }
   function sanitizeDraft(draft) {
     const item = draft?.item;
     const selectedResult = draft?.selectedResult;
@@ -350,6 +371,7 @@
     return {
       item: item?.id ? item : selectedResult.item,
       selectedResult: selectedResult?.item?.id ? selectedResult : null,
+      recognitionResult: sanitizeRecognitionResult(draft?.recognitionResult),
       rating: Number.isFinite(rating) && rating >= 1 && rating <= 10 ? Math.round(rating) : null,
       review: String(draft?.review ?? "").slice(0, 2e4),
       updatedAt: String(draft?.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString())
@@ -6168,7 +6190,10 @@ ${indexText}`);
       this.rescanButton = button(
         "识别当前页",
         null,
-        () => this.onRecognize({ source: "manual" }),
+        () => this.onRecognize({
+          source: "manual",
+          ignoreRecognitionCache: true
+        }),
         { variant: "primary" }
       );
       this.rescanButtonTextNode = this.rescanButton.lastChild;
@@ -7364,9 +7389,9 @@ ${indexText}`);
         this.resultBadge.dataset.tone = "none";
       }
     }
-    setResult(result) {
+    setResult(result, options = {}) {
       this.currentResult = result;
-      const cachedDraft = this.recognitionCache?.get(location.href) ?? null;
+      const cachedDraft = options.ignoreCachedSelection ? null : this.recognitionCache?.get(location.href) ?? null;
       const cachedSelection = cachedDraft?.selectedResult?.item?.id ? cachedDraft.selectedResult : cachedDraft?.item?.id ? {
         item: cachedDraft.item,
         confidence: 0,
@@ -7397,6 +7422,9 @@ ${indexText}`);
       this.batchProgressRenderTimer = null;
       this.batchScanRequestId += 1;
       this.renderRecognitionResult(result);
+      if (this.recordItem?.id) {
+        this.persistRecognitionDraft({ silent: true });
+      }
       if (cachedSelection) {
         this.showToast("已恢复本机尚未同步的识别草稿");
       }
@@ -7704,6 +7732,7 @@ ${indexText}`);
       const draft = this.recognitionCache?.save(location.href, {
         item,
         selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
+        recognitionResult: this.currentResult,
         ...record
       });
       this.recordDirty = false;
@@ -7774,6 +7803,7 @@ ${indexText}`);
           this.recognitionCache?.save(location.href, {
             item,
             selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
+            recognitionResult: this.currentResult,
             rating: record?.rating ?? null,
             review: record?.review ?? ""
           });
@@ -7938,6 +7968,7 @@ ${indexText}`);
       this.recognitionCache?.save(location.href, {
         item,
         selectedResult,
+        recognitionResult: this.currentResult,
         rating,
         review,
         updatedAt: saved.updatedAt
@@ -8485,6 +8516,40 @@ ${indexText}`);
       this.manualSearchSection.hidden = false;
       this.searchInput.focus();
     }
+    restoreCachedRecognition() {
+      const draft = this.recognitionCache?.get(location.href);
+      const item = draft?.selectedResult?.item ?? draft?.item;
+      if (!draft || !item?.id) {
+        return false;
+      }
+      const cachedResult = draft.recognitionResult ?? {};
+      const selectedResult = draft.selectedResult ?? {
+        item,
+        confidence: 0,
+        matchedBy: ["local-cache"]
+      };
+      this.setResult({
+        ...cachedResult,
+        status: cachedResult.status ?? "matched",
+        best: selectedResult,
+        results: Array.isArray(cachedResult.results) && cachedResult.results.length ? cachedResult.results : [{ ...selectedResult, confidence: selectedResult.confidence ?? 0 }],
+        titleCandidates: cachedResult.titleCandidates ?? [],
+        context: cachedResult.context ?? {},
+        aiResult: cachedResult.aiResult ?? null,
+        bilibiliMetadata: cachedResult.bilibiliMetadata ?? selectedResult.bilibiliMetadata ?? null,
+        diagnostics: cachedResult.diagnostics ?? []
+      });
+      this.candidateCollapsed = true;
+      this.resultListSection.hidden = true;
+      this.titleCandidateSection.hidden = true;
+      this.manualSearchSection.hidden = true;
+      this.batchSection.hidden = true;
+      this.recordSection.hidden = false;
+      if (this.rescanButtonTextNode) {
+        this.rescanButtonTextNode.textContent = "重新识别";
+      }
+      return true;
+    }
     requestAi() {
       if (!this.settingsStore.get().ai.enabled) {
         this.openSettings();
@@ -8492,7 +8557,11 @@ ${indexText}`);
         this.aiEnabled.focus();
         return;
       }
-      this.onRecognize({ source: "manual", ai: "force" });
+      this.onRecognize({
+        source: "manual",
+        ai: "force",
+        ignoreRecognitionCache: true
+      });
     }
     showToast(message) {
       this.shadow.querySelector(".scout-toast")?.remove();
@@ -8507,6 +8576,9 @@ ${indexText}`);
     open(options = {}) {
       this.updatePagePresentation();
       this.closeSettings();
+      if (!this.currentResult && options.recognize !== true) {
+        this.restoreCachedRecognition();
+      }
       this.panel.hidden = false;
       this.launcher.hidden = true;
       this.launcher.setAttribute("aria-expanded", "true");
@@ -8822,12 +8894,17 @@ ${indexText}`);
         await recognitionPromise.catch(() => {
         });
       }
+      if (options.ignoreRecognitionCache) {
+        recognitionCache.clear(location.href);
+      }
       panel.setBusy(true, options.ai === "force" ? "AI 正在推断" : "正在识别");
       recognitionPromise = recognizer.recognize({
         ai: options.ai,
         includeBilibiliApi: options.includeBilibiliApi
       }).then((result) => {
-        panel.setResult(result);
+        panel.setResult(result, {
+          ignoreCachedSelection: Boolean(options.ignoreRecognitionCache)
+        });
         return result;
       }).catch((error) => {
         panel.showToast(`识别失败：${toErrorMessage(error)}`);
@@ -8843,7 +8920,10 @@ ${indexText}`);
       GM_registerMenuCommand("打开 Bangumi Scout", () => panel.open());
       GM_registerMenuCommand("识别当前页面", () => {
         panel.open({ recognize: false });
-        runRecognition({ source: "menu" }).catch(() => {
+        runRecognition({
+          source: "menu",
+          ignoreRecognitionCache: true
+        }).catch(() => {
         });
       });
       GM_registerMenuCommand("Bangumi Scout 设置", () => panel.openSettings());

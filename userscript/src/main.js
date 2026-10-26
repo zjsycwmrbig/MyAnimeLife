@@ -79,6 +79,9 @@ async function bootstrap() {
       await recognitionPromise.catch(() => {});
     }
 
+    if (options.ignoreRecognitionCache) {
+      recognitionCache.clear(location.href);
+    }
     panel.setBusy(true, options.ai === "force" ? "AI 正在推断" : "正在识别");
     recognitionPromise = recognizer
       .recognize({
@@ -86,7 +89,9 @@ async function bootstrap() {
         includeBilibiliApi: options.includeBilibiliApi,
       })
       .then((result) => {
-        panel.setResult(result);
+        panel.setResult(result, {
+          ignoreCachedSelection: Boolean(options.ignoreRecognitionCache),
+        });
         return result;
       })
       .catch((error) => {
@@ -106,7 +111,10 @@ async function bootstrap() {
     GM_registerMenuCommand("打开 Bangumi Scout", () => panel.open());
     GM_registerMenuCommand("识别当前页面", () => {
       panel.open({ recognize: false });
-      runRecognition({ source: "menu" }).catch(() => {});
+      runRecognition({
+        source: "menu",
+        ignoreRecognitionCache: true,
+      }).catch(() => {});
     });
     GM_registerMenuCommand("Bangumi Scout 设置", () => panel.openSettings());
     GM_registerMenuCommand("检查番剧索引更新", () => {
