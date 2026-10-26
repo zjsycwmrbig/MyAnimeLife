@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import {
   ADMIN_ACCENTS,
   resolveAdminAppearance,
@@ -39,4 +40,16 @@ test("uses local share color overrides and safe fallbacks", () => {
   });
   assert.equal(fallback.template, "default");
   assert.equal(fallback.accent, "coral");
+});
+
+test("places the reading link first and hides connection details from the topbar", async () => {
+  const html = await fs.readFile(
+    new URL("../admin/index.html", import.meta.url),
+    "utf8",
+  );
+  assert.ok(html.indexOf('class="topbar-leading"') < html.indexOf('class="brand-block"'));
+  assert.ok(html.indexOf('class="button button-quiet reading-link"') < html.indexOf('class="brand-block"'));
+  assert.match(html, /id="repoStatus" hidden/u);
+  assert.match(html, /id="runtimeBadge" class="runtime-badge" hidden/u);
+  assert.match(html, /id="templateUpdateButton"[^>]*hidden/u);
 });

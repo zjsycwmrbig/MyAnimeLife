@@ -15,6 +15,7 @@ import {
 } from "../scripts/admin-data.mjs";
 import {
   getTemplateStatus,
+  getTemplateUpdateStatus,
   updateFromTemplate,
 } from "./template-updater.js";
 import {
@@ -790,7 +791,7 @@ export class GitHubAdminStore {
   }
 
   async templateStatus() {
-    return getTemplateStatus(this.client);
+    return getTemplateUpdateStatus(this.client);
   }
 
   async updateTemplate() {

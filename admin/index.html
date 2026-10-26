@@ -9,13 +9,22 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand-block">
-          <span id="adminBrandMark" class="brand-mark" aria-hidden="true">A</span>
-          <div>
-            <strong id="adminBrandTitle">Anime Records Manager</strong>
-            <span id="repoStatus">正在读取仓库状态</span>
+        <div class="topbar-leading">
+          <a class="button button-quiet reading-link" href="../">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m12 19-7-7 7-7"></path>
+              <path d="M19 12H5"></path>
+            </svg>
+            <span>回到阅读页</span>
+          </a>
+          <div class="brand-block">
+            <span id="adminBrandMark" class="brand-mark" aria-hidden="true">A</span>
+            <div>
+              <strong id="adminBrandTitle">Anime Records Manager</strong>
+              <span id="repoStatus" hidden>正在读取仓库状态</span>
+            </div>
+            <span id="runtimeBadge" class="runtime-badge" hidden>读取模式</span>
           </div>
-          <span id="runtimeBadge" class="runtime-badge">读取模式</span>
         </div>
         <nav class="view-switch" aria-label="管理模式">
           <button class="is-active" data-view="library" type="button">
@@ -27,9 +36,6 @@
           <button data-view="about" type="button">关于我们</button>
         </nav>
         <div class="topbar-actions">
-          <a class="button button-quiet reading-link" href="../">
-            回到阅读页
-          </a>
           <button
             id="connectionButton"
             class="button button-quiet connection-button"
@@ -686,6 +692,10 @@
                   <strong id="aboutTargetRepository">尚未连接</strong>
                 </div>
                 <div>
+                  <span>数据仓库当前提交</span>
+                  <strong id="aboutTargetCommit">尚未检查</strong>
+                </div>
+                <div>
                   <span>模板版本</span>
                   <strong id="templateCommitLabel">尚未检查</strong>
                 </div>
@@ -701,6 +711,10 @@
                   <span>提交详情</span>
                   <a id="templateCommitLink" href="#" target="_blank" rel="noreferrer noopener">查看 GitHub 提交</a>
                 </div>
+                <div>
+                  <span>上次模板更新</span>
+                  <strong id="templateLastUpdate">尚未检查</strong>
+                </div>
               </div>
               <div class="about-warning">
                 <strong>更新前请确认</strong>
@@ -709,10 +723,18 @@
                   这是一次新的 Git 提交；请先把自己的其他页面和脚本修改推送或备份，再继续。
                 </span>
               </div>
+              <div id="templateUpdateAvailable" class="update-available-banner" hidden>
+                <div>
+                  <span>UPDATE AVAILABLE</span>
+                  <strong>发现新的模板更新</strong>
+                  <p id="templateUpdateAvailableText"></p>
+                </div>
+                <span class="update-available-pulse" aria-hidden="true"></span>
+              </div>
               <p id="templateUpdateStatus" class="about-status" role="status" aria-live="polite"></p>
               <div class="about-actions">
-                <button id="templateCheckButton" class="button button-quiet" type="button">检查模板更新</button>
-                <button id="templateUpdateButton" class="button button-primary" type="button">拉取最新管理页</button>
+                <button id="templateCheckButton" class="button button-quiet" type="button">检查更新</button>
+                <button id="templateUpdateButton" class="button button-primary" type="button" hidden>拉取最新管理页</button>
               </div>
             </section>
 

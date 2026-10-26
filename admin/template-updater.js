@@ -123,6 +123,99 @@ export async function getTemplateStatus(client, options = {}) {
   };
 }
 
+export function compareTemplateTrees(templateTree, targetTree) {
+  const templateFiles = new Map(
+    blobEntries(templateTree)
+      .filter((entry) => !isPreservedPath(entry.path))
+      .map((entry) => [
+        entry.path,
+        `${entry.mode || "100644"}:${entry.sha}`,
+      ]),
+  );
+  const targetFiles = new Map(
+    blobEntries(targetTree)
+      .filter((entry) => !isPreservedPath(entry.path))
+      .map((entry) => [
+        entry.path,
+        `${entry.mode || "100644"}:${entry.sha}`,
+      ]),
+  );
+  const paths = new Set([...templateFiles.keys(), ...targetFiles.keys()]);
+  const changedPaths = [...paths]
+    .filter((filePath) => templateFiles.get(filePath) !== targetFiles.get(filePath))
+    .sort((left, right) => left.localeCompare(right, "en"));
+  return {
+    updateAvailable: changedPaths.length > 0,
+    changedFileCount: changedPaths.length,
+    changedPaths,
+  };
+}
+
+async function latestTemplateUpdate(client) {
+  let commits = [];
+  try {
+    commits = await client.request("/commits?per_page=30");
+  } catch {
+    return null;
+  }
+  const commit = (Array.isArray(commits) ? commits : []).find((entry) =>
+    /^chore\(admin\):\s*update from MyAnimeLife template/iu.test(
+      String(entry?.commit?.message ?? ""),
+    ),
+  );
+  if (!commit?.sha) {
+    return null;
+  }
+  const details = commitDetails(commit, client.repository, commit.sha);
+  return {
+    commit: commit.sha,
+    commitShort: commit.sha.slice(0, 7),
+    commitMessage: details.message,
+    commitDate: details.date,
+    commitUrl: details.url,
+  };
+}
+
+export async function getTemplateUpdateStatus(client, options = {}) {
+  const latest = await getTemplateStatus(client, options);
+  const targetRef = await client.getRef();
+  const targetCommitSha = targetRef?.object?.sha;
+  if (!targetCommitSha) {
+    throw new Error(`找不到数据仓库分支 ${client.branch}`);
+  }
+  const [templateCommit, targetCommit, lastTemplateUpdate] = await Promise.all([
+    client.getCommitFor(
+      latest.repository,
+      latest.commit,
+    ),
+    client.getCommitFor(client.repository, targetCommitSha),
+    latestTemplateUpdate(client),
+  ]);
+  if (!templateCommit?.tree?.sha || !targetCommit?.tree?.sha) {
+    throw new Error("无法比较模板仓库与数据仓库的文件树");
+  }
+  const [templateTree, targetTree] = await Promise.all([
+    client.getTreeFor(latest.repository, templateCommit.tree.sha),
+    client.getTreeFor(client.repository, targetCommit.tree.sha),
+  ]);
+  const comparison = compareTemplateTrees(templateTree, targetTree);
+  const targetDetails = commitDetails(
+    targetCommit,
+    client.repository,
+    targetCommitSha,
+  );
+  return {
+    ...latest,
+    ...comparison,
+    targetCommit: targetCommitSha,
+    targetCommitShort: targetCommitSha.slice(0, 7),
+    targetCommitMessage: targetDetails.message,
+    targetCommitDate: targetDetails.date,
+    targetCommitUrl: targetDetails.url,
+    lastTemplateUpdate,
+  };
+}
+
 export async function updateFromTemplate(client, options = {}) {
   if (!client.token) {
     throw new Error("更新管理页需要先在 GitHub 连接设置中填写 Token");
@@ -194,7 +287,9 @@ export async function updateFromTemplate(client, options = {}) {
   const commit = await client.request("/git/commits", {
     method: "POST",
     body: {
-      message: options.message ?? "chore(admin): update from MyAnimeLife template",
+      message:
+        options.message ??
+        `chore(admin): update from MyAnimeLife template\n\nTemplate-Commit: ${templateHead}`,
       tree: nextTree.sha,
       parents: [targetHead],
     },

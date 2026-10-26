@@ -30,6 +30,7 @@ const state = {
   busy: false,
   settingsBusy: false,
   remoteSettings: null,
+  templateStatus: null,
   items: [],
   total: 0,
   page: 1,
@@ -88,10 +89,14 @@ const elements = {
   templateUpdateBadge: document.querySelector("#templateUpdateBadge"),
   templateRepositoryLink: document.querySelector("#templateRepositoryLink"),
   aboutTargetRepository: document.querySelector("#aboutTargetRepository"),
+  aboutTargetCommit: document.querySelector("#aboutTargetCommit"),
   templateCommitLabel: document.querySelector("#templateCommitLabel"),
   templateCommitMessage: document.querySelector("#templateCommitMessage"),
   templateCommitMeta: document.querySelector("#templateCommitMeta"),
   templateCommitLink: document.querySelector("#templateCommitLink"),
+  templateLastUpdate: document.querySelector("#templateLastUpdate"),
+  templateUpdateAvailable: document.querySelector("#templateUpdateAvailable"),
+  templateUpdateAvailableText: document.querySelector("#templateUpdateAvailableText"),
   templateUpdateStatus: document.querySelector("#templateUpdateStatus"),
   templateCheckButton: document.querySelector("#templateCheckButton"),
   templateUpdateButton: document.querySelector("#templateUpdateButton"),
@@ -589,14 +594,30 @@ function renderAbout() {
   elements.templateRepositoryLink.textContent = TEMPLATE_REPOSITORY;
   elements.aboutTargetRepository.textContent = runtime.repository || "尚未连接";
   const writable = runtime.mode === "github" && runtime.writable;
-  elements.templateCheckButton.disabled = templateBusy;
+  const status = state.templateStatus;
+  const updateAvailable = Boolean(status?.updateAvailable);
+  elements.templateCheckButton.disabled = templateBusy || runtime.mode === "local";
   elements.templateUpdateButton.disabled = templateBusy || !writable;
+  elements.templateUpdateButton.hidden = !updateAvailable || !writable;
+  elements.templateUpdateAvailable.hidden = !updateAvailable;
+  if (status?.updateAvailable) {
+    elements.templateUpdateAvailableText.textContent =
+      `当前仓库与模板有 ${status.changedFileCount} 个非数据文件不同。` +
+      (writable ? "确认后可以拉取最新管理页。" : "填写写入 Token 后可以执行更新。");
+  }
+  elements.aboutTargetCommit.textContent =
+    status?.targetCommitShort
+      ? `${status.targetCommitShort} · ${status.targetCommitMessage}`
+      : "尚未检查";
+  elements.templateLastUpdate.textContent = status?.lastTemplateUpdate
+    ? `${status.lastTemplateUpdate.commitShort} · ${status.lastTemplateUpdate.commitMessage}`
+    : "未找到历史模板更新提交";
   if (runtime.mode === "local") {
     elements.templateUpdateStatus.textContent =
-      "当前是本地管理模式，代码更新请在仓库目录中执行 Git 更新；GitHub Pages 版可以在这里直接拉取。";
+      "当前是本地管理模式，无法在这里拉取模板；本地开发请使用 Git 更新。";
     elements.templateUpdateBadge.textContent = "本地模式";
   } else if (!runtime.writable) {
-    if (elements.templateCommitLabel.textContent === "尚未检查") {
+    if (!status) {
       elements.templateUpdateStatus.textContent = "当前为只读模式。填写有 Contents: Read and write 权限的 Token 后才可以更新。";
       elements.templateUpdateBadge.textContent = "需要 Token";
     }
@@ -613,6 +634,7 @@ async function checkTemplate(showMessage = true) {
   elements.templateUpdateStatus.textContent = "正在读取模板仓库版本...";
   try {
     const status = await api("/api/template/status");
+    state.templateStatus = status;
     elements.templateCommitLabel.textContent = status.commitShort;
     elements.templateCommitMessage.textContent = status.commitMessage || "无提交说明";
     elements.templateCommitMeta.textContent = [
@@ -620,12 +642,21 @@ async function checkTemplate(showMessage = true) {
       status.commitDate ? formatDate(status.commitDate) : "时间未知",
     ].filter(Boolean).join(" · ");
     elements.templateCommitLink.href = status.commitUrl;
-    elements.templateUpdateBadge.textContent = `最新 ${status.commitShort}`;
-    elements.templateUpdateStatus.textContent = `模板 main 分支当前提交为 ${status.commitShort}：${status.commitMessage}。确认后可以拉取到当前数据仓库。`;
+    elements.templateUpdateBadge.textContent = status.updateAvailable
+      ? `有更新 · ${status.changedFileCount} 个文件`
+      : "已是最新";
+    elements.templateUpdateStatus.textContent = status.updateAvailable
+      ? `模板最新提交为 ${status.commitShort}，当前仓库尚未包含最新模板文件。`
+      : `当前仓库的模板文件已与 ${status.commitShort} 同步，无需更新。`;
     if (showMessage) {
-      showToast(`模板版本 ${status.commitShort}`);
+      showToast(
+        status.updateAvailable
+          ? `发现模板更新：${status.changedFileCount} 个文件`
+          : "当前模板已是最新",
+      );
     }
   } catch (error) {
+    state.templateStatus = null;
     elements.templateUpdateBadge.textContent = "检查失败";
     elements.templateUpdateStatus.textContent = error.message;
     if (showMessage) {
@@ -664,6 +695,19 @@ async function updateTemplate() {
     elements.templateCommitLink.href = result.templateCommitUrl || elements.templateCommitLink.href;
     elements.templateUpdateBadge.textContent = `已更新 ${result.commitShort}`;
     elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
+    state.templateStatus = {
+      ...state.templateStatus,
+      updateAvailable: false,
+      changedFileCount: 0,
+      targetCommitShort: result.commitShort,
+      targetCommitMessage: "已更新到最新模板",
+      lastTemplateUpdate: {
+        commitShort: result.commitShort,
+        commitMessage: "chore(admin): update from MyAnimeLife template",
+      },
+    };
+    elements.templateUpdateAvailable.hidden = true;
+    elements.templateUpdateButton.hidden = true;
     showToast(`管理页已更新，提交 ${result.commitShort}`, { duration: 7000 });
   } catch (error) {
     elements.templateUpdateStatus.textContent = error.message;
