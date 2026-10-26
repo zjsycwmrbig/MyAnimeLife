@@ -41,20 +41,20 @@
   const OVERVIEW_MODULE_IDS = [
     "summary",
     "windows",
+    "days",
     "months",
     "decades",
     "ratings",
     "sources",
-    "comparison",
   ];
   const OVERVIEW_MODULE_LABELS = {
-    summary: "档案摘要",
-    windows: "收录概览",
+    summary: "数据概览",
+    windows: "收录窗口",
+    days: "本月每日趋势",
     months: "最近十二个月",
     decades: "年代分布",
     ratings: "评分分布",
     sources: "索引覆盖",
-    comparison: "仓库 PK",
   };
 
   function clean(value) {
@@ -132,11 +132,11 @@
     const defaults = {
       summary: true,
       windows: true,
+      days: true,
       months: true,
       decades: true,
       ratings: true,
       sources: true,
-      comparison: false,
     };
     if (Array.isArray(value)) {
       return Object.fromEntries(
@@ -509,11 +509,13 @@
     return archiveCard(record, palette, cover);
   }
 
-  function chartBars(items, x, y, width, height, palette) {
-    const visible = items.slice(-12);
+  function chartBars(items, x, y, width, height, palette, options = {}) {
+    const limit = options.limit ?? 12;
+    const gap = options.gap ?? 10;
+    const labelEvery = options.labelEvery ?? 1;
+    const visible = items.slice(-limit);
     const values = visible.map((item) => Number(item.count) || 0);
     const max = Math.max(1, ...values);
-    const gap = 10;
     const barWidth =
       (width - gap * Math.max(0, visible.length - 1)) /
       Math.max(1, visible.length);
@@ -522,8 +524,10 @@
         const value = Number(item.count) || 0;
         const barHeight = (value / max) * height;
         const barX = x + index * (barWidth + gap);
+        const showLabel =
+          index % labelEvery === 0 || index === visible.length - 1;
         return `<rect x="${barX}" y="${y + height - barHeight}" width="${barWidth}" height="${Math.max(2, barHeight)}" rx="5" fill="${palette.accent}" opacity="${value ? 0.92 : 0.18}" />
-          <text x="${barX + barWidth / 2}" y="${y + height + 24}" text-anchor="middle" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="14">${escapeXml(item.shortLabel || item.label || "")}</text>
+          <text x="${barX + barWidth / 2}" y="${y + height + 24}" text-anchor="middle" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="${labelEvery > 1 ? 12 : 14}">${showLabel ? escapeXml(item.shortLabel || item.label || "") : ""}</text>
           <text x="${barX + barWidth / 2}" y="${y + height - barHeight - 8}" text-anchor="middle" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="14" font-weight="700">${value}</text>`;
       })
       .join("");
@@ -532,13 +536,11 @@
   function summaryTiles(summary, windows, x, y, width, height, palette) {
     const stats = [
       ["作品总数", `${Number(summary.total) || 0}`, "部"],
+      ["已评分", `${Number(summary.rated) || 0}`, "部"],
+      ["有短评", `${Number(summary.reviewed) || 0}`, "部"],
+      ["有备注", `${Number(summary.noted) || 0}`, "部"],
       ["平均评分", String(summary.averageRating ?? "—"), "/ 10"],
-      ["评分覆盖", `${Number(summary.ratedPercent) || 0}%`, "已评分"],
-      [
-        "近一年新增",
-        String(windows.find((item) => Number(item.days) === 365)?.count ?? 0),
-        "部",
-      ],
+      ["近一年新增", String(windows.find((item) => Number(item.days) === 365)?.count ?? 0), "部"],
     ];
     const gap = 14;
     const tileWidth = (width - gap * (stats.length - 1)) / stats.length;
@@ -630,6 +632,16 @@
         Math.max(55, contentHeight - 48),
         palette,
       );
+    } else if (id === "days") {
+      content = chartBars(
+        insights.days ?? [],
+        contentX,
+        contentY + 8,
+        contentWidth,
+        Math.max(55, contentHeight - 48),
+        palette,
+        { labelEvery: 5, gap: 4, limit: 31 },
+      );
     } else if (id === "decades") {
       content = distributionRows(
         insights.decades ?? [],
@@ -666,31 +678,6 @@
             { labelWidth: 116, valueWidth: 74 },
           ) + best
         : `<text x="${contentX}" y="${contentY + 24}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">还没有可统计的站点索引。</text>`;
-    } else if (id === "comparison") {
-      const comparison = insights.comparison;
-      if (!comparison) {
-        content = `<text x="${contentX}" y="${contentY + 28}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">尚未完成仓库 PK。在洞察页选择对方仓库后即可加入此模块。</text>`;
-      } else {
-        const stats = [
-          ["当前档案", comparison.currentTotal ?? summary.total ?? 0, "部"],
-          ["对方档案", comparison.peerTotal ?? 0, "部"],
-          ["共同收录", comparison.sharedTotal ?? 0, "部"],
-          ["重合率", `${comparison.overlapPercent ?? 0}%`, ""],
-        ];
-        const gap = 10;
-        const cardWidth =
-          (contentWidth - gap * (stats.length - 1)) / stats.length;
-        content = stats
-          .map(
-            ([label, value, suffix], itemIndex) =>
-              `<g transform="translate(${contentX + itemIndex * (cardWidth + gap)} ${contentY})">
-                <rect width="${cardWidth}" height="${Math.max(82, contentHeight)}" rx="14" fill="${itemIndex === 2 ? palette.ink : palette.soft}" />
-                <text x="18" y="36" fill="${itemIndex === 2 ? "#c7d0ca" : palette.muted}" font-family="${FONT_STACK}" font-size="14" font-weight="700">${escapeXml(label)}</text>
-                <text x="18" y="88" fill="${itemIndex === 2 ? "#fff" : palette.ink}" font-family="${DISPLAY_FONT}" font-size="34" font-weight="700">${escapeXml(value)} <tspan font-size="15">${escapeXml(suffix)}</tspan></text>
-              </g>`,
-          )
-          .join("");
-      }
     }
     return `<g>
       <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="20" fill="${palette.soft}" opacity=".34" />
@@ -717,11 +704,11 @@
       Math.max(1, Math.min(items?.length || fallback, 8));
     if (id === "summary") return 236;
     if (id === "windows") return 220;
+    if (id === "days") return 286;
     if (id === "months") return 286;
     if (id === "decades") return 112 + rowCount(insights.decades) * 42;
     if (id === "ratings") return 112 + rowCount(insights.ratings) * 42;
     if (id === "sources") return 126 + rowCount(insights.sources) * 42;
-    if (id === "comparison") return 230;
     return 220;
   }
 
@@ -1042,13 +1029,12 @@
       input.type = "checkbox";
       input.name = "share-module";
       input.value = id;
-      input.checked = id !== "comparison";
+      input.checked = true;
       const copy = document.createElement("span");
       const title = document.createElement("strong");
       title.textContent = OVERVIEW_MODULE_LABELS[id];
       const note = document.createElement("small");
-      note.textContent =
-        id === "comparison" ? "完成 PK 后可选" : "加入分享图片";
+      note.textContent = "加入分享图片";
       copy.append(title, note);
       label.append(input, copy);
       moduleContainer.append(label);
@@ -1155,7 +1141,7 @@
       let result;
       if (state.kind === "overview") {
         result = createOverviewShareImage(
-          { ...readOverview(), comparison: readComparison() },
+          readOverview(),
           {
           title:
             document.querySelector(".insights-heading h1")?.textContent?.trim() ||
@@ -1222,16 +1208,8 @@
       dialog.close();
     }
 
-    const comparison = readComparison();
-    const comparisonInput = dialog.querySelector(
-      'input[name="share-module"][value="comparison"]',
-    );
-    comparisonInput.disabled = !comparison;
-    comparisonInput.checked = false;
     dialog.querySelectorAll('input[name="share-module"]').forEach((input) => {
-      if (input !== comparisonInput) {
-        input.checked = true;
-      }
+      input.checked = true;
     });
     dialog.querySelector(
       'input[name="share-format"][value="long"]',

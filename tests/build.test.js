@@ -225,6 +225,11 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /id="pagination-size-custom"/u);
     assert.match(indexHtml, /id="year-filter"/u);
     assert.match(indexHtml, /id="rating-min"/u);
+    assert.match(indexHtml, /id="rating-min-value"/u);
+    assert.match(indexHtml, /id="year-max"/u);
+    assert.match(indexHtml, /data-sort-order="rating-desc"/u);
+    assert.match(indexHtml, /id="toggle-advanced-filters"/u);
+    assert.match(indexHtml, /filter-workbench is-collapsed/u);
     assert.match(indexHtml, /value="created-desc"/u);
     assert.match(indexHtml, /<option value="10">10<\/option>/u);
     assert.match(indexHtml, /<option value="100">100<\/option>/u);
@@ -253,14 +258,15 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(insightsHtml, /数据洞察/u);
     assert.match(insightsHtml, /近 7 天/u);
+    assert.match(insightsHtml, /id="tab-dashboard"/u);
+    assert.match(insightsHtml, /本月每日收录/u);
+    assert.match(insightsHtml, /近八周收录/u);
+    assert.match(insightsHtml, /data-interactive-pie/u);
     assert.match(insightsHtml, /逐年分布/u);
     assert.match(insightsHtml, /精确到 0.1 分/u);
     assert.match(insightsHtml, /id="insights-year-sort"/u);
-    assert.match(
-      insightsHtml,
-      /data-own-repository="example\/anime-records"/u,
-    );
-    assert.match(insightsHtml, /data-own-branch="main"/u);
+    assert.doesNotMatch(insightsHtml, /进入仓库 PK/u);
+    assert.doesNotMatch(insightsHtml, /去仓库 PK/u);
     assert.match(insightsHtml, /分享洞察图/u);
     assert.match(insightsHtml, /aria-haspopup="dialog"/u);
     assert.match(

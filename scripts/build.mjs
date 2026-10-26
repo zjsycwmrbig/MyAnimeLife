@@ -614,8 +614,8 @@ export async function buildSite(options = {}) {
 
   const insightsContext = {
     ...common,
-    pageTitle: `统计与对比 | ${config.site.title}`,
-    pageDescription: `${config.site.title}的收录趋势、年代分布与仓库对比。`,
+    pageTitle: `数据洞察 | ${config.site.title}`,
+    pageDescription: `${config.site.title}的收录趋势、年代分布与评分习惯。`,
     homeUrl: "../",
     assetRoot: "../assets/",
     insights,

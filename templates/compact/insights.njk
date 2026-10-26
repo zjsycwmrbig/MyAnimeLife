@@ -18,7 +18,6 @@
           <button class="share-trigger insights-share-trigger" data-share-trigger data-share-kind="overview" type="button" aria-haspopup="dialog" title="选择模块并导出档案洞察图">
             {{ icon("share") }}<span>分享洞察图</span>
           </button>
-          <a class="insights-compare-link" href="{{ homeUrl }}compare/" data-own-repository="{{ repository.slug }}" data-own-branch="{{ repository.branch }}">进入仓库 PK</a>
         </div>
       </div>
       <dl class="insights-snapshot" aria-label="档案摘要">
@@ -34,46 +33,75 @@
 
   <div class="page-shell insights-shell">
     {% if insights.summary.total %}
-      <section class="insights-overview" aria-labelledby="overview-title">
-        <div class="section-heading">
-          <div><p class="section-index">01 / DASHBOARD</p><h2 id="overview-title">数据概览</h2></div>
-          <p>选择一个模块，查看它的细节</p>
-        </div>
-        <div class="window-grid">
-          {% for window in insights.windows %}
-            <article class="window-stat"><span>{{ window.label }}</span><strong>{{ window.count }}</strong><small>部新增</small></article>
-          {% endfor %}
-          <article class="window-stat window-stat-accent"><span>年份信息覆盖</span><strong>{{ insights.summary.seasonPercent }}%</strong><small>有作品年份</small></article>
-        </div>
-      </section>
-
       <nav class="insights-tabs" role="tablist" aria-label="数据概览模块">
-        <button class="insight-tab is-active" id="tab-rhythm" role="tab" aria-selected="true" aria-controls="panel-rhythm" data-insights-tab="rhythm">收录趋势</button>
+        <button class="insight-tab is-active" id="tab-dashboard" role="tab" aria-selected="true" aria-controls="panel-dashboard" data-insights-tab="dashboard">数据概览</button>
+        <button class="insight-tab" id="tab-rhythm" role="tab" aria-selected="false" aria-controls="panel-rhythm" data-insights-tab="rhythm">收录趋势</button>
         <button class="insight-tab" id="tab-years" role="tab" aria-selected="false" aria-controls="panel-years" data-insights-tab="years">年份分布</button>
         <button class="insight-tab" id="tab-ratings" role="tab" aria-selected="false" aria-controls="panel-ratings" data-insights-tab="ratings">评分分布</button>
         <button class="insight-tab" id="tab-sources" role="tab" aria-selected="false" aria-controls="panel-sources" data-insights-tab="sources">索引覆盖</button>
       </nav>
 
-      <section class="insight-tab-panel is-active" id="panel-rhythm" role="tabpanel" aria-labelledby="tab-rhythm" data-insights-panel="rhythm">
+      <section class="insight-tab-panel is-active" id="panel-dashboard" role="tabpanel" aria-labelledby="tab-dashboard" data-insights-panel="dashboard">
+        <div class="insights-carousel" data-carousel>
+          <div class="carousel-toolbar">
+            <div><p class="section-index">01 / DASHBOARD</p><h3>数据概览</h3></div>
+            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一组概览">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一组概览">→</button></div>
+          </div>
+          <div class="carousel-viewport">
+            <article class="carousel-slide is-active" data-carousel-slide aria-label="档案构成">
+              <div class="overview-card-grid">
+                <div class="overview-card"><span>收录作品</span><strong>{{ insights.summary.total }}</strong><small>部作品</small></div>
+                <div class="overview-card"><span>已评分</span><strong>{{ insights.summary.rated }}</strong><small>{{ insights.summary.ratedPercent }}% 覆盖</small></div>
+                <div class="overview-card"><span>有短评</span><strong>{{ insights.summary.reviewed }}</strong><small>{{ insights.summary.reviewedPercent }}% 覆盖</small></div>
+                <div class="overview-card"><span>有备注</span><strong>{{ insights.summary.noted }}</strong><small>{{ insights.summary.notedPercent }}% 覆盖</small></div>
+                <div class="overview-card"><span>平均评分</span><strong>{{ insights.summary.averageRating }}</strong><small>10 分制</small></div>
+                <div class="overview-card"><span>评分中位数</span><strong>{{ insights.summary.medianRating }}</strong><small>{{ insights.summary.lowestRating }}-{{ insights.summary.highestRating }} 区间</small></div>
+                <div class="overview-card"><span>年份覆盖</span><strong>{{ insights.summary.seasonPercent }}%</strong><small>可参与年代分析</small></div>
+                <div class="overview-card overview-card-accent"><span>索引覆盖</span><strong>{{ insights.summary.sourcePercent }}%</strong><small>关联至少一个站点</small></div>
+              </div>
+            </article>
+            <article class="carousel-slide" data-carousel-slide aria-label="收录窗口">
+              <div class="window-grid">
+                {% for window in insights.windows %}
+                  <article class="window-stat"><span>{{ window.label }}</span><strong>{{ window.count }}</strong><small>部新增</small></article>
+                {% endfor %}
+                <article class="window-stat window-stat-accent"><span>本月新增</span><strong>{{ insights.summary.latestMonth }}</strong><small>按添加日期统计</small></article>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="insight-tab-panel" id="panel-rhythm" role="tabpanel" aria-labelledby="tab-rhythm" data-insights-panel="rhythm" hidden>
         <div class="insights-carousel" data-carousel>
           <div class="carousel-toolbar">
             <div><p class="section-index">02 / RHYTHM</p><h3>收录趋势</h3></div>
-            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个趋势视图">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个趋势视图">→</button></div>
+            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个趋势视图">←</button><span data-carousel-status aria-live="polite">1 / 3</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个趋势视图">→</button></div>
           </div>
           <div class="carousel-viewport">
-            <article class="carousel-slide is-active" data-carousel-slide aria-label="最近十二个月">
+            <article class="carousel-slide is-active" data-carousel-slide aria-label="本月每日收录">
+              <div class="slide-heading"><strong>本月每日收录</strong><span>按记录创建日期统计</span></div>
+              <div class="chart-scroll">
+                <div class="month-chart day-chart" style="--chart-columns: {{ insights.days.length }}" role="img" aria-label="本月每日新增收录柱状图">
+                  {% for day in insights.days %}
+                    <div class="month-column" title="{{ day.label }}：{{ day.count }} 部"><span class="month-value">{{ day.count }}</span><span class="month-bar-track"><span class="month-bar{% if day.count == 0 %} is-empty{% endif %}" style="--bar-size: {{ day.percent }}%"></span></span><span class="month-label">{{ day.shortLabel }}</span></div>
+                  {% endfor %}
+                </div>
+              </div>
+            </article>
+            <article class="carousel-slide" data-carousel-slide aria-label="近八周收录">
+              <div class="slide-heading"><strong>近八周收录</strong><span>以七天为一个统计窗口</span></div>
+              <div class="month-chart week-chart" role="img" aria-label="近八周新增收录柱状图">
+                {% for week in insights.weeks %}
+                  <div class="month-column" title="{{ week.label }}：{{ week.count }} 部"><span class="month-value">{{ week.count }}</span><span class="month-bar-track"><span class="month-bar{% if week.count == 0 %} is-empty{% endif %}" style="--bar-size: {{ week.percent }}%"></span></span><span class="month-label">{{ week.shortLabel }}</span></div>
+                {% endfor %}
+              </div>
+            </article>
+            <article class="carousel-slide" data-carousel-slide aria-label="最近十二个月">
               <div class="slide-heading"><strong>最近十二个月</strong><span>按记录创建时间统计</span></div>
               <div class="month-chart" role="img" aria-label="最近十二个月新增收录柱状图">
                 {% for month in insights.months %}
                   <div class="month-column" title="{{ month.label }}：{{ month.count }} 部"><span class="month-value">{{ month.count }}</span><span class="month-bar-track"><span class="month-bar{% if month.count == 0 %} is-empty{% endif %}" style="--bar-size: {{ month.percent }}%"></span></span><span class="month-label">{{ month.shortLabel }}</span></div>
-                {% endfor %}
-              </div>
-            </article>
-            <article class="carousel-slide" data-carousel-slide aria-label="年代概览">
-              <div class="slide-heading"><strong>年代概览</strong><span>作品年份按十年聚合</span></div>
-              <div class="distribution-list compact-distribution">
-                {% for decade in insights.decades %}
-                  <div class="distribution-row"><span class="distribution-label">{{ decade.label }}</span><span class="distribution-track"><span class="distribution-bar" style="--bar-size: {{ decade.percent }}%"></span></span><span class="distribution-count">{{ decade.count }} 部</span><span class="distribution-note">均分 {{ decade.averageRating }}</span></div>
                 {% endfor %}
               </div>
             </article>
@@ -85,15 +113,31 @@
         <div class="insights-carousel" data-carousel>
           <div class="carousel-toolbar">
             <div><p class="section-index">03 / YEAR</p><h3>年份分布</h3></div>
-            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个年份视图">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个年份视图">→</button></div>
+            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个年份视图">←</button><span data-carousel-status aria-live="polite">1 / 3</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个年份视图">→</button></div>
           </div>
           <div class="carousel-viewport">
-            <article class="carousel-slide is-active" data-carousel-slide aria-label="年份扇状图">
+            <article class="carousel-slide is-active" data-carousel-slide aria-label="年代分布扇状图">
               <div class="pie-layout">
-                <div class="year-pie" role="img" aria-label="作品年份分布扇状图" style="background: conic-gradient({% for segment in insights.pieSegments %}{{ segment.color }} {{ segment.start }}% {{ segment.end }}%{% if not loop.last %}, {% endif %}{% endfor %})"></div>
-                <div class="pie-legend">
+                <div class="interactive-pie" data-interactive-pie>
+                  <div class="year-pie" role="img" aria-label="作品按十年聚合的年代分布扇状图" style="background: conic-gradient({% for segment in insights.decadePieSegments %}{{ segment.color }} {{ segment.start }}% {{ segment.end }}%{% if not loop.last %}, {% endif %}{% endfor %})"></div>
+                  <output class="pie-tooltip" hidden></output>
+                </div>
+                <div class="pie-legend" aria-label="年代图例">
+                  {% for segment in insights.decadePieSegments %}
+                    <div class="pie-legend-row" tabindex="0" data-pie-segment data-label="{{ segment.label }}" data-count="{{ segment.count }}" data-percent="{{ segment.percent }}" data-start="{{ segment.start }}" data-end="{{ segment.end }}"><i style="--legend-color: {{ segment.color }}"></i><span>{{ segment.label }}</span><strong>{{ segment.count }} 部</strong><small>{{ segment.percent }}%</small></div>
+                  {% endfor %}
+                </div>
+              </div>
+            </article>
+            <article class="carousel-slide" data-carousel-slide aria-label="年份分布扇状图">
+              <div class="pie-layout">
+                <div class="interactive-pie" data-interactive-pie>
+                  <div class="year-pie" role="img" aria-label="作品逐年分布扇状图" style="background: conic-gradient({% for segment in insights.pieSegments %}{{ segment.color }} {{ segment.start }}% {{ segment.end }}%{% if not loop.last %}, {% endif %}{% endfor %})"></div>
+                  <output class="pie-tooltip" hidden></output>
+                </div>
+                <div class="pie-legend" aria-label="年份图例">
                   {% for segment in insights.pieSegments %}
-                    <div class="pie-legend-row"><i style="--legend-color: {{ segment.color }}"></i><span>{{ segment.label }}</span><strong>{{ segment.count }} 部</strong><small>{{ segment.percent }}%</small></div>
+                    <div class="pie-legend-row" tabindex="0" data-pie-segment data-label="{{ segment.label }}" data-count="{{ segment.count }}" data-percent="{{ segment.percent }}" data-start="{{ segment.start }}" data-end="{{ segment.end }}"><i style="--legend-color: {{ segment.color }}"></i><span>{{ segment.label }}</span><strong>{{ segment.count }} 部</strong><small>{{ segment.percent }}%</small></div>
                   {% endfor %}
                 </div>
               </div>
@@ -120,10 +164,23 @@
         <div class="insights-carousel" data-carousel>
           <div class="carousel-toolbar">
             <div><p class="section-index">04 / SCORE</p><h3>评分分布</h3></div>
-            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个评分视图">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个评分视图">→</button></div>
+            <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个评分视图">←</button><span data-carousel-status aria-live="polite">1 / 3</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个评分视图">→</button></div>
           </div>
           <div class="carousel-viewport">
-            <article class="carousel-slide is-active" data-carousel-slide aria-label="评分区间">
+            <article class="carousel-slide is-active" data-carousel-slide aria-label="评分区间扇状图">
+              <div class="pie-layout">
+                <div class="interactive-pie" data-interactive-pie>
+                  <div class="year-pie rating-pie" role="img" aria-label="作品评分区间分布扇状图" style="background: conic-gradient({% for segment in insights.ratingPieSegments %}{{ segment.color }} {{ segment.start }}% {{ segment.end }}%{% if not loop.last %}, {% endif %}{% endfor %})"></div>
+                  <output class="pie-tooltip" hidden></output>
+                </div>
+                <div class="pie-legend" aria-label="评分区间图例">
+                  {% for segment in insights.ratingPieSegments %}
+                    <div class="pie-legend-row" tabindex="0" data-pie-segment data-label="{{ segment.label }}" data-count="{{ segment.count }}" data-percent="{{ segment.percent }}" data-start="{{ segment.start }}" data-end="{{ segment.end }}"><i style="--legend-color: {{ segment.color }}"></i><span>{{ segment.label }}</span><strong>{{ segment.count }} 部</strong><small>{{ segment.percent }}%</small></div>
+                  {% endfor %}
+                </div>
+              </div>
+            </article>
+            <article class="carousel-slide" data-carousel-slide aria-label="评分区间">
               <div class="rating-distribution">
                 {% for rating in insights.ratings %}
                   <div class="rating-row{% if rating.key == 'unrated' %} is-muted{% endif %}"><span>{{ rating.label }}</span><span class="rating-track"><span class="rating-bar" style="--bar-size: {{ rating.percent }}%"></span></span><strong>{{ rating.count }}</strong><small>{{ rating.percent }}%</small></div>
@@ -158,7 +215,6 @@
             </article>
             <article class="carousel-slide" aria-label="最佳年代">
               {% if insights.bestDecade %}<div class="best-era"><span>平均评分最高年代</span><strong>{{ insights.bestDecade.label }}</strong><em>{{ insights.bestDecade.averageRating }} / 10</em></div>{% endif %}
-              <a class="insights-primary-link" href="{{ homeUrl }}compare/">去仓库 PK</a>
             </article>
           </div>
         </div>

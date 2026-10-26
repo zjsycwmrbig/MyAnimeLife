@@ -45,6 +45,75 @@
     showSlide(0);
   }
 
+  for (const figure of document.querySelectorAll("[data-interactive-pie]")) {
+    const pie = figure.querySelector(".year-pie");
+    const tooltip = figure.querySelector(".pie-tooltip");
+    const legend = figure.parentElement?.querySelector(".pie-legend");
+    const segments = [...(legend?.querySelectorAll("[data-pie-segment]") ?? [])];
+    if (!pie || !tooltip || !segments.length) {
+      continue;
+    }
+
+    const clearActive = () => {
+      tooltip.hidden = true;
+      for (const segment of segments) {
+        segment.classList.remove("is-active");
+      }
+    };
+
+    const showSegment = (segment, left, top) => {
+      for (const candidate of segments) {
+        candidate.classList.toggle("is-active", candidate === segment);
+      }
+      tooltip.textContent =
+        `${segment.dataset.label} · ${segment.dataset.count} 部 · ${segment.dataset.percent}%`;
+      tooltip.hidden = false;
+      const maximumLeft = Math.max(12, figure.clientWidth - tooltip.offsetWidth - 12);
+      const maximumTop = Math.max(12, figure.clientHeight - tooltip.offsetHeight - 12);
+      tooltip.style.left = `${Math.max(12, Math.min(maximumLeft, left))}px`;
+      tooltip.style.top = `${Math.max(12, Math.min(maximumTop, top))}px`;
+    };
+
+    pie.addEventListener("pointermove", (event) => {
+      const bounds = figure.getBoundingClientRect();
+      const x = event.clientX - bounds.left - bounds.width / 2;
+      const y = event.clientY - bounds.top - bounds.height / 2;
+      if (Math.hypot(x, y) < bounds.width * 0.28) {
+        clearActive();
+        return;
+      }
+      const degrees = (Math.atan2(y, x) * 180) / Math.PI;
+      const percent = ((degrees + 450) % 360) / 3.6;
+      const segment =
+        segments.find(
+          (candidate) =>
+            percent >= Number(candidate.dataset.start) &&
+            percent < Number(candidate.dataset.end),
+        ) ?? segments.at(-1);
+      showSegment(
+        segment,
+        event.clientX - bounds.left + 12,
+        event.clientY - bounds.top + 12,
+      );
+    });
+    pie.addEventListener("pointerdown", (event) => {
+      pie.dispatchEvent(
+        new PointerEvent("pointermove", {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          bubbles: true,
+        }),
+      );
+    });
+    pie.addEventListener("pointerleave", clearActive);
+    for (const segment of segments) {
+      segment.addEventListener("focus", () => {
+        showSegment(segment, figure.clientWidth / 2 - 70, 20);
+      });
+      segment.addEventListener("blur", clearActive);
+    }
+  }
+
   const yearDistribution = document.querySelector("#year-distribution");
   const yearMinInput = document.querySelector("#insights-year-min");
   const yearMaxInput = document.querySelector("#insights-year-max");

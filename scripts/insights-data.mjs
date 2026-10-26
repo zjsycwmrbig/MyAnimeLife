@@ -42,8 +42,20 @@ function monthKey(date) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function dayKey(date) {
+  return `${monthKey(date)}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
 function monthLabel(date) {
   return `${date.getUTCFullYear()}.${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function withBarPercent(items) {
+  const maximum = Math.max(1, ...items.map((item) => item.count));
+  return items.map((item) => ({
+    ...item,
+    percent: percent(item.count, maximum),
+  }));
 }
 
 function monthSeries(records, now) {
@@ -67,11 +79,57 @@ function monthSeries(records, now) {
       count: counts.get(monthKey(date)) ?? 0,
     });
   }
-  const maximum = Math.max(1, ...months.map((month) => month.count));
-  return months.map((month) => ({
-    ...month,
-    percent: percent(month.count, maximum),
-  }));
+  return withBarPercent(months);
+}
+
+function currentMonthSeries(records, now) {
+  const counts = new Map();
+  for (const record of records) {
+    const created = new Date(record.createdAt);
+    if (!Number.isNaN(created.getTime())) {
+      counts.set(dayKey(created), (counts.get(dayKey(created)) ?? 0) + 1);
+    }
+  }
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const days = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(Date.UTC(year, month, day));
+    days.push({
+      key: dayKey(date),
+      label: `${month + 1}.${day}`,
+      shortLabel: String(day),
+      count: counts.get(dayKey(date)) ?? 0,
+    });
+  }
+  return withBarPercent(days);
+}
+
+function weekSeries(records, now) {
+  const day = 24 * 60 * 60 * 1000;
+  const endOfCurrentWeek = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
+  const createdTimes = records
+    .map((record) => new Date(record.createdAt).getTime())
+    .filter((value) => Number.isFinite(value));
+  const weeks = [];
+  for (let offset = 7; offset >= 0; offset -= 1) {
+    const end = endOfCurrentWeek - offset * 7 * day;
+    const start = end - 7 * day;
+    const startDate = new Date(start);
+    const endDate = new Date(end - 1);
+    weeks.push({
+      key: dayKey(startDate),
+      label: `${startDate.getUTCMonth() + 1}.${startDate.getUTCDate()} - ${endDate.getUTCMonth() + 1}.${endDate.getUTCDate()}`,
+      shortLabel: `${startDate.getUTCMonth() + 1}.${startDate.getUTCDate()}`,
+      count: createdTimes.filter((value) => value >= start && value < end).length,
+    });
+  }
+  return withBarPercent(weeks);
 }
 
 function windowCount(records, now, days) {
@@ -105,6 +163,36 @@ function buildDistribution(records, keyFor, total) {
     groups.set(key, group);
   }
   return groups;
+}
+
+const PIE_COLORS = [
+  "#c84a32",
+  "#168c83",
+  "#d39a35",
+  "#4f6f8f",
+  "#8f5f83",
+  "#6d8060",
+  "#c06d4a",
+  "#7d8792",
+];
+
+function withPieSegments(items) {
+  let offset = 0;
+  return items
+    .filter((entry) => entry.count > 0)
+    .map((entry, index) => {
+      const start = offset;
+      offset += entry.percent;
+      return {
+        ...entry,
+        start: round(start, 2),
+        end: round(offset, 2),
+        color:
+          entry.key === "unrated"
+            ? "#aeb6b0"
+            : PIE_COLORS[index % PIE_COLORS.length],
+      };
+    });
 }
 
 export function calculateInsights(records, now = new Date()) {
@@ -185,6 +273,8 @@ export function calculateInsights(records, now = new Date()) {
   const sourceCounts = new Map();
   let sourcedCount = 0;
   let seasonCount = 0;
+  let reviewedCount = 0;
+  let notedCount = 0;
   for (const record of records) {
     const sources = Object.keys(record.externalIds ?? {});
     if (sources.length) {
@@ -192,6 +282,12 @@ export function calculateInsights(records, now = new Date()) {
     }
     if (Number.isInteger(record.season?.year)) {
       seasonCount += 1;
+    }
+    if (String(record.review ?? "").trim()) {
+      reviewedCount += 1;
+    }
+    if (String(record.note ?? "").trim()) {
+      notedCount += 1;
     }
     for (const source of sources) {
       sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1);
@@ -210,45 +306,46 @@ export function calculateInsights(records, now = new Date()) {
     .filter((entry) => entry.key !== null && entry.averageRating !== "—")
     .sort((left, right) => right.averageRating - left.averageRating);
 
-  const pieColors = ["#c84a32", "#168c83", "#d39a35", "#4f6f8f", "#8f5f83", "#6d8060", "#c06d4a", "#7d8792"];
-  let pieOffset = 0;
-  const pieSegments = years
-    .filter((entry) => entry.count > 0)
-    .map((entry, index) => {
-      const start = pieOffset;
-      pieOffset += entry.percent;
-      return {
-        ...entry,
-        start: round(start, 2),
-        end: round(pieOffset, 2),
-        color: pieColors[index % pieColors.length],
-      };
-    });
+  const pieSegments = withPieSegments(years);
+  const decadePieSegments = withPieSegments(decades);
+  const ratingPieSegments = withPieSegments(ratingBuckets);
+  const months = monthSeries(records, now);
+  const days = currentMonthSeries(records, now);
+  const weeks = weekSeries(records, now);
 
   return {
     summary: {
       total,
       rated: ratings.length,
+      reviewed: reviewedCount,
+      noted: notedCount,
+      unrated: total - ratings.length,
       averageRating: averageRating === null ? "—" : averageRating.toFixed(1),
       medianRating: median(ratings) === null ? "—" : median(ratings).toFixed(1),
       highestRating: ratings.length ? Math.max(...ratings).toFixed(1) : "—",
       lowestRating: ratings.length ? Math.min(...ratings).toFixed(1) : "—",
       ratedPercent: percent(ratings.length, total),
+      reviewedPercent: percent(reviewedCount, total),
+      notedPercent: percent(notedCount, total),
       seasonPercent: percent(seasonCount, total),
       sourcePercent: percent(sourcedCount, total),
-      latestMonth: monthSeries(records, now).at(-1).count,
+      latestMonth: months.at(-1).count,
     },
     windows: [
       { days: 7, label: "近 7 天", count: windowCount(records, now, 7) },
       { days: 30, label: "近 30 天", count: windowCount(records, now, 30) },
       { days: 365, label: "近一年", count: windowCount(records, now, 365) },
     ],
-    months: monthSeries(records, now),
+    days,
+    weeks,
+    months,
     decades,
     years,
     ratings: ratingBuckets,
     ratingFine,
     pieSegments,
+    decadePieSegments,
+    ratingPieSegments,
     items: records.map((record) => ({
       id: record.id,
       title: record.title,

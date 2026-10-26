@@ -1389,3 +1389,138 @@
   border-color: #fff;
   background: rgb(255 255 255 / 12%);
 }
+
+.overview-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.overview-card {
+  display: grid;
+  min-height: 132px;
+  align-content: end;
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+}
+
+.overview-card span,
+.overview-card small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.overview-card strong {
+  margin: 8px 0 5px;
+  font-family: var(--font-display);
+  font-size: 37px;
+  font-weight: 600;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-card-accent {
+  border-color: var(--dark);
+  background: var(--dark);
+  color: #fff;
+}
+
+.overview-card-accent span,
+.overview-card-accent small {
+  color: rgb(255 255 255 / 58%);
+}
+
+.carousel-slide .window-grid {
+  margin-top: 0;
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.day-chart {
+  min-width: max(100%, calc(var(--chart-columns) * 23px));
+  grid-template-columns: repeat(var(--chart-columns), minmax(13px, 1fr));
+  gap: 5px;
+}
+
+.day-chart .month-label {
+  font-size: 8px;
+}
+
+.week-chart {
+  grid-template-columns: repeat(8, minmax(42px, 1fr));
+  gap: 18px;
+}
+
+.interactive-pie {
+  position: relative;
+  width: min(100%, 290px);
+  justify-self: center;
+}
+
+.interactive-pie .year-pie {
+  width: 100%;
+}
+
+.pie-tooltip {
+  position: absolute;
+  z-index: 3;
+  max-width: 210px;
+  padding: 8px 10px;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 5px;
+  background: var(--dark);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-variant-numeric: tabular-nums;
+}
+
+.pie-legend-row {
+  margin: -4px -6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+  outline: 0;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.pie-legend-row:hover,
+.pie-legend-row:focus-visible,
+.pie-legend-row.is-active {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .overview-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-card {
+    min-height: 112px;
+    padding: 14px;
+  }
+
+  .overview-card strong {
+    font-size: 31px;
+  }
+
+  .week-chart {
+    min-width: 560px;
+    gap: 9px;
+  }
+}
+
+@media (max-width: 420px) {
+  .overview-card-grid {
+    grid-template-columns: 1fr;
+  }
+}

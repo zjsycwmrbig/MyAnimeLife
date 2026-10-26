@@ -3,8 +3,20 @@
   const clearSearchButton = document.querySelector("#clear-search");
   const ratingFilter = document.querySelector("#rating-filter");
   const yearFilter = document.querySelector("#year-filter");
+  const yearMaxInput = document.querySelector("#year-max");
   const ratingMinInput = document.querySelector("#rating-min");
   const ratingMaxInput = document.querySelector("#rating-max");
+  const ratingMinValue = document.querySelector("#rating-min-value");
+  const ratingMaxValue = document.querySelector("#rating-max-value");
+  const yearMinValue = document.querySelector("#year-filter-min-value");
+  const yearMaxValue = document.querySelector("#year-filter-max-value");
+  const ratingRangeSummary = document.querySelector("#rating-range-summary");
+  const yearRangeSummary = document.querySelector("#year-range-summary");
+  const advancedFilterToggle = document.querySelector("#toggle-advanced-filters");
+  const activeFilterCount = document.querySelector("#active-filter-count");
+  const ratingSortButtons = [
+    ...document.querySelectorAll("[data-sort-order^='rating-']"),
+  ];
   const sortOrder = document.querySelector("#sort-order");
   const recordsGrid = document.querySelector("#records-grid");
   const resultsSummary = document.querySelector("#results-summary");
@@ -23,8 +35,17 @@
     !clearSearchButton ||
     !ratingFilter ||
     !yearFilter ||
+    !yearMaxInput ||
     !ratingMinInput ||
     !ratingMaxInput ||
+    !ratingMinValue ||
+    !ratingMaxValue ||
+    !yearMinValue ||
+    !yearMaxValue ||
+    !ratingRangeSummary ||
+    !yearRangeSummary ||
+    !advancedFilterToggle ||
+    !activeFilterCount ||
     !sortOrder ||
     !recordsGrid ||
     !resultsSummary ||
@@ -77,39 +98,41 @@
     title: "title-asc",
   };
 
-  const yearValues = [...new Set(
-    cards
-      .map((card) => Number.parseInt(card.dataset.year ?? "", 10))
-      .filter((year) => Number.isInteger(year)),
-  )].sort((left, right) => right - left);
-  for (const year of yearValues) {
-    const option = document.createElement("option");
-    option.value = String(year);
-    option.textContent = `${year} 年`;
-    yearFilter.append(option);
-  }
+  const yearValues = [
+    ...new Set(
+      cards
+        .map((card) => Number.parseInt(card.dataset.year ?? "", 10))
+        .filter((year) => Number.isInteger(year)),
+    ),
+  ].sort((left, right) => left - right);
+  const yearFloor = yearValues.at(0) ?? 1900;
+  const yearCeiling = yearValues.at(-1) ?? 2200;
 
   const initialState = {
     query: params.get("q") ?? "",
     filter: allowedFilters.has(params.get("status"))
       ? params.get("status")
       : "all",
-    year: yearValues.includes(Number(params.get("year")))
-      ? params.get("year")
-      : "all",
     sort: allowedSorts.has(params.get("sort"))
       ? params.get("sort")
-      : sortAliases[params.get("sort")] ?? "year-desc",
-    ratingMin: params.get("minRating") ?? "",
-    ratingMax: params.get("maxRating") ?? "",
+      : sortAliases[params.get("sort")] ?? "created-desc",
+    ratingMin: params.get("minRating") ?? "0",
+    ratingMax: params.get("maxRating") ?? "10",
+    yearMin: params.get("yearMin") ?? params.get("year") ?? String(yearFloor),
+    yearMax: params.get("yearMax") ?? params.get("year") ?? String(yearCeiling),
   };
 
   searchInput.value = initialState.query;
   ratingFilter.value = initialState.filter;
-  yearFilter.value = initialState.year;
+  sortOrder.value = initialState.sort;
+  yearFilter.min = String(yearFloor);
+  yearFilter.max = String(yearCeiling);
+  yearMaxInput.min = String(yearFloor);
+  yearMaxInput.max = String(yearCeiling);
+  yearFilter.value = initialState.yearMin;
+  yearMaxInput.value = initialState.yearMax;
   ratingMinInput.value = initialState.ratingMin;
   ratingMaxInput.value = initialState.ratingMax;
-  sortOrder.value = initialState.sort;
 
   function syncPageSizeControls() {
     paginationSizeSelect.value = pageSizeOptions.has(pageSize)
@@ -150,6 +173,90 @@
   function parseRating(value) {
     const parsed = Number.parseFloat(String(value ?? ""));
     return Number.isFinite(parsed) ? Math.min(10, Math.max(0, parsed)) : null;
+  }
+
+  function parseYear(value, fallback = yearFloor) {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed)
+      ? Math.min(yearCeiling, Math.max(yearFloor, parsed))
+      : fallback;
+  }
+
+  function setRangeFill(control, minimum, maximum, floor, ceiling) {
+    const span = Math.max(1, ceiling - floor);
+    control?.style.setProperty(
+      "--range-start",
+      `${((minimum - floor) / span) * 100}%`,
+    );
+    control?.style.setProperty(
+      "--range-end",
+      `${((maximum - floor) / span) * 100}%`,
+    );
+  }
+
+  function setRatingRange(minimum, maximum, changed = "") {
+    let low = parseRating(minimum) ?? 0;
+    let high = parseRating(maximum) ?? 10;
+    if (changed === "min" && low > high) low = high;
+    if (changed === "max" && high < low) high = low;
+    if (changed !== "max" && low > high) high = low;
+    if (changed !== "min" && high < low) low = high;
+    ratingMinInput.value = String(low);
+    ratingMaxInput.value = String(high);
+    ratingMinValue.value = low.toFixed(1);
+    ratingMaxValue.value = high.toFixed(1);
+    setRangeFill(ratingMinInput.closest("[data-range-control]"), low, high, 0, 10);
+    const active = low > 0 || high < 10 || ratingFilter.value !== "all";
+    ratingRangeSummary.textContent = active
+      ? `${low.toFixed(1)} - ${high.toFixed(1)} 分`
+      : "全部评分";
+  }
+
+  function setYearRange(minimum, maximum, changed = "") {
+    let low = parseYear(minimum, yearFloor);
+    let high = parseYear(maximum, yearCeiling);
+    if (changed === "min" && low > high) low = high;
+    if (changed === "max" && high < low) high = low;
+    if (changed !== "max" && low > high) high = low;
+    if (changed !== "min" && high < low) low = high;
+    yearFilter.value = String(low);
+    yearMaxInput.value = String(high);
+    yearMinValue.value = String(low);
+    yearMaxValue.value = String(high);
+    setRangeFill(yearFilter.closest("[data-range-control]"), low, high, yearFloor, yearCeiling);
+    const active = low > yearFloor || high < yearCeiling;
+    yearRangeSummary.textContent = active
+      ? `${low} - ${high} 年`
+      : "全部年份";
+  }
+
+  function rangesAreFull() {
+    return {
+      rating: Number(ratingMinInput.value) <= 0 && Number(ratingMaxInput.value) >= 10,
+      year:
+        Number(yearFilter.value) <= yearFloor &&
+        Number(yearMaxInput.value) >= yearCeiling,
+    };
+  }
+
+  function syncSortButtons() {
+    for (const button of ratingSortButtons) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.sortOrder === sortOrder.value),
+      );
+    }
+  }
+
+  function syncAdvancedFilterState() {
+    const fullRanges = rangesAreFull();
+    const count =
+      Number(ratingFilter.value !== "all") +
+      Number(!fullRanges.rating) +
+      Number(!fullRanges.year);
+    activeFilterCount.textContent = String(count);
+    activeFilterCount.hidden = count === 0;
+    advancedFilterToggle.classList.toggle("has-active", count > 0);
   }
 
   function dateValue(value) {
@@ -204,16 +311,19 @@
     if (ratingFilter.value !== "all") {
       next.set("status", ratingFilter.value);
     }
-    if (sortOrder.value !== "year-desc") {
+    if (sortOrder.value !== "created-desc") {
       next.set("sort", sortOrder.value);
-    }
-    if (yearFilter.value !== "all") {
-      next.set("year", yearFilter.value);
     }
     const minimum = parseRating(ratingMinInput.value);
     const maximum = parseRating(ratingMaxInput.value);
-    if (minimum !== null) next.set("minRating", String(minimum));
-    if (maximum !== null) next.set("maxRating", String(maximum));
+    if (minimum !== null && minimum > 0) next.set("minRating", String(minimum));
+    if (maximum !== null && maximum < 10) next.set("maxRating", String(maximum));
+    if (Number(yearFilter.value) > yearFloor) {
+      next.set("yearMin", yearFilter.value);
+    }
+    if (Number(yearMaxInput.value) < yearCeiling) {
+      next.set("yearMax", yearMaxInput.value);
+    }
     if (pageSize !== defaultPageSize) {
       next.set("size", String(pageSize));
     }
@@ -319,24 +429,32 @@
     const query = normalize(searchInput.value);
     const minimum = parseRating(ratingMinInput.value);
     const maximum = parseRating(ratingMaxInput.value);
+    const yearMinimum = parseYear(yearFilter.value);
+    const yearMaximum = parseYear(yearMaxInput.value, yearCeiling);
+    const fullRanges = rangesAreFull();
     const filteredCards = [];
 
     for (const card of cards) {
       const matchesQuery =
         !query || normalize(card.dataset.search).includes(query);
       const hasRating = card.dataset.rating !== "";
-      const matchesRating =
+      const matchesStatus =
         ratingFilter.value === "all" ||
         (ratingFilter.value === "rated" && hasRating) ||
         (ratingFilter.value === "unrated" && !hasRating);
       const cardRating = hasRating ? Number(card.dataset.rating) : null;
       const matchesRange =
-        (minimum === null && maximum === null) ||
+        fullRanges.rating ||
         (cardRating !== null &&
           (minimum === null || cardRating >= minimum) &&
           (maximum === null || cardRating <= maximum));
+      const matchesRating = matchesStatus && matchesRange;
+      const cardYear = Number.parseInt(card.dataset.year ?? "", 10);
       const matchesYear =
-        yearFilter.value === "all" || card.dataset.year === yearFilter.value;
+        fullRanges.year ||
+        (Number.isInteger(cardYear) &&
+          cardYear >= yearMinimum &&
+          cardYear <= yearMaximum);
       card.hidden = true;
       if (matchesQuery && matchesRating && matchesRange && matchesYear) {
         filteredCards.push(card);
@@ -375,17 +493,75 @@
       filteredCards.length,
     );
     syncUrl();
+    syncAdvancedFilterState();
     recoverMissingCovers();
   }
 
+  setRatingRange(initialState.ratingMin, initialState.ratingMax);
+  setYearRange(initialState.yearMin, initialState.yearMax);
+  syncSortButtons();
   searchInput.addEventListener("input", () => applyState({ resetPage: true }));
-  ratingFilter.addEventListener("change", () =>
-    applyState({ resetPage: true }),
-  );
-  yearFilter.addEventListener("change", () => applyState({ resetPage: true }));
-  ratingMinInput.addEventListener("change", () => applyState({ resetPage: true }));
-  ratingMaxInput.addEventListener("change", () => applyState({ resetPage: true }));
-  sortOrder.addEventListener("change", () => applyState({ resetPage: true }));
+  ratingFilter.addEventListener("change", () => {
+    setRatingRange(ratingMinInput.value, ratingMaxInput.value);
+    applyState({ resetPage: true });
+  });
+  for (const input of [ratingMinInput, ratingMaxInput]) {
+    input.addEventListener("input", () => {
+      setRatingRange(
+        input === ratingMinInput ? input.value : ratingMinInput.value,
+        input === ratingMaxInput ? input.value : ratingMaxInput.value,
+        input === ratingMinInput ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  for (const input of [ratingMinValue, ratingMaxValue]) {
+    input.addEventListener("change", () => {
+      setRatingRange(
+        input === ratingMinValue ? input.value : ratingMinValue.value,
+        input === ratingMaxValue ? input.value : ratingMaxValue.value,
+        input === ratingMinValue ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  for (const input of [yearFilter, yearMaxInput]) {
+    input.addEventListener("input", () => {
+      setYearRange(
+        input === yearFilter ? input.value : yearFilter.value,
+        input === yearMaxInput ? input.value : yearMaxInput.value,
+        input === yearFilter ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  for (const input of [yearMinValue, yearMaxValue]) {
+    input.addEventListener("change", () => {
+      setYearRange(
+        input === yearMinValue ? input.value : yearMinValue.value,
+        input === yearMaxValue ? input.value : yearMaxValue.value,
+        input === yearMinValue ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  sortOrder.addEventListener("change", () => {
+    syncSortButtons();
+    applyState({ resetPage: true });
+  });
+  for (const button of ratingSortButtons) {
+    button.addEventListener("click", () => {
+      sortOrder.value = button.dataset.sortOrder;
+      syncSortButtons();
+      applyState({ resetPage: true });
+    });
+  }
+  advancedFilterToggle.addEventListener("click", () => {
+    const toolbar = advancedFilterToggle.closest(".filter-workbench");
+    const expanded = advancedFilterToggle.getAttribute("aria-expanded") !== "true";
+    advancedFilterToggle.setAttribute("aria-expanded", String(expanded));
+    toolbar?.classList.toggle("is-collapsed", !expanded);
+  });
   paginationSizeSelect.addEventListener("change", () => {
     if (paginationSizeSelect.value === "custom") {
       paginationSizeInput.hidden = false;
@@ -419,10 +595,12 @@
   resetFiltersButton?.addEventListener("click", () => {
     searchInput.value = "";
     ratingFilter.value = "all";
-    yearFilter.value = "all";
-    ratingMinInput.value = "";
-    ratingMaxInput.value = "";
-    sortOrder.value = "year-desc";
+    setRatingRange(0, 10);
+    setYearRange(yearFloor, yearCeiling);
+    sortOrder.value = "created-desc";
+    syncSortButtons();
+    advancedFilterToggle.setAttribute("aria-expanded", "false");
+    advancedFilterToggle.closest(".filter-workbench")?.classList.add("is-collapsed");
     applyState({ resetPage: true });
     searchInput.focus();
   });

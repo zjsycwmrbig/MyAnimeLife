@@ -12,14 +12,16 @@ function record({
   year = null,
   externalIds = {},
   title = id,
+  review = "",
+  note = "",
 }) {
   return {
     id,
     title,
     rating,
-    review: "",
+    review,
     coverUrl: null,
-    note: "",
+    note,
     externalIds,
     season: year
       ? { key: id, number: 1, label: "第1季", year }
@@ -47,6 +49,7 @@ test("calculates collection windows, decades, and rating distributions", () => {
         rating: 8,
         year: 2024,
         externalIds: { bangumi: "1" },
+        review: "很喜欢这部作品",
       }),
       record({
         id: "b",
@@ -54,6 +57,7 @@ test("calculates collection windows, decades, and rating distributions", () => {
         rating: 9,
         year: 2023,
         externalIds: { bilibiliMedia: "2" },
+        note: "适合重看",
       }),
       record({
         id: "c",
@@ -71,6 +75,10 @@ test("calculates collection windows, decades, and rating distributions", () => {
 
   assert.equal(insights.summary.total, 4);
   assert.equal(insights.summary.rated, 3);
+  assert.equal(insights.summary.reviewed, 1);
+  assert.equal(insights.summary.noted, 1);
+  assert.equal(insights.summary.unrated, 1);
+  assert.equal(insights.summary.reviewedPercent, 25);
   assert.equal(insights.summary.averageRating, "7.7");
   assert.equal(insights.summary.medianRating, "8.0");
   assert.equal(insights.summary.highestRating, "9.0");
@@ -81,6 +89,14 @@ test("calculates collection windows, decades, and rating distributions", () => {
   );
   assert.equal(insights.months.length, 12);
   assert.equal(insights.months.at(-1).count, 2);
+  assert.equal(insights.days.length, 31);
+  assert.equal(insights.days.find((day) => day.shortLabel === "24").count, 1);
+  assert.equal(insights.days.find((day) => day.shortLabel === "10").count, 1);
+  assert.equal(insights.weeks.length, 8);
+  assert.equal(
+    insights.weeks.reduce((total, week) => total + week.count, 0),
+    2,
+  );
   assert.deepEqual(
     insights.decades.map((decade) => [decade.key, decade.count]),
     [
@@ -115,6 +131,24 @@ test("calculates collection windows, decades, and rating distributions", () => {
     1,
   );
   assert.equal(insights.sources.length, 2);
+  assert.deepEqual(
+    insights.decadePieSegments.map((segment) => [
+      segment.label,
+      segment.count,
+    ]),
+    [
+      ["2010 年代", 1],
+      ["2020 年代", 2],
+      ["年份未知", 1],
+    ],
+  );
+  assert.equal(
+    insights.ratingPieSegments.reduce(
+      (total, segment) => total + segment.count,
+      0,
+    ),
+    4,
+  );
 });
 
 test("compares repositories by stable ids without merging different seasons", () => {

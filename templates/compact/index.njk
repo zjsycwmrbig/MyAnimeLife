@@ -40,14 +40,14 @@
       </div>
 
       {% if records.length %}
-        <div class="toolbar">
-          <label class="search-field">
+        <div class="toolbar filter-workbench is-collapsed" aria-label="筛选与排序">
+          <label class="search-field filter-keyword">
             <span class="visually-hidden">搜索番剧</span>
             {{ icon("search") }}
             <input
               id="record-search"
               type="search"
-              placeholder="按标题、评价或索引 ID 搜索"
+              placeholder="搜索标题、评价、备注或索引 ID"
               autocomplete="off"
               spellcheck="false"
             />
@@ -63,7 +63,19 @@
             </button>
           </label>
 
-          <label class="select-field">
+          <button
+            id="toggle-advanced-filters"
+            class="filter-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="rating-advanced year-advanced"
+          >
+            {{ icon("settings") }}
+            <span>筛选</span>
+            <em id="active-filter-count" hidden>0</em>
+          </button>
+
+          <label class="select-field filter-status-field advanced-filter-control">
             <span>状态</span>
             <select id="rating-filter">
               <option value="all">全部</option>
@@ -72,35 +84,65 @@
             </select>
           </label>
 
-          <label class="select-field">
-            <span>年份</span>
-            <select id="year-filter">
-              <option value="all">全部年份</option>
-            </select>
-          </label>
-
-          <div class="filter-range-field">
-            <span>评分</span>
-            <input id="rating-min" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最低" aria-label="最低评分" />
-            <span aria-hidden="true">-</span>
-            <input id="rating-max" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最高评分" aria-label="最高评分" />
-          </div>
-
-          <label class="select-field">
+          <label class="select-field filter-sort-field">
             <span>排序</span>
             <select id="sort-order">
-              <option value="year-desc">作品年份：新到旧</option>
-              <option value="year-asc">作品年份：旧到新</option>
+              <option value="created-desc">添加日期：最新优先</option>
+              <option value="created-asc">添加日期：最早优先</option>
               <option value="rating-desc">评分：高到低</option>
               <option value="rating-asc">评分：低到高</option>
-              <option value="created-desc">添加顺序：新到旧</option>
-              <option value="created-asc">添加顺序：旧到新</option>
+              <option value="year-desc">作品年份：新到旧</option>
+              <option value="year-asc">作品年份：旧到新</option>
               <option value="updated-desc">修改时间：新到旧</option>
               <option value="updated-asc">修改时间：旧到新</option>
               <option value="title-asc">标题：正序</option>
               <option value="title-desc">标题：倒序</option>
             </select>
           </label>
+
+          <div id="rating-advanced" class="filter-range-panel filter-rating-range advanced-filter-control">
+            <div class="filter-row-heading">
+              <p class="section-index">01 / RATING</p>
+              <strong>评分</strong>
+              <span id="rating-range-summary">全部评分</span>
+            </div>
+            <div class="dual-range-field" data-range-control>
+              <div class="dual-range-values">
+                <label><span>最低</span><input id="rating-min-value" type="number" min="0" max="10" step="0.1" inputmode="decimal" aria-label="最低评分" /></label>
+                <span aria-hidden="true">至</span>
+                <label><span>最高</span><input id="rating-max-value" type="number" min="0" max="10" step="0.1" inputmode="decimal" aria-label="最高评分" /></label>
+              </div>
+              <div class="dual-range-track">
+                <span class="dual-range-fill" data-range-fill></span>
+                <input id="rating-min" type="range" min="0" max="10" step="0.1" value="0" aria-label="评分下限" />
+                <input id="rating-max" type="range" min="0" max="10" step="0.1" value="10" aria-label="评分上限" />
+              </div>
+            </div>
+            <div class="range-sort-group" role="group" aria-label="评分排序">
+              <button type="button" data-sort-order="rating-desc" aria-pressed="false">高分优先</button>
+              <button type="button" data-sort-order="rating-asc" aria-pressed="false">低分优先</button>
+            </div>
+          </div>
+
+          <div id="year-advanced" class="filter-range-panel filter-year-range advanced-filter-control">
+            <div class="filter-row-heading">
+              <p class="section-index">02 / YEAR</p>
+              <strong>作品年份</strong>
+              <span id="year-range-summary">全部年份</span>
+            </div>
+            <div class="dual-range-field" data-range-control>
+              <div class="dual-range-values">
+                <label><span>起始</span><input id="year-filter-min-value" type="number" min="1900" max="2200" step="1" inputmode="numeric" aria-label="起始年份" /></label>
+                <span aria-hidden="true">至</span>
+                <label><span>结束</span><input id="year-filter-max-value" type="number" min="1900" max="2200" step="1" inputmode="numeric" aria-label="结束年份" /></label>
+              </div>
+              <div class="dual-range-track">
+                <span class="dual-range-fill" data-range-fill></span>
+                <input id="year-filter" type="range" min="1900" max="2200" step="1" value="1900" aria-label="年份下限" />
+                <input id="year-max" type="range" min="1900" max="2200" step="1" value="2200" aria-label="年份上限" />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="records-grid" class="records-grid" data-page-size="25">
