@@ -83,5 +83,16 @@ export function createPersonalRecordStore() {
       persist();
       return next;
     },
+    remove(itemId) {
+      const key = String(itemId ?? "");
+      if (!key || !Object.hasOwn(records, key)) {
+        return false;
+      }
+      const next = { ...records };
+      delete next[key];
+      records = next;
+      persist();
+      return true;
+    },
   };
 }

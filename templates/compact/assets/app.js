@@ -14,8 +14,8 @@
   const yearRangeSummary = document.querySelector("#year-range-summary");
   const advancedFilterToggle = document.querySelector("#toggle-advanced-filters");
   const activeFilterCount = document.querySelector("#active-filter-count");
-  const ratingSortButtons = [
-    ...document.querySelectorAll("[data-sort-order^='rating-']"),
+  const rangeSortButtons = [
+    ...document.querySelectorAll(".range-sort-group [data-sort-order]"),
   ];
   const sortOrder = document.querySelector("#sort-order");
   const recordsGrid = document.querySelector("#records-grid");
@@ -79,7 +79,6 @@
     Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   let currentResultCount = 0;
 
-  const allowedFilters = new Set(["all", "rated", "unrated"]);
   const allowedSorts = new Set([
     "year-desc",
     "year-asc",
@@ -107,12 +106,19 @@
   ].sort((left, right) => left - right);
   const yearFloor = yearValues.at(0) ?? 1900;
   const yearCeiling = yearValues.at(-1) ?? 2200;
+  const yearBucketCount = Math.min(10, Math.max(1, yearCeiling - yearFloor + 1));
+  const yearBuckets = Array.from({ length: yearBucketCount }, (_, index) => {
+    const start = yearFloor + Math.floor(((yearCeiling - yearFloor + 1) * index) / yearBucketCount);
+    const end =
+      yearFloor +
+      Math.floor(((yearCeiling - yearFloor + 1) * (index + 1)) / yearBucketCount) -
+      1;
+    return { start, end: Math.max(start, end) };
+  });
 
   const initialState = {
     query: params.get("q") ?? "",
-    filter: allowedFilters.has(params.get("status"))
-      ? params.get("status")
-      : "all",
+    filter: "all",
     sort: allowedSorts.has(params.get("sort"))
       ? params.get("sort")
       : sortAliases[params.get("sort")] ?? "created-desc",
@@ -125,12 +131,10 @@
   searchInput.value = initialState.query;
   ratingFilter.value = initialState.filter;
   sortOrder.value = initialState.sort;
-  yearFilter.min = String(yearFloor);
-  yearFilter.max = String(yearCeiling);
-  yearMaxInput.min = String(yearFloor);
-  yearMaxInput.max = String(yearCeiling);
-  yearFilter.value = initialState.yearMin;
-  yearMaxInput.value = initialState.yearMax;
+  yearFilter.min = "0";
+  yearFilter.max = String(yearBucketCount - 1);
+  yearMaxInput.min = "0";
+  yearMaxInput.max = String(yearBucketCount - 1);
   ratingMinInput.value = initialState.ratingMin;
   ratingMaxInput.value = initialState.ratingMax;
 
@@ -172,13 +176,26 @@
 
   function parseRating(value) {
     const parsed = Number.parseFloat(String(value ?? ""));
-    return Number.isFinite(parsed) ? Math.min(10, Math.max(0, parsed)) : null;
+    return Number.isFinite(parsed)
+      ? Math.min(10, Math.max(0, Math.round(parsed)))
+      : null;
   }
 
-  function parseYear(value, fallback = yearFloor) {
+  function yearToBucketIndex(value, fallback = 0) {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    const index = yearBuckets.findIndex(
+      (bucket) => parsed >= bucket.start && parsed <= bucket.end,
+    );
+    return index === -1 ? fallback : index;
+  }
+
+  function parseBucketIndex(value, fallback = 0) {
     const parsed = Number.parseInt(String(value ?? ""), 10);
     return Number.isFinite(parsed)
-      ? Math.min(yearCeiling, Math.max(yearFloor, parsed))
+      ? Math.min(yearBucketCount - 1, Math.max(0, parsed))
       : fallback;
   }
 
@@ -203,30 +220,38 @@
     if (changed !== "min" && high < low) low = high;
     ratingMinInput.value = String(low);
     ratingMaxInput.value = String(high);
-    ratingMinValue.value = low.toFixed(1);
-    ratingMaxValue.value = high.toFixed(1);
+    ratingMinValue.value = String(low);
+    ratingMaxValue.value = String(high);
     setRangeFill(ratingMinInput.closest("[data-range-control]"), low, high, 0, 10);
     const active = low > 0 || high < 10 || ratingFilter.value !== "all";
     ratingRangeSummary.textContent = active
-      ? `${low.toFixed(1)} - ${high.toFixed(1)} 分`
+      ? `${low} - ${high} 分`
       : "全部评分";
   }
 
   function setYearRange(minimum, maximum, changed = "") {
-    let low = parseYear(minimum, yearFloor);
-    let high = parseYear(maximum, yearCeiling);
+    let low = parseBucketIndex(minimum);
+    let high = parseBucketIndex(maximum, yearBucketCount - 1);
     if (changed === "min" && low > high) low = high;
     if (changed === "max" && high < low) high = low;
     if (changed !== "max" && low > high) high = low;
     if (changed !== "min" && high < low) low = high;
     yearFilter.value = String(low);
     yearMaxInput.value = String(high);
-    yearMinValue.value = String(low);
-    yearMaxValue.value = String(high);
-    setRangeFill(yearFilter.closest("[data-range-control]"), low, high, yearFloor, yearCeiling);
-    const active = low > yearFloor || high < yearCeiling;
+    const minimumBucket = yearBuckets[low];
+    const maximumBucket = yearBuckets[high];
+    yearMinValue.value = String(minimumBucket.start);
+    yearMaxValue.value = String(maximumBucket.end);
+    setRangeFill(
+      yearFilter.closest("[data-range-control]"),
+      low,
+      high,
+      0,
+      yearBucketCount - 1,
+    );
+    const active = low > 0 || high < yearBucketCount - 1;
     yearRangeSummary.textContent = active
-      ? `${low} - ${high} 年`
+      ? `${minimumBucket.start}-${maximumBucket.end} 年`
       : "全部年份";
   }
 
@@ -234,13 +259,13 @@
     return {
       rating: Number(ratingMinInput.value) <= 0 && Number(ratingMaxInput.value) >= 10,
       year:
-        Number(yearFilter.value) <= yearFloor &&
-        Number(yearMaxInput.value) >= yearCeiling,
+        Number(yearFilter.value) <= 0 &&
+        Number(yearMaxInput.value) >= yearBucketCount - 1,
     };
   }
 
   function syncSortButtons() {
-    for (const button of ratingSortButtons) {
+    for (const button of rangeSortButtons) {
       button.setAttribute(
         "aria-pressed",
         String(button.dataset.sortOrder === sortOrder.value),
@@ -318,11 +343,13 @@
     const maximum = parseRating(ratingMaxInput.value);
     if (minimum !== null && minimum > 0) next.set("minRating", String(minimum));
     if (maximum !== null && maximum < 10) next.set("maxRating", String(maximum));
-    if (Number(yearFilter.value) > yearFloor) {
-      next.set("yearMin", yearFilter.value);
+    const yearMinimumBucket = yearBuckets[Number(yearFilter.value)];
+    const yearMaximumBucket = yearBuckets[Number(yearMaxInput.value)];
+    if (Number(yearFilter.value) > 0) {
+      next.set("yearMin", String(yearMinimumBucket.start));
     }
-    if (Number(yearMaxInput.value) < yearCeiling) {
-      next.set("yearMax", yearMaxInput.value);
+    if (Number(yearMaxInput.value) < yearBucketCount - 1) {
+      next.set("yearMax", String(yearMaximumBucket.end));
     }
     if (pageSize !== defaultPageSize) {
       next.set("size", String(pageSize));
@@ -429,8 +456,9 @@
     const query = normalize(searchInput.value);
     const minimum = parseRating(ratingMinInput.value);
     const maximum = parseRating(ratingMaxInput.value);
-    const yearMinimum = parseYear(yearFilter.value);
-    const yearMaximum = parseYear(yearMaxInput.value, yearCeiling);
+    const yearMinimum = yearBuckets[Number(yearFilter.value)]?.start ?? yearFloor;
+    const yearMaximum =
+      yearBuckets[Number(yearMaxInput.value)]?.end ?? yearCeiling;
     const fullRanges = rangesAreFull();
     const filteredCards = [];
 
@@ -456,7 +484,7 @@
           cardYear >= yearMinimum &&
           cardYear <= yearMaximum);
       card.hidden = true;
-      if (matchesQuery && matchesRating && matchesRange && matchesYear) {
+      if (matchesQuery && matchesRating && matchesYear) {
         filteredCards.push(card);
       }
     }
@@ -498,7 +526,10 @@
   }
 
   setRatingRange(initialState.ratingMin, initialState.ratingMax);
-  setYearRange(initialState.yearMin, initialState.yearMax);
+  setYearRange(
+    yearToBucketIndex(initialState.yearMin),
+    yearToBucketIndex(initialState.yearMax, yearBucketCount - 1),
+  );
   syncSortButtons();
   searchInput.addEventListener("input", () => applyState({ resetPage: true }));
   ratingFilter.addEventListener("change", () => {
@@ -515,16 +546,6 @@
       applyState({ resetPage: true });
     });
   }
-  for (const input of [ratingMinValue, ratingMaxValue]) {
-    input.addEventListener("change", () => {
-      setRatingRange(
-        input === ratingMinValue ? input.value : ratingMinValue.value,
-        input === ratingMaxValue ? input.value : ratingMaxValue.value,
-        input === ratingMinValue ? "min" : "max",
-      );
-      applyState({ resetPage: true });
-    });
-  }
   for (const input of [yearFilter, yearMaxInput]) {
     input.addEventListener("input", () => {
       setYearRange(
@@ -535,21 +556,11 @@
       applyState({ resetPage: true });
     });
   }
-  for (const input of [yearMinValue, yearMaxValue]) {
-    input.addEventListener("change", () => {
-      setYearRange(
-        input === yearMinValue ? input.value : yearMinValue.value,
-        input === yearMaxValue ? input.value : yearMaxValue.value,
-        input === yearMinValue ? "min" : "max",
-      );
-      applyState({ resetPage: true });
-    });
-  }
   sortOrder.addEventListener("change", () => {
     syncSortButtons();
     applyState({ resetPage: true });
   });
-  for (const button of ratingSortButtons) {
+  for (const button of rangeSortButtons) {
     button.addEventListener("click", () => {
       sortOrder.value = button.dataset.sortOrder;
       syncSortButtons();
@@ -596,7 +607,7 @@
     searchInput.value = "";
     ratingFilter.value = "all";
     setRatingRange(0, 10);
-    setYearRange(yearFloor, yearCeiling);
+    setYearRange(0, yearBucketCount - 1);
     sortOrder.value = "created-desc";
     syncSortButtons();
     advancedFilterToggle.setAttribute("aria-expanded", "false");

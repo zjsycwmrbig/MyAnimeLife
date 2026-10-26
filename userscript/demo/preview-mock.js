@@ -1,5 +1,15 @@
 (() => {
-  const memory = new Map();
+  const storageKey = "bangumi-scout.preview-gm-storage.v1";
+  let persisted = {};
+  try {
+    persisted = JSON.parse(localStorage.getItem(storageKey) || "{}");
+  } catch {
+    persisted = {};
+  }
+  const memory = new Map(Object.entries(persisted));
+  const persistMemory = () => {
+    localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(memory)));
+  };
   const animePath = "data/anime.jsonl";
   const indexPath = "data/anime-index.jsonl";
   const backupDirectory = "data/backups";
@@ -134,8 +144,14 @@
 
   window.GM_getValue = (key, fallback) =>
     memory.has(key) ? memory.get(key) : fallback;
-  window.GM_setValue = (key, value) => memory.set(key, value);
-  window.GM_deleteValue = (key) => memory.delete(key);
+  window.GM_setValue = (key, value) => {
+    memory.set(key, value);
+    persistMemory();
+  };
+  window.GM_deleteValue = (key) => {
+    memory.delete(key);
+    persistMemory();
+  };
   window.GM_registerMenuCommand = () => {};
   window.__previewRequests = [];
   window.__previewBilibiliDelay = 0;

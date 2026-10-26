@@ -63,17 +63,6 @@
               {{ icon("x") }}
             </button>
           </label>
-          <button
-            id="toggle-advanced-filters"
-            class="filter-toggle"
-            type="button"
-            aria-expanded="false"
-            aria-controls="rating-advanced year-advanced"
-          >
-            {{ icon("settings") }}
-            <span>筛选</span>
-            <em id="active-filter-count" hidden>0</em>
-          </button>
           <label class="select-field">
             <span>排序</span>
             <select id="sort-order">
@@ -89,6 +78,17 @@
               <option value="title-desc">标题：倒序</option>
             </select>
           </label>
+          <button
+            id="toggle-advanced-filters"
+            class="filter-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="rating-advanced year-advanced"
+          >
+            {{ icon("settings") }}
+            <span>筛选</span>
+            <em id="active-filter-count" hidden>0</em>
+          </button>
           </div>
 
           <div id="rating-advanced" class="filter-row filter-row-range advanced-filter-control">
@@ -97,29 +97,22 @@
               <strong>评分</strong>
               <span id="rating-range-summary">全部评分</span>
             </div>
-            <label class="select-field filter-status-field">
-              <span>状态</span>
-              <select id="rating-filter">
-                <option value="all">全部</option>
-                <option value="rated">已评分</option>
-                <option value="unrated">未评分</option>
-              </select>
-            </label>
+            <input id="rating-filter" type="hidden" value="all" />
             <div class="dual-range-field" data-range-control>
               <div class="dual-range-values">
-                <label><span>最低</span><input id="rating-min-value" type="number" min="0" max="10" step="0.1" inputmode="decimal" aria-label="最低评分" /></label>
+                <label><span>最低</span><output id="rating-min-value" aria-label="最低评分">0</output></label>
                 <span aria-hidden="true">至</span>
-                <label><span>最高</span><input id="rating-max-value" type="number" min="0" max="10" step="0.1" inputmode="decimal" aria-label="最高评分" /></label>
+                <label><span>最高</span><output id="rating-max-value" aria-label="最高评分">10</output></label>
               </div>
               <div class="dual-range-track">
                 <span class="dual-range-fill" data-range-fill></span>
-                <input id="rating-min" type="range" min="0" max="10" step="0.1" value="0" aria-label="评分下限" />
-                <input id="rating-max" type="range" min="0" max="10" step="0.1" value="10" aria-label="评分上限" />
+                <input id="rating-min" type="range" min="0" max="10" step="1" value="0" aria-label="评分下限" />
+                <input id="rating-max" type="range" min="0" max="10" step="1" value="10" aria-label="评分上限" />
               </div>
             </div>
             <div class="range-sort-group" role="group" aria-label="评分排序">
-              <button type="button" data-sort-order="rating-desc" aria-pressed="false">高分优先</button>
-              <button type="button" data-sort-order="rating-asc" aria-pressed="false">低分优先</button>
+              <button type="button" data-sort-order="rating-desc" aria-pressed="false">高到低</button>
+              <button type="button" data-sort-order="rating-asc" aria-pressed="false">低到高</button>
             </div>
           </div>
 
@@ -131,15 +124,19 @@
             </div>
             <div class="dual-range-field" data-range-control>
               <div class="dual-range-values">
-                <label><span>起始</span><input id="year-filter-min-value" type="number" min="1900" max="2200" step="1" inputmode="numeric" aria-label="起始年份" /></label>
+                <label><span>起始</span><output id="year-filter-min-value" aria-label="起始年份档">全部</output></label>
                 <span aria-hidden="true">至</span>
-                <label><span>结束</span><input id="year-filter-max-value" type="number" min="1900" max="2200" step="1" inputmode="numeric" aria-label="结束年份" /></label>
+                <label><span>结束</span><output id="year-filter-max-value" aria-label="结束年份档">全部</output></label>
               </div>
               <div class="dual-range-track">
                 <span class="dual-range-fill" data-range-fill></span>
-                <input id="year-filter" type="range" min="1900" max="2200" step="1" value="1900" aria-label="年份下限" />
-                <input id="year-max" type="range" min="1900" max="2200" step="1" value="2200" aria-label="年份上限" />
+                <input id="year-filter" type="range" min="0" max="9" step="1" value="0" aria-label="年份档位下限" />
+                <input id="year-max" type="range" min="0" max="9" step="1" value="9" aria-label="年份档位上限" />
               </div>
+            </div>
+            <div class="range-sort-group" role="group" aria-label="年份排序">
+              <button type="button" data-sort-order="year-desc" aria-pressed="false">新到旧</button>
+              <button type="button" data-sort-order="year-asc" aria-pressed="false">旧到新</button>
             </div>
           </div>
         </div>

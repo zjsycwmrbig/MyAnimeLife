@@ -1202,6 +1202,34 @@ button.scout-list-row:active {
   flex: 1;
 }
 
+.scout-record-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.scout-record-actions .scout-button {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+@media (max-width: 520px) {
+  .scout-record-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scout-record-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scout-record-actions .scout-button {
+    justify-content: center;
+  }
+}
+
 .scout-record-remote-link {
   display: inline-flex;
   align-items: center;

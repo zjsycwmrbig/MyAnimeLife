@@ -27,4 +27,6 @@ test("preserves a remote timestamp when caching a GitHub record locally", () => 
     review: "本地编辑",
   });
   assert.notEqual(edited.updatedAt, "2026-10-25T08:00:00.000Z");
+  assert.equal(store.remove("bangumi:525565"), true);
+  assert.equal(store.get("bangumi:525565").rating, null);
 });

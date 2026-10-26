@@ -1,5 +1,6 @@
 import { createSettingsStore } from "./core/settings.js";
 import { createPersonalRecordStore } from "./core/personal-records.js";
+import { createRecognitionCacheStore } from "./core/recognition-cache.js";
 import { createCoverResolver } from "./core/cover-cache.js";
 import { createGithubRecordsService } from "./core/github-records.js";
 import { toErrorMessage } from "./core/network.js";
@@ -16,6 +17,7 @@ if (window.top === window.self && !document.getElementById("bangumi-scout-host")
 async function bootstrap() {
   const settingsStore = createSettingsStore();
   const personalRecordStore = createPersonalRecordStore();
+  const recognitionCache = createRecognitionCacheStore();
   const coverResolver = createCoverResolver();
   const githubRecords = createGithubRecordsService({ settingsStore });
   const initialSettings = settingsStore.get();
@@ -34,6 +36,7 @@ async function bootstrap() {
     indexService,
     recognizer,
     personalRecordStore,
+    recognitionCache,
     coverResolver,
     githubRecords,
     onRecognize: async (options = {}) => {
