@@ -1,4 +1,5 @@
 (() => {
+  globalThis.__BANGUMI_SCOUT_TEST_MODE__ = true;
   const storageKey = "bangumi-scout.preview-gm-storage.v1";
   let persisted = {};
   try {

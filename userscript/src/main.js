@@ -1,4 +1,5 @@
 import { createSettingsStore } from "./core/settings.js";
+import { isEnabledSite } from "./core/site-allowlist.js";
 import { createPersonalRecordStore } from "./core/personal-records.js";
 import { createRecognitionCacheStore } from "./core/recognition-cache.js";
 import { createCoverResolver } from "./core/cover-cache.js";
@@ -8,7 +9,15 @@ import { AnimeIndexService } from "./index/index-service.js";
 import { AnimeRecognizer } from "./recognizers/recognizer.js";
 import { ScoutPanel } from "./ui/panel.js";
 
-if (window.top === window.self && !document.getElementById("bangumi-scout-host")) {
+const enabledSite =
+  isEnabledSite(location.href) ||
+  globalThis.__BANGUMI_SCOUT_TEST_MODE__ === true;
+
+if (
+  enabledSite &&
+  window.top === window.self &&
+  !document.getElementById("bangumi-scout-host")
+) {
   bootstrap().catch((error) => {
     console.error("[Bangumi Scout] bootstrap failed", error);
   });

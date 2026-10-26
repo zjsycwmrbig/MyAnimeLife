@@ -2,10 +2,97 @@
 // @name         Bangumi Scout - 番剧识别助手
 // @name:zh-CN   Bangumi Scout - 番剧识别助手
 // @namespace    local.anime-index-userscript
-// @version      0.1.0
+// @version      0.1.1
 // @description  使用本地番剧索引、正则候选、模糊搜索与 DeepSeek 辅助识别当前番剧
 // @author       local
-// @match        *://*/*
+// @match        *://bilibili.com/*
+// @match        *://*.bilibili.com/*
+// @match        *://bilibili.tv/*
+// @match        *://*.bilibili.tv/*
+// @match        *://bangumi.tv/*
+// @match        *://*.bangumi.tv/*
+// @match        *://bgm.tv/*
+// @match        *://*.bgm.tv/*
+// @match        *://acfun.cn/*
+// @match        *://*.acfun.cn/*
+// @match        *://iqiyi.com/*
+// @match        *://*.iqiyi.com/*
+// @match        *://iq.com/*
+// @match        *://*.iq.com/*
+// @match        *://v.qq.com/*
+// @match        *://*.v.qq.com/*
+// @match        *://youku.com/*
+// @match        *://*.youku.com/*
+// @match        *://mgtv.com/*
+// @match        *://*.mgtv.com/*
+// @match        *://tv.sohu.com/*
+// @match        *://*.tv.sohu.com/*
+// @match        *://pptv.com/*
+// @match        *://*.pptv.com/*
+// @match        *://1905.com/*
+// @match        *://*.1905.com/*
+// @match        *://le.com/*
+// @match        *://*.le.com/*
+// @match        *://douban.com/*
+// @match        *://*.douban.com/*
+// @match        *://imdb.com/*
+// @match        *://*.imdb.com/*
+// @match        *://themoviedb.org/*
+// @match        *://*.themoviedb.org/*
+// @match        *://thetvdb.com/*
+// @match        *://*.thetvdb.com/*
+// @match        *://myanimelist.net/*
+// @match        *://*.myanimelist.net/*
+// @match        *://anilist.co/*
+// @match        *://*.anilist.co/*
+// @match        *://anidb.net/*
+// @match        *://*.anidb.net/*
+// @match        *://annict.com/*
+// @match        *://*.annict.com/*
+// @match        *://filmarks.com/*
+// @match        *://*.filmarks.com/*
+// @match        *://kitsu.app/*
+// @match        *://*.kitsu.app/*
+// @match        *://shikimori.one/*
+// @match        *://*.shikimori.one/*
+// @match        *://simkl.com/*
+// @match        *://*.simkl.com/*
+// @match        *://trakt.tv/*
+// @match        *://*.trakt.tv/*
+// @match        *://crunchyroll.com/*
+// @match        *://*.crunchyroll.com/*
+// @match        *://netflix.com/*
+// @match        *://*.netflix.com/*
+// @match        *://primevideo.com/*
+// @match        *://*.primevideo.com/*
+// @match        *://disneyplus.com/*
+// @match        *://*.disneyplus.com/*
+// @match        *://hulu.com/*
+// @match        *://*.hulu.com/*
+// @match        *://hulu.jp/*
+// @match        *://*.hulu.jp/*
+// @match        *://max.com/*
+// @match        *://*.max.com/*
+// @match        *://hbomax.com/*
+// @match        *://*.hbomax.com/*
+// @match        *://tv.apple.com/*
+// @match        *://*.tv.apple.com/*
+// @match        *://viki.com/*
+// @match        *://*.viki.com/*
+// @match        *://wetv.vip/*
+// @match        *://*.wetv.vip/*
+// @match        *://viu.com/*
+// @match        *://*.viu.com/*
+// @match        *://ani.gamer.com.tw/*
+// @match        *://*.ani.gamer.com.tw/*
+// @match        *://nicovideo.jp/*
+// @match        *://*.nicovideo.jp/*
+// @match        *://abema.tv/*
+// @match        *://*.abema.tv/*
+// @match        *://unext.jp/*
+// @match        *://*.unext.jp/*
+// @match        *://animestore.docomo.ne.jp/*
+// @match        *://*.animestore.docomo.ne.jp/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -210,6 +297,72 @@
         return () => listeners.delete(listener);
       }
     };
+  }
+
+  // src/core/site-allowlist.js
+  var ENABLED_SITE_DOMAINS = Object.freeze([
+    "bilibili.com",
+    "bilibili.tv",
+    "bangumi.tv",
+    "bgm.tv",
+    "acfun.cn",
+    "iqiyi.com",
+    "iq.com",
+    "v.qq.com",
+    "youku.com",
+    "mgtv.com",
+    "tv.sohu.com",
+    "pptv.com",
+    "1905.com",
+    "le.com",
+    "douban.com",
+    "imdb.com",
+    "themoviedb.org",
+    "thetvdb.com",
+    "myanimelist.net",
+    "anilist.co",
+    "anidb.net",
+    "annict.com",
+    "filmarks.com",
+    "kitsu.app",
+    "shikimori.one",
+    "simkl.com",
+    "trakt.tv",
+    "crunchyroll.com",
+    "netflix.com",
+    "primevideo.com",
+    "disneyplus.com",
+    "hulu.com",
+    "hulu.jp",
+    "max.com",
+    "hbomax.com",
+    "tv.apple.com",
+    "viki.com",
+    "wetv.vip",
+    "viu.com",
+    "ani.gamer.com.tw",
+    "nicovideo.jp",
+    "abema.tv",
+    "unext.jp",
+    "animestore.docomo.ne.jp"
+  ]);
+  function normalizedHostname(value) {
+    return String(value ?? "").trim().toLocaleLowerCase().replace(/\.$/u, "");
+  }
+  function isEnabledSite(input) {
+    let url;
+    try {
+      url = input instanceof URL ? input : new URL(String(input ?? ""));
+    } catch {
+      return false;
+    }
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return false;
+    }
+    const hostname = normalizedHostname(url.hostname);
+    return ENABLED_SITE_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+    );
   }
 
   // src/core/personal-records.js
@@ -8840,7 +8993,8 @@ ${indexText}`);
   };
 
   // src/main.js
-  if (window.top === window.self && !document.getElementById("bangumi-scout-host")) {
+  var enabledSite = isEnabledSite(location.href) || globalThis.__BANGUMI_SCOUT_TEST_MODE__ === true;
+  if (enabledSite && window.top === window.self && !document.getElementById("bangumi-scout-host")) {
     bootstrap().catch((error) => {
       console.error("[Bangumi Scout] bootstrap failed", error);
     });

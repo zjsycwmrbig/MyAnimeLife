@@ -325,6 +325,17 @@ test("keeps plugin typing from triggering page keyboard shortcuts", async ({
   expect(await page.evaluate(() => window.__pageShortcutKeys)).toEqual([]);
 });
 
+test("does not initialize on an unrelated website", async ({ page }) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+  await page.addScriptTag({ path: userscriptPath });
+  await page.waitForTimeout(150);
+
+  await expect(page.locator("#bangumi-scout-host")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => Boolean(window.BangumiScout)))
+    .toBe(false);
+});
+
 test("loads every Bilibili follow page and batch imports selected anime once", async ({
   page,
 }) => {

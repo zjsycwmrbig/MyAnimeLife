@@ -42,10 +42,21 @@ MyAnimeLife 仓库中的油猴脚本模块。个人评分和短评会先保存�
 
 1. 运行 `npm install && npm run build`。
 2. 在 Tampermonkey 中安装 [`dist/anime-index.user.js`](dist/anime-index.user.js)。
-3. 打开任意网页，右下角会出现识别入口；首次点击才读取并识别当前页面。
+3. 打开下方支持的影视或动漫网站，右下角会出现识别入口；首次点击才读取并识别当前页面。其他网站不会启用脚本。
 4. 通过 Tampermonkey 的脚本菜单选择“Bangumi Scout 设置”，配置索引、DeepSeek 和 GitHub 仓库。
 
 设置没有放进网页内的识别面板。当前项目是油猴脚本，不是传统 Chrome 扩展，因此没有浏览器层面的 `options_ui`；Tampermonkey 脚本菜单就是对应的扩展设置入口。
+
+## 启用网站
+
+脚本的 `@match` 和运行时域名守卫都使用同一份白名单。当前覆盖：
+
+- 中国大陆：哔哩哔哩、哔哩哔哩国际版、Bangumi、AcFun、爱奇艺、腾讯视频、优酷、芒果 TV、搜狐视频、PPTV、1905 电影网、乐视、豆瓣
+- 日本与华语动漫：巴哈姆特动画疯、Niconico、ABEMA、U-NEXT、d Anime Store、Annict、Filmarks
+- 国际影视：Crunchyroll、Netflix、Prime Video、Disney+、Hulu、Max、Apple TV、Viki、WeTV、Viu
+- 资料与评分：MyAnimeList、AniList、AniDB、Kitsu、Shikimori、Simkl、Trakt、IMDb、TMDB、TheTVDB
+
+未列出的域名不会注入入口。需要新增站点时，在 `src/core/site-allowlist.js` 的 `ENABLED_SITE_DOMAINS` 中添加域名后重新运行 `npm run build`。
 
 主要设置项：
 
