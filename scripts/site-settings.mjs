@@ -1,5 +1,5 @@
 export const DISPLAY_TEMPLATE_IDS = ["default", "compact", "spotlight"];
-export const SHARE_TEMPLATE_IDS = ["auto", ...DISPLAY_TEMPLATE_IDS];
+export const SHARE_TEMPLATE_IDS = DISPLAY_TEMPLATE_IDS;
 export const SHARE_ACCENT_IDS = ["coral", "teal", "blue", "amber"];
 
 export const SHARE_ACCENTS = {
@@ -62,21 +62,16 @@ function requireText(value, label, maximumLength, fallback = "") {
 
 export function normalizeShareConfig(value, displayTemplate = "default") {
   const share = value && typeof value === "object" ? value : {};
-  const template = SHARE_TEMPLATE_IDS.includes(cleanString(share.template))
-    ? cleanString(share.template)
-    : "auto";
+  const requestedTemplate = cleanString(share.template);
+  const template = SHARE_TEMPLATE_IDS.includes(requestedTemplate)
+    ? requestedTemplate
+    : "default";
   const accent = SHARE_ACCENT_IDS.includes(cleanString(share.accent))
     ? cleanString(share.accent)
     : "coral";
-  const resolvedTemplate =
-    template === "auto"
-      ? DISPLAY_TEMPLATE_IDS.includes(displayTemplate)
-        ? displayTemplate
-        : "default"
-      : template;
   return {
     template,
-    resolvedTemplate,
+    resolvedTemplate: template,
     accent,
   };
 }
@@ -112,7 +107,9 @@ export function applySiteSettings(config, input) {
     input.share && typeof input.share === "object" ? input.share : config.share ?? {};
   const share = {
     template: requireChoice(
-      shareInput.template ?? "auto",
+      shareInput.template === "auto"
+        ? "default"
+        : shareInput.template ?? "default",
       SHARE_TEMPLATE_IDS,
       "分享模板",
     ),

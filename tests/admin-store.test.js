@@ -125,7 +125,7 @@ test("saves display and share preferences to the site config", async () => {
     const store = new LibraryAdminStore(fixtureRoot);
     const initial = await store.siteSettings();
     assert.equal(initial.template, "default");
-    assert.equal(initial.share.template, "auto");
+    assert.equal(initial.share.template, "default");
 
     const saved = await store.saveSiteSettings({
       site: {

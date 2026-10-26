@@ -12,7 +12,7 @@
   },
   "template": "default",
   "share": {
-    "template": "auto",
+    "template": "default",
     "accent": "coral"
   },
   "dataFile": "data/anime.jsonl",

@@ -16,7 +16,7 @@ const config = {
   },
   repository: { slug: "example/anime", branch: "main" },
   template: "default",
-  share: { template: "auto", accent: "coral" },
+  share: { template: "default", accent: "coral" },
   dataFile: "data/anime.jsonl",
   indexFile: "data/anime-index.jsonl",
   backupDirectory: "data/backups",
@@ -24,10 +24,10 @@ const config = {
   outputDirectory: "dist",
 };
 
-test("resolves automatic share styles from the display template", () => {
+test("normalizes share styles to an explicit template", () => {
   assert.deepEqual(normalizeShareConfig({ template: "auto", accent: "teal" }, "spotlight"), {
-    template: "auto",
-    resolvedTemplate: "spotlight",
+    template: "default",
+    resolvedTemplate: "default",
     accent: "teal",
   });
   assert.equal(
@@ -79,7 +79,7 @@ test("rejects unsupported templates and accents", () => {
   assert.throws(
     () =>
       applySiteSettings(config, {
-        share: { template: "auto", accent: "pink" },
+        share: { template: "default", accent: "pink" },
       }),
     /分享配色不在支持范围内/u,
   );

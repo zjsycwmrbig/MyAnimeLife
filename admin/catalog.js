@@ -196,6 +196,12 @@ function selectRadio(inputs, value) {
   }
 }
 
+function shareTemplateOrDefault(value) {
+  return ["default", "compact", "spotlight"].includes(value)
+    ? value
+    : "default";
+}
+
 function renderSiteSettings(settings) {
   state.remoteSettings = settings;
   elements.siteTitleInput.value = settings.site?.title ?? "";
@@ -203,13 +209,16 @@ function renderSiteSettings(settings) {
   elements.siteDescriptionInput.value = settings.site?.description ?? "";
   elements.siteFooterInput.value = settings.site?.footer ?? "";
   selectRadio(elements.displayTemplateInputs, settings.template);
-  selectRadio(elements.shareTemplateInputs, settings.share?.template ?? "auto");
+  selectRadio(
+    elements.shareTemplateInputs,
+    shareTemplateOrDefault(settings.share?.template),
+  );
   selectRadio(elements.shareAccentInputs, settings.share?.accent ?? "coral");
   const local = readLocalAppearance();
   if (local?.share) {
     selectRadio(
       elements.shareTemplateInputs,
-      local.share.template ?? settings.share?.template ?? "auto",
+      shareTemplateOrDefault(local.share.template ?? settings.share?.template),
     );
     selectRadio(
       elements.shareAccentInputs,
@@ -254,7 +263,7 @@ function readAppearanceForm() {
     share: {
       template:
         elements.shareTemplateInputs.find((input) => input.checked)?.value ??
-        "auto",
+        "default",
       accent:
         elements.shareAccentInputs.find((input) => input.checked)?.value ??
         "coral",
@@ -265,9 +274,10 @@ function readAppearanceForm() {
 
 function saveLocalAppearance() {
   try {
-    localStorage.setItem(
-      LOCAL_APPEARANCE_KEY,
-      JSON.stringify(readAppearanceForm()),
+    const appearance = readAppearanceForm();
+    localStorage.setItem(LOCAL_APPEARANCE_KEY, JSON.stringify(appearance));
+    window.dispatchEvent(
+      new CustomEvent("anime-appearance:changed", { detail: appearance }),
     );
     renderLocalAppearance();
     showToast("分享样式已保存到本机");
@@ -280,10 +290,13 @@ function saveLocalAppearance() {
 function clearLocalAppearance() {
   try {
     localStorage.removeItem(LOCAL_APPEARANCE_KEY);
+    window.dispatchEvent(
+      new CustomEvent("anime-appearance:changed", { detail: null }),
+    );
     if (state.remoteSettings) {
       selectRadio(
         elements.shareTemplateInputs,
-        state.remoteSettings.share?.template ?? "auto",
+        shareTemplateOrDefault(state.remoteSettings.share?.template),
       );
       selectRadio(
         elements.shareAccentInputs,
@@ -316,7 +329,7 @@ async function saveSiteSettings(event) {
     share: {
       template:
         elements.shareTemplateInputs.find((input) => input.checked)?.value ??
-        "auto",
+        "default",
       accent:
         elements.shareAccentInputs.find((input) => input.checked)?.value ??
         "coral",

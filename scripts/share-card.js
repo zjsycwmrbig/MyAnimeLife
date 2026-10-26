@@ -114,9 +114,7 @@
     const localShare = localAppearance?.share ?? {};
     const localTemplate = clean(localShare.template);
     const requestedTemplate = clean(
-      localTemplate && localTemplate !== "auto"
-        ? localTemplate
-        : parsed.resolvedTemplate || parsed.template,
+      localTemplate || parsed.resolvedTemplate || parsed.template,
     );
     const template = ["default", "compact", "spotlight"].includes(
       requestedTemplate,
@@ -192,10 +190,10 @@
       .join("")}</text>`;
   }
 
-  function fallbackCover(title, x, y, width, height, palette) {
+  function fallbackCover(title, x, y, width, height, palette, radius = 22) {
     const lines = wrapText(title, 10, 5);
     return `<g>
-      <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" fill="${palette.soft}" />
+      <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}" fill="${palette.soft}" />
       <path d="M${x} ${y + height * 0.76}C${x + width * 0.2} ${y + height * 0.57} ${x + width * 0.5} ${y + height * 0.94} ${x + width} ${y + height * 0.64}V${y + height}H${x}Z" fill="${palette.accent}" opacity=".92" />
       <circle cx="${x + width - 54}" cy="${y + 54}" r="8" fill="${palette.accent}" />
       ${textBlock(lines, x + 32, y + height * 0.36, 34, {
@@ -273,22 +271,22 @@
     return shareCache.get(cacheKey);
   }
 
-  async function coverBlock(record, x, y, width, height, palette, id) {
+  async function coverBlock(record, x, y, width, height, palette, id, radius = 22) {
     const title = record.title || "未命名番剧";
     const sourceUrl =
       normalizeUrl(record.coverUrl) ||
       (record.bangumiId ? await fetchBangumiCover(record.bangumiId) : null);
     if (!sourceUrl) {
       return {
-        markup: fallbackCover(title, x, y, width, height, palette),
+        markup: fallbackCover(title, x, y, width, height, palette, radius),
         definition: "",
       };
     }
     const imageSource = escapeXml(sourceUrl);
     return {
-      markup: `${fallbackCover(title, x, y, width, height, palette)}
+      markup: `${fallbackCover(title, x, y, width, height, palette, radius)}
         <image href="${imageSource}" xlink:href="${imageSource}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" referrerpolicy="no-referrer" clip-path="url(#${id})" />`,
-      definition: `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="22" /></clipPath>`,
+      definition: `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}" /></clipPath>`,
     };
   }
 
@@ -333,46 +331,56 @@
     const label = dark ? "#d8e0db" : palette.accentDark;
     const text = dark ? "#fff" : palette.ink;
     const track = dark ? "#ffffff2b" : `${palette.ink}22`;
-    const segmentGap = 5;
-    const segmentWidth = Math.max(12, (width - 48 - segmentGap * 9) / 10);
-    const segmentY = y + height - 27;
-    const segmentX = x + 24;
+    const progress = Number.isFinite(score)
+      ? Math.max(0, Math.min(10, score)) / 10
+      : 0;
+    const radius = Math.min(43, Math.max(30, height * 0.31));
+    const centerX = x + radius + 28;
+    const centerY = y + height / 2;
+    const circumference = 2 * Math.PI * radius;
     const segments = Array.from({ length: 10 }, (_, index) => {
-      const remaining = Number.isFinite(score) ? score - index : 0;
-      const opacity =
-        remaining >= 1 ? 1 : remaining > 0 ? 0.35 + remaining * 0.65 : 0.16;
-      return `<rect x="${segmentX + index * (segmentWidth + segmentGap)}" y="${segmentY}" width="${segmentWidth}" height="8" rx="4" fill="${Number.isFinite(score) && remaining > 0 ? palette.accent : track}" opacity="${opacity}" />`;
+      const angle = -Math.PI / 2 + (index / 10) * Math.PI * 2;
+      const dotX = centerX + Math.cos(angle) * (radius + 13);
+      const dotY = centerY + Math.sin(angle) * (radius + 13);
+      const active = Number.isFinite(score) && score >= index + 1;
+      return `<circle cx="${dotX}" cy="${dotY}" r="3.5" fill="${active ? palette.accent : track}" opacity="${active ? 1 : 0.7}" />`;
     }).join("");
+    const copyX = x + radius * 2 + 76;
     return `<g>
       <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="18" fill="${panel}" />
-      <text x="${x + 24}" y="${y + 34}" fill="${label}" font-family="${FONT_STACK}" font-size="15" font-weight="800" letter-spacing="2">MY SCORE</text>
-      <text x="${x + 24}" y="${y + height - 43}" fill="${text}" font-family="${DISPLAY_FONT}" font-size="${Math.min(52, height * 0.42)}" font-weight="700">${escapeXml(rating.value)}</text>
-      <text x="${x + width - 24}" y="${y + height - 48}" text-anchor="end" fill="${label}" font-family="${FONT_STACK}" font-size="16" font-weight="700">${rating.caption === "未评分" ? "等待评分" : "/ 10"}</text>
+      <circle cx="${centerX}" cy="${centerY}" r="${radius}" fill="none" stroke="${track}" stroke-width="8" />
+      <circle cx="${centerX}" cy="${centerY}" r="${radius}" fill="none" stroke="${palette.accent}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${circumference * progress} ${circumference}" transform="rotate(-90 ${centerX} ${centerY})" />
       ${segments}
+      <text x="${centerX}" y="${centerY + 8}" text-anchor="middle" fill="${text}" font-family="${DISPLAY_FONT}" font-size="${Math.min(39, height * 0.3)}" font-weight="800">${escapeXml(rating.value)}</text>
+      <text x="${centerX}" y="${centerY + 27}" text-anchor="middle" fill="${label}" font-family="${FONT_STACK}" font-size="11" font-weight="750">${rating.caption === "未评分" ? "等待评分" : "/ 10"}</text>
+      <text x="${copyX}" y="${y + 48}" fill="${label}" font-family="${FONT_STACK}" font-size="15" font-weight="800" letter-spacing="2">MY SCORE</text>
+      <text x="${copyX}" y="${y + 82}" fill="${text}" font-family="${DISPLAY_FONT}" font-size="22" font-weight="700">${rating.caption === "未评分" ? "还没有评分" : "这部作品的分数"}</text>
+      <text x="${copyX}" y="${y + 111}" fill="${label}" font-family="${FONT_STACK}" font-size="13">10 分制 · ${rating.caption === "未评分" ? "待补充" : `完成度 ${Math.round(progress * 100)}%`}</text>
     </g>`;
   }
 
   function archiveCard(record, palette, cover) {
     const titleLines = wrapText(record.title || "未命名番剧", 22, 2);
     const review = reviewLines(record, 26, 5);
-    const rating = ratingParts(record);
     const body = `<rect width="1200" height="1500" fill="${palette.paper}" />
       <rect x="0" y="0" width="1200" height="14" fill="${palette.accent}" />
-      <text x="64" y="70" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="17" font-weight="700" letter-spacing="3">MYANIMELIFE / RECORD CARD</text>
-      <text x="1136" y="70" text-anchor="end" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">ANIME ARCHIVE</text>
       ${cover.markup}
-      <text x="64" y="892" fill="${palette.accent}" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">ANIME RECORD</text>
-      ${textBlock(titleLines, 64, 948, 52, {
-        fill: palette.ink,
+      <rect x="0" y="650" width="1200" height="230" fill="url(#archive-cover-shade)" />
+      <rect x="0" y="14" width="1200" height="86" fill="#101714" opacity=".3" />
+      <text x="64" y="64" fill="#fff" font-family="${FONT_STACK}" font-size="17" font-weight="700" letter-spacing="3">MYANIMELIFE / RECORD CARD</text>
+      <text x="1136" y="64" text-anchor="end" fill="#fff" font-family="${FONT_STACK}" font-size="16">ANIME ARCHIVE</text>
+      <text x="64" y="730" fill="#fff" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">ANIME RECORD</text>
+      ${textBlock(titleLines, 64, 786, 50, {
+        fill: "#fff",
         "font-family": DISPLAY_FONT,
-        "font-size": 46,
+        "font-size": 44,
         "font-weight": 700,
       })}
-      <text x="64" y="1028" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="17" font-weight="700">作品年代 · ${escapeXml(metaText(record))}</text>
-      ${ratingVisual(record, 64, 1060, 300, 138, palette)}
-      <text x="408" y="1092" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">SHORT REVIEW</text>
-      <line x1="408" y1="1114" x2="1136" y2="1114" stroke="${palette.ink}" opacity=".14" />
-      ${textBlock(review, 408, 1150, 30, {
+      <text x="64" y="930" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="17" font-weight="700">作品年代 · ${escapeXml(metaText(record))}</text>
+      ${ratingVisual(record, 64, 960, 500, 170, palette)}
+      <text x="612" y="1000" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">SHORT REVIEW</text>
+      <line x1="612" y1="1022" x2="1136" y2="1022" stroke="${palette.ink}" opacity=".14" />
+      ${textBlock(review, 612, 1060, 30, {
         fill: palette.ink,
         "font-family": FONT_STACK,
         "font-size": 20,
@@ -380,7 +388,12 @@
       <rect x="64" y="1300" width="1072" height="1" fill="${palette.ink}" opacity=".13" />
       <text x="64" y="1408" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">${escapeXml(clean(record.siteTitle) || "私人番剧档案")}</text>
       <text x="1136" y="1408" text-anchor="end" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="16" font-weight="700">MYANIMELIFE</text>`;
-    return svgDocument(1200, 1500, body, cover.definition);
+    return svgDocument(
+      1200,
+      1500,
+      body,
+      `${cover.definition}<linearGradient id="archive-cover-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101714" stop-opacity="0" /><stop offset="1" stop-color="#101714" stop-opacity=".86" /></linearGradient>`,
+    );
   }
 
   function compactCard(record, palette, cover) {
@@ -415,28 +428,28 @@
   }
 
   function spotlightCard(record, palette, cover) {
-    const titleLines = wrapText(record.title || "未命名番剧", 11, 4);
-    const review = reviewLines(record, 20, 8);
+    const titleLines = wrapText(record.title || "未命名番剧", 13, 3);
+    const review = reviewLines(record, 20, 4);
     const body = `<rect width="1200" height="1500" fill="#18211e" />
       ${cover.markup}
-      <rect x="0" y="0" width="1200" height="1500" fill="#101714" opacity=".7" />
-      <rect x="0" y="0" width="1200" height="1500" fill="url(#spotlight-shade)" />
+      <rect x="0" y="560" width="1200" height="940" fill="url(#spotlight-bottom-shade)" />
       <rect x="0" y="0" width="12" height="1500" fill="${palette.accent}" />
-      <text x="72" y="76" fill="#a8b5ae" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="3">MYANIMELIFE / SPOTLIGHT</text>
-      ${textBlock(titleLines, 72, 190, 64, {
+      <rect x="48" y="30" width="390" height="62" rx="20" fill="#101714" opacity=".46" />
+      <text x="72" y="70" fill="#e7eee8" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="3">MYANIMELIFE / SPOTLIGHT</text>
+      ${textBlock(titleLines, 72, 790, 58, {
         fill: "#f7f2e9",
         "font-family": DISPLAY_FONT,
-        "font-size": 52,
+        "font-size": 48,
         "font-weight": 700,
       })}
-      <text x="72" y="${190 + Math.max(1, titleLines.length) * 64 + 42}" fill="${palette.accent}" font-family="${FONT_STACK}" font-size="20" font-weight="700">${escapeXml(metaText(record))}</text>
-      ${ratingVisual(record, 72, 548, 500, 154, palette, { dark: true })}
-      <text x="72" y="782" fill="#a8b5ae" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">SHORT REVIEW</text>
-      <line x1="72" y1="812" x2="572" y2="812" stroke="#fff" opacity=".18" />
-      ${textBlock(review, 72, 870, 38, {
+      <text x="72" y="${790 + Math.max(1, titleLines.length) * 58 + 34}" fill="${palette.accent}" font-family="${FONT_STACK}" font-size="20" font-weight="700">${escapeXml(metaText(record))}</text>
+      ${ratingVisual(record, 72, 1035, 500, 150, palette, { dark: true })}
+      <text x="72" y="1245" fill="#a8b5ae" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">SHORT REVIEW</text>
+      <line x1="72" y1="1270" x2="572" y2="1270" stroke="#fff" opacity=".18" />
+      ${textBlock(review, 72, 1310, 30, {
         fill: "#edf0ea",
         "font-family": FONT_STACK,
-        "font-size": 23,
+        "font-size": 20,
       })}
       <text x="72" y="1400" fill="#89968f" font-family="${FONT_STACK}" font-size="16">${escapeXml(clean(record.siteTitle) || "私人番剧档案")}</text>
       <text x="1128" y="1400" text-anchor="end" fill="#89968f" font-family="${FONT_STACK}" font-size="16">ANIME LEDGER</text>`;
@@ -444,7 +457,7 @@
       1200,
       1500,
       body,
-      `${cover.definition}<linearGradient id="spotlight-shade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#101714" stop-opacity=".95" /><stop offset=".62" stop-color="#101714" stop-opacity=".72" /><stop offset="1" stop-color="#101714" stop-opacity=".28" /></linearGradient>`,
+      `${cover.definition}<linearGradient id="spotlight-bottom-shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#101714" stop-opacity="0" /><stop offset=".28" stop-color="#101714" stop-opacity=".48" /><stop offset="1" stop-color="#101714" stop-opacity=".94" /></linearGradient>`,
     );
   }
 
@@ -485,12 +498,13 @@
     }
     const cover = await coverBlock(
       record,
-      64,
-      112,
-      1072,
-      720,
+      0,
+      0,
+      1200,
+      880,
       palette,
       "archive-cover-clip",
+      0,
     );
     return archiveCard(record, palette, cover);
   }
@@ -1293,6 +1307,17 @@
   }
 
   function setup() {
+    const refreshAppearance = () => {
+      if (shareDialogState) {
+        refreshShareDialog();
+      }
+    };
+    window.addEventListener("storage", (event) => {
+      if (event.key === "myanimelife.appearance.preferences") {
+        refreshAppearance();
+      }
+    });
+    window.addEventListener("anime-appearance:changed", refreshAppearance);
     document.addEventListener("click", (event) => {
       const trigger = event.target.closest?.("[data-share-trigger]");
       if (!trigger) {
