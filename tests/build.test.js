@@ -268,6 +268,16 @@ test("ships three independently buildable templates", async () => {
       /share\.js\?v=20261025T120000000Z/u,
     );
 
+    const compareHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "compare", "index.html"),
+      "utf8",
+    );
+    assert.match(compareHtml, /仓库 PK/u);
+    assert.match(compareHtml, /id="compareForm"/u);
+    assert.match(compareHtml, /id="compareYears"/u);
+    assert.match(compareHtml, /id="compareRatings"/u);
+    assert.match(compareHtml, /insights\.js\?v=20261025T120000000Z/u);
+
     const shareScript = await fs.readFile(
       path.join(fixtureRoot, "dist", "assets", "share.js"),
       "utf8",

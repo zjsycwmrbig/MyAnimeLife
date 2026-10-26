@@ -227,7 +227,7 @@ export async function loadTemplate(root, templateName) {
     );
   }
 
-  for (const entrypoint of ["index", "detail", "insights", "notFound"]) {
+  for (const entrypoint of ["index", "detail", "insights", "compare", "notFound"]) {
     const value = manifest.entrypoints?.[entrypoint];
     if (typeof value !== "string" || !value.trim()) {
       throw new Error(`模板 ${templateName} 缺少 entrypoints.${entrypoint}`);
@@ -628,6 +628,23 @@ export async function buildSite(options = {}) {
   await writeFile(
     path.join(outputDirectory, "insights", "index.html"),
     insightsHtml,
+  );
+
+  const compareContext = {
+    ...common,
+    pageTitle: `仓库 PK | ${config.site.title}`,
+    pageDescription: `比较 ${config.site.title} 与另一个公开番剧档案的收录、年份与评分。`,
+    homeUrl: "../",
+    assetRoot: "../assets/",
+    currentDataUrl: "../data/library.json",
+  };
+  const compareHtml = environment.render(
+    template.manifest.entrypoints.compare,
+    compareContext,
+  );
+  await writeFile(
+    path.join(outputDirectory, "compare", "index.html"),
+    compareHtml,
   );
 
   for (const record of records) {

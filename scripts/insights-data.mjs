@@ -210,6 +210,21 @@ export function calculateInsights(records, now = new Date()) {
     .filter((entry) => entry.key !== null && entry.averageRating !== "—")
     .sort((left, right) => right.averageRating - left.averageRating);
 
+  const pieColors = ["#c84a32", "#168c83", "#d39a35", "#4f6f8f", "#8f5f83", "#6d8060", "#c06d4a", "#7d8792"];
+  let pieOffset = 0;
+  const pieSegments = years
+    .filter((entry) => entry.count > 0)
+    .map((entry, index) => {
+      const start = pieOffset;
+      pieOffset += entry.percent;
+      return {
+        ...entry,
+        start: round(start, 2),
+        end: round(pieOffset, 2),
+        color: pieColors[index % pieColors.length],
+      };
+    });
+
   return {
     summary: {
       total,
@@ -233,6 +248,7 @@ export function calculateInsights(records, now = new Date()) {
     years,
     ratings: ratingBuckets,
     ratingFine,
+    pieSegments,
     items: records.map((record) => ({
       id: record.id,
       title: record.title,
@@ -275,6 +291,79 @@ function averageRating(items) {
     .filter((rating) => rating !== null)
     .map(Number);
   return average(values);
+}
+
+function comparisonDistribution(items, keyFor, labels) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = keyFor(item);
+    groups.set(key, (groups.get(key) ?? 0) + 1);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => {
+      const leftRatingOrder = COMPARISON_RATING_ORDER.indexOf(left);
+      const rightRatingOrder = COMPARISON_RATING_ORDER.indexOf(right);
+      if (leftRatingOrder !== -1 || rightRatingOrder !== -1) {
+        return (leftRatingOrder === -1 ? COMPARISON_RATING_ORDER.length : leftRatingOrder) -
+          (rightRatingOrder === -1 ? COMPARISON_RATING_ORDER.length : rightRatingOrder);
+      }
+      if (left === null) return 1;
+      if (right === null) return -1;
+      return Number(right) - Number(left);
+    })
+    .map(([key, count]) => ({
+      key,
+      label: labels(key),
+      count,
+      percent: percent(count, items.length),
+    }));
+}
+
+function itemYear(item) {
+  const year = Number(item?.season?.year);
+  return Number.isInteger(year) && year >= 1900 ? year : null;
+}
+
+function itemRatingBucket(item) {
+  if (item?.rating === null || item?.rating === undefined) return "unrated";
+  const rating = Number(item?.rating);
+  if (!Number.isFinite(rating)) return "unrated";
+  if (rating < 6) return "0-5.9";
+  if (rating < 7) return "6-6.9";
+  if (rating < 8) return "7-7.9";
+  if (rating < 9) return "8-8.9";
+  return "9-10";
+}
+
+const COMPARISON_RATING_LABELS = {
+  "0-5.9": "0 - 5.9",
+  "6-6.9": "6 - 6.9",
+  "7-7.9": "7 - 7.9",
+  "8-8.9": "8 - 8.9",
+  "9-10": "9 - 10",
+  unrated: "未评分",
+};
+const COMPARISON_RATING_ORDER = ["9-10", "8-8.9", "7-7.9", "6-6.9", "0-5.9", "unrated"];
+
+function comparisonProfile(items) {
+  const rated = items.filter((item) => item.rating !== null).length;
+  return {
+    total: items.length,
+    rated,
+    unrated: items.length - rated,
+    ratedPercent: percent(rated, items.length),
+    averageRating: averageRating(items),
+    years: comparisonDistribution(
+      items,
+      itemYear,
+      (key) => (key === null ? "年份未知" : String(key)),
+    ),
+    ratings: comparisonDistribution(
+      items,
+      itemRatingBucket,
+      (key) => COMPARISON_RATING_LABELS[key] ?? key,
+    ),
+  };
 }
 
 export function compareLibraries(currentItems, peerItems) {
@@ -325,16 +414,8 @@ export function compareLibraries(currentItems, peerItems) {
     );
 
   return {
-    current: {
-      total: current.length,
-      rated: current.filter((item) => item.rating !== null).length,
-      averageRating: averageRating(current),
-    },
-    peer: {
-      total: peer.length,
-      rated: peer.filter((item) => item.rating !== null).length,
-      averageRating: averageRating(peer),
-    },
+    current: comparisonProfile(current),
+    peer: comparisonProfile(peer),
     overlap: {
       count: shared.length,
       percent: percent(shared.length, unionSize),

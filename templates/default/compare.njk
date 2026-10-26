@@ -1,0 +1,150 @@
+{% extends "base.njk" %}
+{% from "icons.njk" import icon %}
+
+{% block bodyClass %}insights-page compare-page{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ assetRoot }}insights.css?v={{ assetVersion }}" />
+{% endblock %}
+
+{% block content %}
+  <section class="insights-hero-band" aria-labelledby="compare-title">
+    <div class="page-shell insights-hero compare-hero">
+      <div class="insights-heading">
+        <p class="eyebrow">COMPARE / 仓库 PK</p>
+        <h1 id="compare-title">把两份档案放在一起看</h1>
+        <p>用公开的轻量索引比较收录数量、重合作品、年份构成和评分习惯。</p>
+        <a class="compare-back-link" href="{{ homeUrl }}insights/">返回数据洞察</a>
+      </div>
+      <dl class="insights-snapshot" aria-label="PK 说明">
+        <div>
+          <dt>匹配依据</dt>
+          <dd>ID</dd>
+        </div>
+        <div>
+          <dt>季度处理</dt>
+          <dd>独立</dd>
+        </div>
+        <div>
+          <dt>读取内容</dt>
+          <dd>索引</dd>
+        </div>
+        <div>
+          <dt>数据权限</dt>
+          <dd>公开</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <main
+    id="repository-compare"
+    class="page-shell compare-main"
+    aria-labelledby="compare-main-title"
+    data-own-repository="{{ repository.slug }}"
+    data-own-branch="{{ repository.branch }}"
+    data-current-data-url="{{ currentDataUrl }}"
+  >
+    <div class="compare-page-heading">
+      <div>
+        <p class="section-index">01 / REPOSITORIES</p>
+        <h2 id="compare-main-title">选择对手档案</h2>
+      </div>
+      <button
+        id="shareComparison"
+        class="insights-secondary-button"
+        type="button"
+        {% if not repository.slug %}disabled{% endif %}
+      >
+        {{ icon("external") }}
+        <span>分享 PK 邀请</span>
+      </button>
+    </div>
+
+    <div class="compare-layout">
+      <div class="compare-copy">
+        <p>当前档案：<strong>{{ repository.slug or "尚未配置 GitHub 仓库" }}</strong></p>
+        <p>使用双方索引中的记录 ID 和外部站点 ID 匹配，不同季度不会被合并。</p>
+      </div>
+      <form id="compareForm" class="compare-form">
+        <label>
+          <span>对方仓库</span>
+          <input id="peerRepository" name="peer" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="owner/repository" maxlength="201" required />
+        </label>
+        <label>
+          <span>分支</span>
+          <input id="peerBranch" name="branch" type="text" autocomplete="off" spellcheck="false" value="main" maxlength="200" required />
+        </label>
+        <button id="compareSubmit" class="insights-primary-button" type="submit">开始 PK</button>
+      </form>
+    </div>
+    <p id="compareStatus" class="compare-status" role="status" aria-live="polite">输入公开仓库地址后读取对方轻量索引。</p>
+
+    <div id="compareResults" class="compare-results" hidden>
+      <div class="compare-scoreboard">
+        <div>
+          <span>当前档案</span>
+          <strong id="currentTotal">0</strong>
+          <small id="currentAverage">均分 —</small>
+          <small id="currentCoverage">评分覆盖 —</small>
+        </div>
+        <div class="overlap-score">
+          <span>共同收录</span>
+          <strong id="sharedTotal">0</strong>
+          <small id="overlapPercent">重合率 0%</small>
+          <span class="overlap-track" aria-hidden="true"><span id="overlapBar"></span></span>
+        </div>
+        <div>
+          <span>对方档案</span>
+          <strong id="peerTotal">0</strong>
+          <small id="peerAverage">均分 —</small>
+          <small id="peerCoverage">评分覆盖 —</small>
+        </div>
+      </div>
+
+      <div class="compare-insight-grid">
+        <section class="compare-data-panel" aria-labelledby="compare-years-title">
+          <div class="compare-list-heading">
+            <h3 id="compare-years-title">年份分布对比</h3>
+            <span>按作品年份</span>
+          </div>
+          <div id="compareYears" class="compare-bars"></div>
+        </section>
+        <section class="compare-data-panel" aria-labelledby="compare-ratings-title">
+          <div class="compare-list-heading">
+            <h3 id="compare-ratings-title">评分分布对比</h3>
+            <span>区间与未评分</span>
+          </div>
+          <div id="compareRatings" class="compare-bars"></div>
+        </section>
+      </div>
+
+      <div class="compare-lists">
+        <article>
+          <div class="compare-list-heading"><h3>共同收录</h3><span id="sharedCount">0</span></div>
+          <div id="sharedList" class="compare-list"></div>
+        </article>
+        <article>
+          <div class="compare-list-heading"><h3>仅当前档案</h3><span id="currentOnlyCount">0</span></div>
+          <div id="currentOnlyList" class="compare-list"></div>
+        </article>
+        <article>
+          <div class="compare-list-heading"><h3>仅对方档案</h3><span id="peerOnlyCount">0</span></div>
+          <div id="peerOnlyList" class="compare-list"></div>
+        </article>
+      </div>
+
+      <div class="rating-differences">
+        <div class="compare-list-heading">
+          <h3>共同作品评分差异</h3>
+          <span>只计入双方都已评分的条目</span>
+        </div>
+        <div id="ratingDifferenceList" class="rating-difference-list"></div>
+      </div>
+    </div>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ assetRoot }}insights.js?v={{ assetVersion }}" defer></script>
+{% endblock %}

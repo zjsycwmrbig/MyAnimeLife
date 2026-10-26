@@ -1,4 +1,50 @@
 (() => {
+  const tabs = [...document.querySelectorAll("[data-insights-tab]")];
+  const panels = [...document.querySelectorAll("[data-insights-panel]")];
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.insightsTab;
+      for (const candidate of tabs) {
+        const active = candidate === tab;
+        candidate.classList.toggle("is-active", active);
+        candidate.setAttribute("aria-selected", String(active));
+      }
+      for (const panel of panels) {
+        const active = panel.dataset.insightsPanel === target;
+        panel.classList.toggle("is-active", active);
+        panel.hidden = !active;
+      }
+    });
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const current = tabs.indexOf(tab);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[next]?.focus();
+      tabs[next]?.click();
+    });
+  }
+
+  for (const carousel of document.querySelectorAll("[data-carousel]")) {
+    const slides = [...carousel.querySelectorAll("[data-carousel-slide]")];
+    const status = carousel.querySelector("[data-carousel-status]");
+    const previous = carousel.querySelector("[data-carousel-prev]");
+    const next = carousel.querySelector("[data-carousel-next]");
+    let activeIndex = 0;
+    const showSlide = (index) => {
+      activeIndex = (index + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        const active = slideIndex === activeIndex;
+        slide.classList.toggle("is-active", active);
+        slide.hidden = !active;
+      });
+      if (status) status.textContent = `${activeIndex + 1} / ${slides.length}`;
+    };
+    previous?.addEventListener("click", () => showSlide(activeIndex - 1));
+    next?.addEventListener("click", () => showSlide(activeIndex + 1));
+    showSlide(0);
+  }
+
   const yearDistribution = document.querySelector("#year-distribution");
   const yearMinInput = document.querySelector("#insights-year-min");
   const yearMaxInput = document.querySelector("#insights-year-max");
@@ -63,8 +109,10 @@
   const results = document.querySelector("#compareResults");
   const currentTotal = document.querySelector("#currentTotal");
   const currentAverage = document.querySelector("#currentAverage");
+  const currentCoverage = document.querySelector("#currentCoverage");
   const peerTotal = document.querySelector("#peerTotal");
   const peerAverage = document.querySelector("#peerAverage");
+  const peerCoverage = document.querySelector("#peerCoverage");
   const sharedTotal = document.querySelector("#sharedTotal");
   const overlapPercent = document.querySelector("#overlapPercent");
   const overlapBar = document.querySelector("#overlapBar");
@@ -75,6 +123,8 @@
   const currentOnlyList = document.querySelector("#currentOnlyList");
   const peerOnlyList = document.querySelector("#peerOnlyList");
   const ratingDifferenceList = document.querySelector("#ratingDifferenceList");
+  const compareYears = document.querySelector("#compareYears");
+  const compareRatings = document.querySelector("#compareRatings");
   const ownRepository = section.dataset.ownRepository.trim();
   const ownBranch = section.dataset.ownBranch.trim() || "main";
   const currentDataUrl = section.dataset.currentDataUrl;
@@ -261,6 +311,53 @@
     );
   }
 
+  function distribution(items, keyFor, labelFor) {
+    const groups = new Map();
+    for (const item of items) {
+      const key = keyFor(item);
+      groups.set(key, (groups.get(key) || 0) + 1);
+    }
+    return [...groups.entries()]
+      .sort(([left], [right]) => {
+        if (left === null) return 1;
+        if (right === null) return -1;
+        return Number(right) - Number(left);
+      })
+      .map(([key, count]) => ({ key, label: labelFor(key), count }));
+  }
+
+  function profile(items) {
+    const rated = items.filter((item) => Number.isFinite(item.rating)).length;
+    const yearDistribution = distribution(
+      items,
+      (item) => {
+        const year = Number(item.season?.year);
+        return Number.isInteger(year) && year >= 1900 ? year : null;
+      },
+      (key) => key === null ? "年份未知" : String(key),
+    );
+    const ratingDistribution = distribution(
+      items,
+      (item) => {
+        if (!Number.isFinite(item.rating)) return "unrated";
+        if (item.rating < 6) return "0-5.9";
+        if (item.rating < 7) return "6-6.9";
+        if (item.rating < 8) return "7-7.9";
+        if (item.rating < 9) return "8-8.9";
+        return "9-10";
+      },
+      (key) => ({"0-5.9": "0 - 5.9", "6-6.9": "6 - 6.9", "7-7.9": "7 - 7.9", "8-8.9": "8 - 8.9", "9-10": "9 - 10", unrated: "未评分"}[key] || key),
+    );
+    return {
+      total: items.length,
+      rated,
+      ratedPercent: items.length ? Math.round((rated / items.length) * 1000) / 10 : 0,
+      averageRating: average(items),
+      years: yearDistribution,
+      ratings: ratingDistribution,
+    };
+  }
+
   function compareItems(currentItems, peerItems) {
     const current = currentItems
       .filter((item) => item && item.id)
@@ -316,6 +413,8 @@
     return {
       current,
       peer,
+      currentProfile: profile(current),
+      peerProfile: profile(peer),
       shared,
       currentOnly,
       peerOnly,
@@ -416,16 +515,49 @@
     }
   }
 
+  function renderComparisonBars(container, currentItems, peerItems) {
+    if (!container) return;
+    container.replaceChildren();
+    const keys = new Map();
+    [...currentItems, ...peerItems].forEach((item) => keys.set(item.label, item));
+    const maximum = Math.max(1, ...[...keys.keys()].map((label) => {
+      const current = currentItems.find((item) => item.label === label)?.count || 0;
+      const peer = peerItems.find((item) => item.label === label)?.count || 0;
+      return Math.max(current, peer);
+    }));
+    for (const label of keys.keys()) {
+      const current = currentItems.find((item) => item.label === label)?.count || 0;
+      const peer = peerItems.find((item) => item.label === label)?.count || 0;
+      const row = document.createElement("div");
+      row.className = "compare-bar-row";
+      row.append(createTextElement("strong", "compare-bar-label", label));
+      for (const [name, value, className] of [["当前", current, "is-current"], ["对方", peer, "is-peer"]]) {
+        const line = document.createElement("div");
+        line.className = "compare-bar-line";
+        const track = document.createElement("span");
+        track.className = `compare-bar-track ${className}`;
+        const fill = document.createElement("span");
+        fill.style.width = `${(value / maximum) * 100}%`;
+        track.append(fill);
+        line.append(createTextElement("span", "compare-bar-name", name), track, createTextElement("strong", "compare-bar-value", String(value)));
+        row.append(line);
+      }
+      container.append(row);
+    }
+  }
+
   function renderComparison(comparison) {
-    currentTotal.textContent = comparison.current.length.toLocaleString("zh-CN");
-    peerTotal.textContent = comparison.peer.length.toLocaleString("zh-CN");
+    currentTotal.textContent = comparison.currentProfile.total.toLocaleString("zh-CN");
+    peerTotal.textContent = comparison.peerProfile.total.toLocaleString("zh-CN");
     sharedTotal.textContent = comparison.shared.length.toLocaleString("zh-CN");
     currentAverage.textContent = `均分 ${
-      average(comparison.current)?.toFixed(1) ?? "—"
+      comparison.currentProfile.averageRating?.toFixed(1) ?? "—"
     }`;
     peerAverage.textContent = `均分 ${
-      average(comparison.peer)?.toFixed(1) ?? "—"
+      comparison.peerProfile.averageRating?.toFixed(1) ?? "—"
     }`;
+    currentCoverage.textContent = `评分覆盖 ${comparison.currentProfile.ratedPercent}%`;
+    peerCoverage.textContent = `评分覆盖 ${comparison.peerProfile.ratedPercent}%`;
     overlapPercent.textContent = `重合率 ${comparison.overlapPercent}%`;
     overlapBar.style.width = `${comparison.overlapPercent}%`;
     sharedCount.textContent = String(comparison.shared.length);
@@ -450,6 +582,8 @@
       "only",
     );
     renderRatingDifferences(comparison.ratingDifferences);
+    renderComparisonBars(compareYears, comparison.currentProfile.years, comparison.peerProfile.years);
+    renderComparisonBars(compareRatings, comparison.currentProfile.ratings, comparison.peerProfile.ratings);
     results.hidden = false;
   }
 

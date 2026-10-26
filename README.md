@@ -2,6 +2,18 @@
 
 一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
+## 先装油猴脚本
+
+油猴脚本是 MyAnimeLife 的首要入口：打开 Bilibili 番剧页面即可识别当前作品，在 B 站个人追番页可以翻页批量导入，随后把评分、短评和封面写入你的个人数据仓库。
+
+**[点击安装 Bangumi Scout 油猴脚本](https://raw.githubusercontent.com/zjsycwmrbig/MyAnimeLife/main/userscript/dist/anime-index.user.js)**
+
+1. 先用 GitHub 的 [`Use this template`](https://github.com/zjsycwmrbig/MyAnimeLife) 创建自己的数据仓库，确保 `data/anime.jsonl` 和 `data/anime-index.jsonl` 保持为空。
+2. 安装上面的脚本，在脚本设置中填写个人仓库地址、分支和 GitHub Fine-grained Token；只需要目标仓库的 `Contents: Read and write` 权限。
+3. 打开普通番剧页识别并保存，或打开 B 站个人追番列表，翻页后批量选择并一次同步。
+
+Token 只缓存在当前浏览器站点，不会写入仓库或分享链接。完整的安装检查、权限说明、识别模式和 B 站批量导入说明见 [`userscript/README.md`](userscript/README.md)。
+
 ## 先看效果
 
 MyAnimeLife 把“发现番剧、记录感受、回顾数据”放在同一条流程里。下面的截图来自仓库内的可复现页面和 UI 测试素材：
@@ -65,8 +77,8 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 管理页可多选 `bangumi-data` 全量索引，逐条填写评分和评价后一次加入档案或加入并同步
 - 管理页的我的记录和全量索引支持列表/封面卡片视图；分页默认每页 30 条，也支持 10 条或自定义 1 到 200 条
 - 管理页可集中检查站点 ID、同季度同名和相似标题重复项，并定位编辑或批量删除
-- 提供 `/insights/` 数据洞察页，统计收录节奏、年代分布、评分分布和索引覆盖
-- 可通过公开轻量索引与其他人的仓库 PK，并生成自动填入分享仓库的邀请链接
+- 提供 `/insights/` 数据洞察页，使用标签切换收录趋势、年份扇状图、评分分布和索引覆盖，模块内部支持轮播
+- 提供独立的 `/compare/` 仓库 PK 页，可比较总量、重合量、评分覆盖率、年份分布、评分区间和共同作品评分差
 - 内置三套展示模板、三套分享图版式和四套分享配色，可在管理页“站点样式”中切换
 - 单番剧分享会先打开大卡片预览，可复制图片、下载 PNG 或下载 SVG
 - 洞察页分享可勾选摘要、趋势、年代、评分、索引和 PK 模块，并切换长图或社交卡片版式
@@ -263,16 +275,16 @@ GitHub Pages 在线管理页的“关于我们”页面提供“检查模板更�
 
 ### 数据洞察与仓库 PK
 
-构建器会生成 `/insights/` 页面，使用已隐藏软删除记录后的个人数据计算：
+构建器会生成 `/insights/` 数据概览页和 `/compare/` 仓库 PK 页，使用已隐藏软删除记录后的个人数据计算：
 
 - 近 7 天、近 30 天和近 365 天新增数量
 - 最近 12 个月收录趋势
-- 番剧年代分布、各年代平均评分和评分最高年代
+- 番剧年份扇状图、逐年分布、各年代平均评分和评分最高年代
 - 评分区间、未评分比例、外部站点索引及季度信息覆盖率
 
-页面顶部的“分享洞察图”会打开分享工作台。用户可以只选择需要的统计模块，并在长图和 1600 × 1000 卡片之间切换；图案完全在浏览器本地生成，支持复制 PNG、下载 PNG 和下载 SVG。“仓库 PK”模块只会在当前页面已经完成一次 PK 后启用。
+页面顶部的“分享洞察图”会打开分享工作台。用户可以只选择需要的概览模块，并在长图和 1600 × 1000 卡片之间切换；图案完全在浏览器本地生成，支持复制 PNG、下载 PNG 和下载 SVG。仓库比较则在独立 PK 页面完成。
 
-页面下方的“仓库 PK”会读取当前站点的 `/data/library.json`，并根据 `owner/repository` 和分支，从以下公开地址读取对方轻量索引：
+“仓库 PK”页面会读取当前站点的 `/data/library.json`，并根据 `owner/repository` 和分支，从以下公开地址读取对方轻量索引：
 
 ```text
 https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/<branch>/data/anime-index.jsonl

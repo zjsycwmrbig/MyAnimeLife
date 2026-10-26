@@ -164,4 +164,14 @@ test("compares repositories by stable ids without merging different seasons", ()
   assert.equal(comparison.peerOnly.length, 1);
   assert.equal(comparison.overlap.count, 1);
   assert.equal(comparison.overlap.percent, 33.3);
+  assert.equal(comparison.current.ratedPercent, 100);
+  assert.equal(comparison.peer.ratedPercent, 100);
+  assert.deepEqual(
+    comparison.current.years.map((entry) => [entry.key, entry.count]),
+    [[2025, 1], [2024, 1]],
+  );
+  assert.deepEqual(
+    comparison.peer.ratings.map((entry) => [entry.key, entry.count]),
+    [["9-10", 1], ["7-7.9", 1]],
+  );
 });
