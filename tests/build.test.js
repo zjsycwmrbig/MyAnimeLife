@@ -227,6 +227,10 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /id="rating-min"/u);
     assert.match(
       indexHtml,
+      /id="rating-min-value" aria-label="最低评分"><\/select>/u,
+    );
+    assert.match(
+      indexHtml,
       /id="rating-min" type="range" min="0" max="10" step="1"/u,
     );
     assert.match(
@@ -235,6 +239,10 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(indexHtml, /id="rating-min-value"/u);
     assert.match(indexHtml, /id="year-max"/u);
+    assert.match(
+      indexHtml,
+      /id="year-filter-min-value" aria-label="起始年份档"><\/select>/u,
+    );
     assert.match(indexHtml, /data-sort-order="rating-desc"/u);
     assert.match(indexHtml, /id="toggle-advanced-filters"/u);
     assert.match(indexHtml, /filter-workbench is-collapsed/u);

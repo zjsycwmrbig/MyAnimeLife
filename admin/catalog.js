@@ -17,6 +17,7 @@ import {
   readPendingDrafts,
   writePendingDrafts,
 } from "./draft-store.js";
+import { applyAdminAppearance } from "./appearance.js";
 
 const MAX_BATCH_SIZE = 100;
 const LOCAL_APPEARANCE_KEY = "myanimelife.appearance.preferences";
@@ -232,9 +233,39 @@ function renderSiteSettings(settings) {
       local.share.accent ?? settings.share?.accent ?? "coral",
     );
   }
+  applyAdminAppearance(settings, local);
   state.settingsLoaded = true;
   renderLocalAppearance();
   renderSettingsAccess();
+}
+
+function applyAppearanceFromForm() {
+  if (!state.remoteSettings) {
+    return;
+  }
+  const settings = {
+    ...state.remoteSettings,
+    site: {
+      ...state.remoteSettings.site,
+      title: elements.siteTitleInput.value,
+      brand: elements.siteBrandInput.value,
+    },
+    template:
+      elements.displayTemplateInputs.find((input) => input.checked)?.value ??
+      state.remoteSettings.template,
+    share: {
+      ...state.remoteSettings.share,
+      template:
+        elements.shareTemplateInputs.find((input) => input.checked)?.value ??
+        state.remoteSettings.share?.template ??
+        "default",
+      accent:
+        elements.shareAccentInputs.find((input) => input.checked)?.value ??
+        state.remoteSettings.share?.accent ??
+        "coral",
+    },
+  };
+  applyAdminAppearance(settings, null);
 }
 
 async function loadSiteSettings(options = {}) {
@@ -243,13 +274,19 @@ async function loadSiteSettings(options = {}) {
   }
   state.settingsBusy = true;
   renderSettingsAccess();
-  setSettingsStatus("正在读取站点设置...");
+  if (!options.silent) {
+    setSettingsStatus("正在读取站点设置...");
+  }
   try {
     const settings = await api("/api/settings");
     renderSiteSettings(settings);
-    setSettingsStatus(writableMessage());
+    if (!options.silent) {
+      setSettingsStatus(writableMessage());
+    }
   } catch (error) {
-    setSettingsStatus(error.message, "error");
+    if (!options.silent) {
+      setSettingsStatus(error.message, "error");
+    }
   } finally {
     state.settingsBusy = false;
     renderSettingsAccess();
@@ -286,6 +323,9 @@ function saveLocalAppearance() {
     window.dispatchEvent(
       new CustomEvent("anime-appearance:changed", { detail: appearance }),
     );
+    if (state.remoteSettings) {
+      applyAdminAppearance(state.remoteSettings, appearance);
+    }
     renderLocalAppearance();
     showToast("分享样式已保存到本机");
   } catch {
@@ -309,6 +349,7 @@ function clearLocalAppearance() {
         elements.shareAccentInputs,
         state.remoteSettings.share?.accent ?? "coral",
       );
+      applyAdminAppearance(state.remoteSettings, null);
     }
     renderLocalAppearance();
     showToast("已清除本机样式缓存");
@@ -1302,6 +1343,14 @@ for (const button of elements.switchButtons) {
 elements.templateCheckButton.addEventListener("click", () => checkTemplate(true));
 elements.templateUpdateButton.addEventListener("click", updateTemplate);
 elements.siteSettingsForm.addEventListener("submit", saveSiteSettings);
+elements.siteSettingsForm.addEventListener("change", (event) => {
+  if (!event.target.closest("[data-local-appearance-control]")) {
+    applyAppearanceFromForm();
+  }
+});
+for (const input of [elements.siteTitleInput, elements.siteBrandInput]) {
+  input.addEventListener("input", applyAppearanceFromForm);
+}
 elements.siteSettingsLocalSave.addEventListener("click", saveLocalAppearance);
 elements.siteSettingsLocalClear.addEventListener("click", clearLocalAppearance);
 
@@ -1434,9 +1483,7 @@ window.addEventListener("anime-runtime:changed", () => {
   if (state.view === "catalog") {
     loadCatalog();
   }
-  if (state.view === "settings") {
-    loadSiteSettings({ force: true });
-  }
+  loadSiteSettings({ force: true, silent: state.view !== "settings" });
   renderBatchEditor();
 });
 
@@ -1460,3 +1507,4 @@ window.addEventListener("anime-catalog:changed", () => {
 restorePendingAdditions();
 state.dirty = pendingCount() > 0;
 renderBatchEditor();
+void loadSiteSettings({ force: true, silent: true });

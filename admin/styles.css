@@ -19,6 +19,89 @@
     system-ui, sans-serif;
 }
 
+/* Shared site appearance on the management surface */
+html[data-site-template="compact"] .topbar {
+  min-height: 58px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+html[data-site-template="compact"] .workspace {
+  grid-template-columns: minmax(0, 1.65fr) minmax(320px, 0.62fr);
+}
+
+html[data-site-template="compact"] .library-pane,
+html[data-site-template="compact"] .catalog-pane,
+html[data-site-template="compact"] .editor-pane {
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+html[data-site-template="compact"] .settings-section {
+  padding-top: 18px;
+  padding-bottom: 20px;
+}
+
+html[data-site-template="spotlight"] .topbar {
+  border-bottom-color: rgb(255 255 255 / 12%);
+  background: #17201b;
+  color: #fff;
+}
+
+html[data-site-template="spotlight"] .brand-block span:last-child {
+  color: rgb(255 255 255 / 62%);
+}
+
+html[data-site-template="spotlight"] .brand-mark {
+  background: var(--accent);
+}
+
+html[data-site-template="spotlight"] .view-switch {
+  border-color: rgb(255 255 255 / 16%);
+  background: rgb(255 255 255 / 8%);
+}
+
+html[data-site-template="spotlight"] .view-switch button {
+  color: rgb(255 255 255 / 68%);
+}
+
+html[data-site-template="spotlight"] .view-switch button.is-active {
+  background: #fffdf7;
+  color: #17201b;
+}
+
+html[data-site-template="spotlight"] .topbar .button {
+  border-color: rgb(255 255 255 / 24%);
+  background: rgb(255 255 255 / 9%);
+  color: #fff;
+}
+
+html[data-site-template="spotlight"] .topbar .button:hover {
+  border-color: rgb(255 255 255 / 50%);
+  background: rgb(255 255 255 / 16%);
+}
+
+html[data-site-template="spotlight"] .topbar .button-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+html[data-site-template="spotlight"] .topbar .runtime-badge {
+  border-color: rgb(255 255 255 / 22%);
+  background: rgb(255 255 255 / 8%);
+  color: rgb(255 255 255 / 72%);
+}
+
+.topbar,
+.workspace,
+.settings-section {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    grid-template-columns 180ms ease;
+}
+
 * {
   box-sizing: border-box;
 }

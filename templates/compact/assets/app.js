@@ -115,6 +115,24 @@
       1;
     return { start, end: Math.max(start, end) };
   });
+  const choiceOption = (value, label) => {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = label;
+    return option;
+  };
+  const ratingChoices = Array.from({ length: 11 }, (_, value) =>
+    choiceOption(value, `${value} 分`),
+  );
+  const yearChoices = yearBuckets.map((bucket, index) =>
+    choiceOption(index, `${bucket.start}-${bucket.end} 年`),
+  );
+  for (const select of [ratingMinValue, ratingMaxValue]) {
+    select.replaceChildren(...ratingChoices.map((option) => option.cloneNode(true)));
+  }
+  for (const select of [yearMinValue, yearMaxValue]) {
+    select.replaceChildren(...yearChoices.map((option) => option.cloneNode(true)));
+  }
 
   const initialState = {
     query: params.get("q") ?? "",
@@ -222,6 +240,8 @@
     ratingMaxInput.value = String(high);
     ratingMinValue.value = String(low);
     ratingMaxValue.value = String(high);
+    ratingMinInput.style.zIndex = low >= high ? "4" : "3";
+    ratingMaxInput.style.zIndex = low >= high ? "3" : "4";
     setRangeFill(ratingMinInput.closest("[data-range-control]"), low, high, 0, 10);
     const active = low > 0 || high < 10 || ratingFilter.value !== "all";
     ratingRangeSummary.textContent = active
@@ -238,10 +258,12 @@
     if (changed !== "min" && high < low) low = high;
     yearFilter.value = String(low);
     yearMaxInput.value = String(high);
+    yearFilter.style.zIndex = low >= high ? "4" : "3";
+    yearMaxInput.style.zIndex = low >= high ? "3" : "4";
     const minimumBucket = yearBuckets[low];
     const maximumBucket = yearBuckets[high];
-    yearMinValue.value = String(minimumBucket.start);
-    yearMaxValue.value = String(maximumBucket.end);
+    yearMinValue.value = String(low);
+    yearMaxValue.value = String(high);
     setRangeFill(
       yearFilter.closest("[data-range-control]"),
       low,
@@ -556,6 +578,49 @@
       applyState({ resetPage: true });
     });
   }
+  for (const select of [ratingMinValue, ratingMaxValue]) {
+    select.addEventListener("change", () => {
+      setRatingRange(
+        ratingMinValue.value,
+        ratingMaxValue.value,
+        select === ratingMinValue ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  for (const select of [yearMinValue, yearMaxValue]) {
+    select.addEventListener("change", () => {
+      setYearRange(
+        yearMinValue.value,
+        yearMaxValue.value,
+        select === yearMinValue ? "min" : "max",
+      );
+      applyState({ resetPage: true });
+    });
+  }
+  const bindTrackSelection = (minimumInput, maximumInput, setRange) => {
+    const track = minimumInput.closest(".dual-range-track");
+    track?.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLInputElement) {
+        return;
+      }
+      const bounds = track.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width));
+      const floor = Number(minimumInput.min);
+      const ceiling = Number(minimumInput.max);
+      const value = Math.round(floor + ratio * (ceiling - floor));
+      const distanceToMinimum = Math.abs(value - Number(minimumInput.value));
+      const distanceToMaximum = Math.abs(value - Number(maximumInput.value));
+      if (distanceToMinimum <= distanceToMaximum) {
+        setRange(value, maximumInput.value, "min");
+      } else {
+        setRange(minimumInput.value, value, "max");
+      }
+      applyState({ resetPage: true });
+    });
+  };
+  bindTrackSelection(ratingMinInput, ratingMaxInput, setRatingRange);
+  bindTrackSelection(yearFilter, yearMaxInput, setYearRange);
   sortOrder.addEventListener("change", () => {
     syncSortButtons();
     applyState({ resetPage: true });
