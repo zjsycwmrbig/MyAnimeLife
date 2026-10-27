@@ -159,3 +159,65 @@ test("loads multiple catalog items without rescanning the cache per item", async
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("filters owned catalog items before pagination", async () => {
+  const root = await createFixture();
+  const catalog = {
+    items: [
+      {
+        title: "已收录",
+        titleTranslate: { "zh-Hans": ["已收录"] },
+        begin: "2024-01-01T00:00:00.000Z",
+        sites: [{ site: "bangumi", id: "100" }],
+      },
+      {
+        title: "未收录一",
+        titleTranslate: { "zh-Hans": ["未收录一"] },
+        begin: "2023-01-01T00:00:00.000Z",
+        sites: [{ site: "bangumi", id: "200" }],
+      },
+      {
+        title: "未收录二",
+        titleTranslate: { "zh-Hans": ["未收录二"] },
+        begin: "2022-01-01T00:00:00.000Z",
+        sites: [{ site: "bangumi", id: "300" }],
+      },
+    ],
+  };
+  const fetchImpl = async (url) => {
+    if (url.includes("data.jsdelivr.com")) {
+      return jsonResponse({ tags: { latest: "1.0.0" } });
+    }
+    return jsonResponse(catalog);
+  };
+  try {
+    const store = new CatalogStore(root, {
+      fetchImpl,
+      now: () => "2026-10-25T00:00:00.000Z",
+    });
+    const index = [
+      {
+        id: "bgm-100",
+        externalIds: { bangumi: "100" },
+      },
+    ];
+
+    const owned = await store.search(
+      { owned: "owned", limit: 1, offset: 0 },
+      index,
+    );
+    assert.equal(owned.total, 1);
+    assert.equal(owned.items[0].displayTitle, "已收录");
+    assert.equal(owned.items[0].ownedRecordId, "bgm-100");
+
+    const unowned = await store.search(
+      { owned: "unowned", limit: 1, offset: 0 },
+      index,
+    );
+    assert.equal(unowned.total, 2);
+    assert.equal(unowned.items.length, 1);
+    assert.equal(unowned.items[0].ownedRecordId, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

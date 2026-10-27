@@ -154,6 +154,7 @@ const server = http.createServer(async (request, response) => {
           query: url.searchParams.get("q") ?? "",
           year: url.searchParams.get("year") ?? "",
           source: url.searchParams.get("source") ?? "",
+          owned: url.searchParams.get("owned") ?? "",
           offset: url.searchParams.get("offset") ?? "0",
           limit: url.searchParams.get("limit") ?? "30",
           refresh: url.searchParams.get("refresh") === "1",

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildCatalog,
   createRecordFromCatalog,
+  recordIdentityKeys,
   searchCatalog,
 } from "../scripts/catalog-data.mjs";
 
@@ -90,12 +91,32 @@ test("filters and paginates the catalog", () => {
 
   assert.equal(searchCatalog(items, { year: "" }).total, 3);
   assert.equal(searchCatalog(items, { year: 2023 }).total, 1);
+  assert.equal(searchCatalog(items, { year: "2013,2023" }).total, 2);
+  assert.equal(searchCatalog(items, { year: [1998, 2023] }).total, 2);
   assert.equal(searchCatalog(items, { source: "anilist" }).total, 1);
   assert.deepEqual(
     searchCatalog(items, { limit: 1, offset: 1 }).items.map(
       (item) => item.displayTitle,
     ),
     ["进击的巨人"],
+  );
+});
+
+test("filters the catalog by owned records using stable site identities", () => {
+  const items = buildCatalog(rawCatalog).items;
+  const ownedKeys = recordIdentityKeys({
+    id: "bgm-265",
+    externalIds: { bangumi: "265" },
+  });
+
+  const owned = searchCatalog(items, { owned: "owned", ownedKeys });
+  assert.equal(owned.total, 1);
+  assert.equal(owned.items[0].displayTitle, "进击的巨人");
+
+  const unowned = searchCatalog(items, { owned: "unowned", ownedKeys });
+  assert.equal(unowned.total, 2);
+  assert.ok(
+    unowned.items.every((item) => item.displayTitle !== "进击的巨人"),
   );
 });
 

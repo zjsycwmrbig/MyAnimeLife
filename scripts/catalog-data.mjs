@@ -278,6 +278,53 @@ function catalogItemSourceKeys(item) {
   );
 }
 
+function externalIdentityKeys(externalIds) {
+  return Object.entries(externalIds ?? {})
+    .map(([source, id]) => [cleanString(source), cleanString(id)])
+    .filter(([source, id]) => source && id)
+    .map(([source, id]) => `${source}:${id}`);
+}
+
+export function recordIdentityKeys(record) {
+  const id = cleanString(record?.id);
+  return [
+    ...(id ? [`id:${id}`] : []),
+    ...externalIdentityKeys(record?.externalIds),
+  ];
+}
+
+export function ownedRecordLookup(index) {
+  const lookup = new Map();
+  for (const entry of index ?? []) {
+    const recordId = cleanString(entry?.id);
+    if (!recordId) {
+      continue;
+    }
+    for (const key of recordIdentityKeys(entry)) {
+      lookup.set(key, recordId);
+    }
+  }
+  return lookup;
+}
+
+function catalogItemIdentityKeys(item) {
+  const id = cleanString(item?.id);
+  return [
+    ...(id ? [`id:${id}`] : []),
+    ...externalIdentityKeys(item?.sites),
+  ];
+}
+
+export function ownedRecordIdForCatalogItem(item, ownedLookup) {
+  for (const key of catalogItemIdentityKeys(item)) {
+    const recordId = ownedLookup?.get(key);
+    if (recordId) {
+      return recordId;
+    }
+  }
+  return null;
+}
+
 export function catalogFacets(items) {
   const years = new Map();
   const sources = new Map();
@@ -303,13 +350,34 @@ export function catalogFacets(items) {
   };
 }
 
+function normalizeYearFilter(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const years = new Set();
+  for (const candidate of values) {
+    for (const part of cleanString(candidate).split(/[\s,，]+/u)) {
+      const year = Number(part);
+      if (Number.isInteger(year) && year >= 1900 && year <= 2200) {
+        years.add(year);
+      }
+    }
+  }
+  return years;
+}
+
 export function searchCatalog(items, options = {}) {
   const query = cleanString(options.query);
   const normalizedQuery = normalizeCatalogQuery(query);
   const segments = querySegments(query);
-  const yearValue = cleanString(options.year);
-  const year = yearValue ? Number(yearValue) : null;
+  const years = normalizeYearFilter(options.year);
   const source = cleanString(options.source);
+  const ownership = cleanString(options.owned);
+  const ownedKeys = new Set(
+    Array.isArray(options.ownedKeys)
+      ? options.ownedKeys
+      : options.ownedKeys instanceof Set
+        ? options.ownedKeys
+        : [],
+  );
   const offset = Math.max(0, Math.floor(Number(options.offset) || 0));
   const limit = Math.min(
     60,
@@ -318,10 +386,19 @@ export function searchCatalog(items, options = {}) {
 
   const matched = (items ?? [])
     .filter((item) => {
-      if (Number.isInteger(year) && item.year !== year) {
+      if (years.size && !years.has(item.year)) {
         return false;
       }
       if (source && !item.sites?.[source]) {
+        return false;
+      }
+      const owned = catalogItemIdentityKeys(item).some((key) =>
+        ownedKeys.has(key),
+      );
+      if (ownership === "owned" && !owned) {
+        return false;
+      }
+      if (ownership === "unowned" && owned) {
         return false;
       }
       return (

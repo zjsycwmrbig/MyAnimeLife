@@ -390,10 +390,27 @@
                 autocomplete="off"
               />
             </label>
+            <details id="catalogYearFilter" class="catalog-multi-filter">
+              <summary>
+                <span class="catalog-multi-filter-label">年份</span>
+                <strong id="catalogYearSummary">全部年份</strong>
+              </summary>
+              <div class="catalog-multi-filter-panel">
+                <div class="catalog-multi-filter-heading">
+                  <span>可多选年份</span>
+                  <button id="catalogYearClear" class="text-button" type="button" disabled>
+                    清空
+                  </button>
+                </div>
+                <div id="catalogYearOptions" class="catalog-year-options"></div>
+              </div>
+            </details>
             <label class="compact-field">
-              <span>年份</span>
-              <select id="catalogYear">
-                <option value="">全部</option>
+              <span>收录状态</span>
+              <select id="catalogOwnership">
+                <option value="">全部番剧</option>
+                <option value="unowned">未收录</option>
+                <option value="owned">已有记录</option>
               </select>
             </label>
             <label class="compact-field">

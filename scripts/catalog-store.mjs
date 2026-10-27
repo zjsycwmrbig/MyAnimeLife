@@ -5,6 +5,8 @@ import {
   catalogFacets,
   catalogItemView,
   isValidCatalog,
+  ownedRecordIdForCatalogItem,
+  ownedRecordLookup,
   searchCatalog,
 } from "./catalog-data.mjs";
 
@@ -52,23 +54,6 @@ function catalogError(message, status = 502) {
   const error = new Error(message);
   error.status = status;
   return error;
-}
-
-function itemExternalKeys(item) {
-  return Object.entries(item.externalIds ?? {}).map(
-    ([source, id]) => `${source}:${id}`,
-  );
-}
-
-function ownedRecordMap(index) {
-  const map = new Map();
-  for (const entry of index ?? []) {
-    map.set(`id:${entry.id}`, entry.id);
-    for (const key of itemExternalKeys(entry)) {
-      map.set(key, entry.id);
-    }
-  }
-  return map;
 }
 
 export class CatalogStore {
@@ -206,19 +191,16 @@ export class CatalogStore {
 
   async search(options = {}, libraryIndex = []) {
     const catalog = await this.load({ refresh: Boolean(options.refresh) });
-    const result = searchCatalog(catalog.items, options);
-    const owned = ownedRecordMap(libraryIndex);
+    const owned = ownedRecordLookup(libraryIndex);
+    const result = searchCatalog(catalog.items, {
+      ...options,
+      ownedKeys: [...owned.keys()],
+    });
     return {
       ...result,
-      items: result.items.map((item) => {
-        const ownedRecordId =
-          owned.get(`id:${item.id}`) ??
-          itemExternalKeys({ externalIds: item.sites }).reduce(
-            (found, key) => found ?? owned.get(key) ?? null,
-            null,
-          );
-        return catalogItemView(item, ownedRecordId);
-      }),
+      items: result.items.map((item) =>
+        catalogItemView(item, ownedRecordIdForCatalogItem(item, owned)),
+      ),
       meta: {
         itemCount: catalog.itemCount,
         version: catalog.source.version,

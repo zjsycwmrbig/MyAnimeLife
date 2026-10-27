@@ -799,8 +799,151 @@ h2 {
 
 .catalog-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 128px 128px;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, 128px);
   align-items: end;
+}
+
+.catalog-multi-filter {
+  position: relative;
+  min-width: 0;
+  align-self: end;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.catalog-multi-filter summary {
+  position: relative;
+  height: 40px;
+  padding: 5px 30px 5px 10px;
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  list-style: none;
+}
+
+.catalog-multi-filter summary::-webkit-details-marker {
+  display: none;
+}
+
+.catalog-multi-filter summary::after {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  top: 15px;
+  right: 12px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+}
+
+.catalog-multi-filter[open] summary {
+  border-color: var(--line-strong);
+}
+
+.catalog-multi-filter[open] summary::after {
+  top: 18px;
+  transform: rotate(225deg);
+}
+
+.catalog-multi-filter summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.catalog-multi-filter-label {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.catalog-multi-filter summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-multi-filter-panel {
+  position: absolute;
+  z-index: 30;
+  width: max(100%, 280px);
+  max-width: min(360px, calc(100vw - 40px));
+  top: calc(100% + 6px);
+  left: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 14px 36px rgb(24 33 47 / 16%);
+}
+
+.catalog-multi-filter-heading {
+  min-height: 38px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.catalog-multi-filter-heading .text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.catalog-year-options {
+  max-height: 280px;
+  padding: 7px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  overflow-y: auto;
+}
+
+.catalog-year-option {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 7px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border-radius: 5px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.catalog-year-option:hover {
+  background: var(--surface-muted);
+}
+
+.catalog-year-option input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.catalog-year-option small {
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .catalog-result-bar {
@@ -3000,7 +3143,7 @@ th:nth-child(4) {
   }
 
   .catalog-toolbar {
-    grid-template-columns: minmax(0, 1fr) 120px 120px;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 112px);
   }
 
   .catalog-source-body {

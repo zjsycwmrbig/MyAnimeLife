@@ -1,31 +1,8 @@
-import { catalogItemView } from "../scripts/catalog-data.mjs";
-
-function externalKeys(externalIds) {
-  return Object.entries(externalIds ?? {}).map(
-    ([source, id]) => `${source}:${id}`,
-  );
-}
-
-function ownedRecordMap(index) {
-  const result = new Map();
-  for (const entry of index ?? []) {
-    result.set(`id:${entry.id}`, entry.id);
-    for (const key of externalKeys(entry.externalIds)) {
-      result.set(key, entry.id);
-    }
-  }
-  return result;
-}
-
-function viewItem(item, owned) {
-  const ownedRecordId =
-    owned.get(`id:${item.id}`) ??
-    externalKeys(item.sites).reduce(
-      (found, key) => found ?? owned.get(key) ?? null,
-      null,
-    );
-  return catalogItemView(item, ownedRecordId);
-}
+import {
+  catalogItemView,
+  ownedRecordIdForCatalogItem,
+  ownedRecordLookup,
+} from "../scripts/catalog-data.mjs";
 
 export class BrowserCatalogStore {
   constructor(options = {}) {
@@ -95,11 +72,16 @@ export class BrowserCatalogStore {
   }
 
   async search(options = {}, libraryIndex = []) {
-    const payload = await this.request("search", options);
-    const owned = ownedRecordMap(libraryIndex);
+    const owned = ownedRecordLookup(libraryIndex);
+    const payload = await this.request("search", {
+      ...options,
+      ownedKeys: [...owned.keys()],
+    });
     return {
       ...payload,
-      items: payload.items.map((item) => viewItem(item, owned)),
+      items: payload.items.map((item) =>
+        catalogItemView(item, ownedRecordIdForCatalogItem(item, owned)),
+      ),
     };
   }
 
