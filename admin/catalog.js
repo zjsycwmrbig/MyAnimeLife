@@ -875,6 +875,7 @@ function applyPersonalCacheResult(result) {
   state.metadataPersonalFile =
     result.file || state.metadataPersonalFile || "data/bangumi-cache.jsonl";
   applyPersonalCacheEntries(result.entries ?? []);
+  renderCacheManager();
 }
 
 async function loadPersonalBangumiCache(options = {}) {
@@ -887,9 +888,13 @@ async function loadPersonalBangumiCache(options = {}) {
   personalCachePromise = (async () => {
     setCacheManagerStatus("正在读取个人仓库中的 Bangumi 缓存...");
     try {
-      const result = await api("/api/bangumi-cache");
-      await replaceBangumiMetadataBySource(result.entries ?? [], "personal");
+      const result = await api("/api/bangumi-cache?fresh=1");
       applyPersonalCacheResult(result);
+      setCacheManagerStatus(
+        `已从个人仓库读取 ${state.metadataPersonalCount.toLocaleString("zh-CN")} 条缓存，` +
+          "正在同步本机索引...",
+      );
+      await replaceBangumiMetadataBySource(result.entries ?? [], "personal");
       state.metadataPersonalLoaded = true;
       await refreshLocalBangumiCacheFacts();
       setCacheManagerStatus(

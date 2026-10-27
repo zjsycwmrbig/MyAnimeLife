@@ -8,7 +8,7 @@ import { findDuplicateGroups } from "../scripts/duplicate-data.mjs";
 
 const SETTINGS_KEY = "myanimelife.admin.github.settings";
 const TOKEN_KEY = "myanimelife.admin.github.token";
-const LIBRARY_CACHE_VERSION = 2;
+const LIBRARY_CACHE_VERSION = 3;
 const LIBRARY_REVALIDATE_INTERVAL = 30 * 1000;
 
 function cleanString(value) {
@@ -49,6 +49,25 @@ const settings = {
     cleanString(injected.branch) ||
     "main",
 };
+
+function clearLegacyLibraryCaches() {
+  try {
+    const prefix = "myanimelife.admin.library.v";
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index) ?? "";
+      if (/^myanimelife\.admin\.library\.v[12]:/u.test(key)) {
+        localStorage.removeItem(key);
+      } else if (key.startsWith(prefix) && !key.includes(".v3:")) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Storage can be unavailable in private browsing.
+  }
+}
+
+clearLegacyLibraryCaches();
+
 function readCachedToken() {
   try {
     const localToken = cleanString(localStorage.getItem(TOKEN_KEY));
@@ -153,8 +172,6 @@ function writePersistentLibraryCache(snapshot) {
         config: snapshot.config ?? {},
         records: snapshot.records ?? [],
         index: snapshot.index ?? [],
-        bangumiCache: snapshot.bangumiCache ?? [],
-        bangumiCacheText: snapshot.bangumiCacheText ?? "",
         backupLimit: snapshot.config?.backupLimit ?? 5,
       }),
     );
@@ -451,7 +468,9 @@ async function onlineApi(path, options) {
     return store.saveSiteSettings(parseBody(options));
   }
   if (url.pathname === "/api/bangumi-cache" && method === "GET") {
-    const library = await githubLibrary();
+    const library = await githubLibrary(
+      url.searchParams.get("fresh") === "1",
+    );
     const text = library.bangumiCacheText ?? "";
     return {
       entries: library.bangumiCache ?? [],
