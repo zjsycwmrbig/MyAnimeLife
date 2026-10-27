@@ -17,6 +17,7 @@
   },
   "dataFile": "data/anime.jsonl",
   "indexFile": "data/anime-index.jsonl",
+  "bangumiCacheFile": "data/bangumi-cache.jsonl",
   "backupDirectory": "data/backups",
   "backupLimit": 5,
   "outputDirectory": "dist"

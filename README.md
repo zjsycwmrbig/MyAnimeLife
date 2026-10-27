@@ -1,6 +1,6 @@
 # MyAnimeLife
 
-一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
+一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`，Bangumi 评分与标签的个人缓存保存在 `data/bangumi-cache.jsonl`；GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
 ## 先装油猴脚本
 
@@ -246,10 +246,10 @@ https://<owner>.github.io/<repository>/admin/
 在线模式的行为：
 
 - 公开数据仓库不填写 Token 也能浏览记录、全量索引、重复检查和统计信息。
-- 公开浏览通过 HEAD SHA 从 `raw.githubusercontent.com` 读取配置和 JSONL，只使用两次 GitHub API 调用来确定当前提交和 Git 树。
+- 公开浏览通过 HEAD SHA 从 `raw.githubusercontent.com` 读取配置、记录索引和个人 Bangumi 缓存，只使用两次 GitHub API 调用来确定当前提交和 Git 树。
 - 编辑、批量加入和删除需要 GitHub 细粒度 Token；验证成功后 Token 会保存在当前浏览器当前站点的 `localStorage` 中，之后打开管理页会自动填充，不会写入 URL、日志或仓库文件。点击“清除 Token”会同时删除本地缓存；请只在自己的设备上使用，并仅授予目标数据仓库的 `Contents: Read and write` 权限。
 - Token 只需对目标数据仓库授予 `Repository permissions > Contents: Read and write`。不需要 Actions、Administration 或其他仓库权限。
-- 每次在线修改都会先读取远端 HEAD，再用 Git Data API 创建 blobs、tree、commit，最后以非强制方式更新分支。数据文件、轻量索引和新备份位于同一个提交中。
+- 每次在线修改都会先读取远端 HEAD，再用 Git Data API 创建 blobs、tree、commit，最后以非强制方式更新分支。番剧数据、轻量索引和新备份位于同一个提交中；Bangumi 个人缓存使用独立提交，不创建番剧备份。
 - 如果编辑期间远端分支已有新的提交，更新分支会被拒绝，页面会提示先刷新再重试，不会覆盖其他人的改动。
 - 每次实际修改前仍会生成包含完整 JSONL 和索引 JSONL 的备份，并按 `backupLimit` 在同一个提交中轮换旧备份。
 - 在线模式的“同步远端”不会重复推送，因为保存已经完成远端提交；它会重新读取 GitHub 上的最新状态。
@@ -268,7 +268,9 @@ https://<owner>.github.io/<repository>/admin/
 
 `bangumi-data` 的部分版本不提供可直接依赖的封面字段。管理页会先使用索引自带的 `coverUrl` 或图片字段；分页加载后，再只为当前页缺少封面的条目按 Bangumi ID 惰性请求封面并缓存到浏览器。封面服务不可用时仍会显示标题首字占位图，不会阻塞索引搜索和批量选择。
 
-发现页还会以 Bangumi 作为唯一的公共评分与标签来源，为当前页已有 Bangumi ID 的番剧按需读取评分、评分人数、排名和标签。成功结果保存在浏览器独立的 IndexedDB 中，不写入 JSONL、草稿或 GitHub；成功缓存不会自动过期，只有点击“刷新本页 Bangumi 信息”才会重新请求。请求失败不会覆盖旧缓存，没有可用 Bangumi 信息的条目也不会显示公共评分或标签。公共评分区间、标签、信息可用性和评分排序都只针对当前页已缓存的公共数据。
+发现页还会以 Bangumi Archive 静态快照和 Bangumi API 作为评分与标签来源，为当前页已有 Bangumi ID 的番剧按需读取评分、评分人数、排名和标签。新结果先进入浏览器 IndexedDB，并明确标记为“本机待保存”；只有点击“保存本页”或“合并本机”后，才会合并写入个人仓库的 `data/bangumi-cache.jsonl`。展开“Bangumi 评分与标签”可以查看个人缓存条数、本机待同步条数、文件大小和最近更新时间，也可以按页保存、合并本机、移除本页个人缓存或清空缓存。
+
+个人缓存按 `subjectId` 覆盖，同一 Bangumi 条目的较新 `fetchedAt` 胜出。它和番剧记录、评分、评价是不同数据，不会修改个人记录，也不会进入模板仓库；模板更新会完整保留 `data/`，因此个人缓存不会被管理页更新覆盖。请求失败不会覆盖已有缓存，没有可用 Bangumi 信息的条目也不会显示评分或标签。Bangumi 评分区间、标签、信息可用性和评分排序只针对当前页的个人或本机缓存。
 
 ### 从模板更新管理页
 

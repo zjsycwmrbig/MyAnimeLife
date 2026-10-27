@@ -14,6 +14,7 @@ test("template tree keeps target data and personal site settings", () => {
       tree: [
         { path: "admin/index.html", type: "blob", mode: "100644", sha: "template-admin" },
         { path: "data/anime.jsonl", type: "blob", mode: "100644", sha: "template-empty" },
+        { path: "data/bangumi-cache.jsonl", type: "blob", mode: "100644", sha: "template-cache" },
         { path: "data/README.md", type: "blob", mode: "100644", sha: "template-data-readme" },
       ],
     },
@@ -22,6 +23,7 @@ test("template tree keeps target data and personal site settings", () => {
         { path: "admin/index.html", type: "blob", mode: "100644", sha: "old-admin" },
         { path: "config/site.json", type: "blob", mode: "100644", sha: "personal-config" },
         { path: "data/anime.jsonl", type: "blob", mode: "100644", sha: "personal-records" },
+        { path: "data/bangumi-cache.jsonl", type: "blob", mode: "100644", sha: "personal-cache" },
         { path: "data/backups/library-old.json", type: "blob", mode: "100644", sha: "personal-backup" },
       ],
     },
@@ -32,6 +34,7 @@ test("template tree keeps target data and personal site settings", () => {
     { path: "config/site.json", mode: "100644", type: "blob", sha: "personal-config" },
     { path: "data/anime.jsonl", mode: "100644", type: "blob", sha: "personal-records" },
     { path: "data/backups/library-old.json", mode: "100644", type: "blob", sha: "personal-backup" },
+    { path: "data/bangumi-cache.jsonl", mode: "100644", type: "blob", sha: "personal-cache" },
     { path: "data/README.md", mode: "100644", type: "blob", sha: "template-data-readme" },
   ]);
 });

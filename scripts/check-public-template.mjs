@@ -29,9 +29,10 @@ async function request(path, { allowNotFound = false } = {}) {
 }
 
 const metadata = await request("");
-const [animeFile, indexFile, backups] = await Promise.all([
+const [animeFile, indexFile, bangumiCacheFile, backups] = await Promise.all([
   request("/contents/data/anime.jsonl", { allowNotFound: true }),
   request("/contents/data/anime-index.jsonl", { allowNotFound: true }),
+  request("/contents/data/bangumi-cache.jsonl", { allowNotFound: true }),
   request("/contents/data/backups", { allowNotFound: true }),
 ]);
 
@@ -55,6 +56,13 @@ if (!indexFile) {
 } else if (Number(indexFile.size) !== 0) {
   issues.push(`data/anime-index.jsonl 应为空，当前 ${indexFile.size} 字节`);
 }
+if (!bangumiCacheFile) {
+  issues.push("data/bangumi-cache.jsonl 尚未创建");
+} else if (Number(bangumiCacheFile.size) !== 0) {
+  issues.push(
+    `data/bangumi-cache.jsonl 应为空，当前 ${bangumiCacheFile.size} 字节`,
+  );
+}
 if (
   !Array.isArray(backups) ||
   backups.some((entry) => entry.type === "file" && entry.name.endsWith(".json"))
@@ -73,6 +81,6 @@ if (issues.length > 0) {
   console.log("- 仓库公开");
   console.log("- Template repository 已启用");
   console.log("- 默认分支为 main");
-  console.log("- JSONL 与备份目录为空");
+  console.log("- JSONL、Bangumi 个人缓存与备份目录为空");
   console.log("- 新仓库创建时仍应保持 Include all branches 未勾选");
 }

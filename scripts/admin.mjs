@@ -40,6 +40,11 @@ function sendError(response, error) {
   });
 }
 
+function bangumiCachePayload(result) {
+  const { text: _text, ...payload } = result;
+  return payload;
+}
+
 async function readBody(request) {
   const chunks = [];
   let size = 0;
@@ -145,6 +150,28 @@ const server = http.createServer(async (request, response) => {
         200,
         await store.saveSiteSettings(await readBody(request)),
       );
+      return;
+    }
+    if (url.pathname === "/api/bangumi-cache" && request.method === "GET") {
+      sendJson(response, 200, bangumiCachePayload(await store.loadBangumiCache()));
+      return;
+    }
+    if (url.pathname === "/api/bangumi-cache" && request.method === "PUT") {
+      assertLocalRequest(request);
+      const result = await store.saveBangumiCache(await readBody(request));
+      sendJson(response, 200, bangumiCachePayload(result));
+      return;
+    }
+    if (url.pathname === "/api/bangumi-cache" && request.method === "DELETE") {
+      assertLocalRequest(request);
+      const body = await readBody(request);
+      const result = body.all
+        ? await store.saveBangumiCache({ mode: "replace", entries: [] })
+        : await store.saveBangumiCache({
+            mode: "remove",
+            subjectIds: body.subjectIds,
+          });
+      sendJson(response, 200, bangumiCachePayload(result));
       return;
     }
     if (url.pathname === "/api/catalog" && request.method === "GET") {

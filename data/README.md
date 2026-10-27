@@ -1,8 +1,8 @@
 # 数据编辑规范
 
-`data/anime.jsonl` 是唯一的个人记录数据源。每行是一条完整 JSON 记录，构建时从中生成网页和 `dist/data/library.json`。`data/anime-index.jsonl` 是派生索引，用于网页列表和油猴端重复检测，不要手工编辑。
+`data/anime.jsonl` 是唯一的个人番剧记录数据源。每行是一条完整 JSON 记录，构建时从中生成网页和 `dist/data/library.json`。`data/anime-index.jsonl` 是派生索引，用于网页列表和油猴端重复检测，不要手工编辑。`data/bangumi-cache.jsonl` 保存 Bangumi 评分、评分人数、排名和标签的个人缓存，不属于番剧记录。
 
-模板默认不包含任何番剧，两个 JSONL 文件都是空的。推荐用本地管理页维护：
+模板默认不包含任何番剧，三个 JSONL 文件都是空的。推荐用本地管理页维护：
 
 ```bash
 npm run admin
@@ -10,7 +10,7 @@ npm run admin
 
 打开 `http://127.0.0.1:4174/admin/` 后，可以直接搜索、编辑评分和评价、批量删除，并一键提交到本地 Git 再推送到 origin。
 
-个人记录只应写入通过 `Use this template` 生成的个人仓库。上游模板必须始终保持两个 JSONL 和备份目录为空；GitHub 没有对 Fork 隐藏指定已跟踪数据的功能，Fork 还会复制完整提交历史。
+个人记录只应写入通过 `Use this template` 生成的个人仓库。上游模板必须始终保持三个 JSONL 和备份目录为空；GitHub 没有对 Fork 隐藏指定已跟踪数据的功能，Fork 还会复制完整提交历史。
 
 ## 用全量索引发现作品
 
@@ -27,6 +27,22 @@ npm run admin
 添加前会同时检查记录 `id` 和所有外部站点 ID。任一索引已经存在时不会创建重复记录。不同季度应选择不同的候选记录；季度信息会作为记录身份的一部分保留。
 
 `bangumi-data` 当前通常没有封面地址，因此候选封面为空是正常情况。管理页会先读取索引自带的封面字段，再对当前分页缺少封面的 Bangumi 条目惰性请求并缓存到浏览器；这类临时封面补全不会写入 JSONL 索引。
+
+## Bangumi 评分与标签个人缓存
+
+发现页的 Bangumi 信息先读取 Bangumi Archive 静态快照，必要时再请求 Bangumi API。结果默认写入浏览器 IndexedDB，并标记为本机待保存；这不等于已经进入个人仓库。
+
+展开“Bangumi 评分与标签”后可以管理两层缓存：
+
+- `保存本页`：把当前页已有信息合并到 `data/bangumi-cache.jsonl`。
+- `合并本机`：把浏览器内所有待保存条目合并到个人仓库。
+- `移除本页`：只从个人缓存删除当前页的 Bangumi 条目，不删除番剧、评分或评价。
+- `清空本机`：清除 IndexedDB 临时层，然后重新载入个人仓库缓存。
+- `清空个人`：清空个人仓库的 Bangumi 缓存并创建一次提交，不影响番剧记录。
+
+缓存以 Bangumi `subjectId` 为唯一键。合并时同一键只保留一条，`fetchedAt` 较新的值胜出。文件不是追加日志，每次保存都会写回规范化后的完整 JSONL；实际操作 `data/` 时应先提交或备份已有修改。
+
+模板更新会保留整个 `data/` 目录，因此 `data/bangumi-cache.jsonl` 会随个人记录和备份一起保留。上游模板仓库必须始终让该文件保持为空。
 
 ## 新增记录
 

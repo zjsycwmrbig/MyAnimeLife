@@ -13,6 +13,7 @@ import {
   parseJsonl,
   sortRecordsById,
 } from "./library-data.mjs";
+import { BANGUMI_CACHE_JSONL_PATH } from "./bangumi-cache-data.mjs";
 import { calculateInsights } from "./insights-data.mjs";
 import { normalizeShareConfig } from "./site-settings.mjs";
 
@@ -199,6 +200,10 @@ export async function loadSiteConfig(root = defaultRoot) {
   assertRelativeDirectory(
     config.indexFile ?? ANIME_INDEX_JSONL_PATH,
     "indexFile",
+  );
+  assertRelativeDirectory(
+    config.bangumiCacheFile ?? BANGUMI_CACHE_JSONL_PATH,
+    "bangumiCacheFile",
   );
   assertRelativeDirectory(config.backupDirectory, "backupDirectory");
   assertRelativeDirectory(config.outputDirectory, "outputDirectory");
@@ -717,6 +722,7 @@ export async function buildSite(options = {}) {
     "duplicate-data.mjs",
     "admin-data.mjs",
     "site-settings.mjs",
+    "bangumi-cache-data.mjs",
   ];
   await fs.mkdir(path.join(outputDirectory, "scripts"), { recursive: true });
   await Promise.all(

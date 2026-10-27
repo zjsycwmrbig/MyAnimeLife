@@ -71,7 +71,7 @@ test("normalizes compact public snapshot records", () => {
     { name: "恋爱", count: 920 },
     { name: "漫画改", count: 450 },
   ]);
-  assert.equal(metadata.fetchedAt, "2026-10-20T21:03:33Z");
+  assert.equal(metadata.fetchedAt, "2026-10-20T21:03:33.000Z");
 });
 
 test("marks cache hits without mislabeling fresh snapshot records", () => {
@@ -137,6 +137,11 @@ test("summarizes cache, score, tag, and missing counts", () => {
     indexed: 3,
     cached: 1,
     cachedAvailable: 1,
+    personal: 0,
+    personalAvailable: 0,
+    browser: 1,
+    browserAvailable: 1,
+    pending: 0,
     scored: 1,
     tagged: 2,
     available: 2,

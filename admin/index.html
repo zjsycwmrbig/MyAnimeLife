@@ -426,38 +426,41 @@
               <span class="catalog-public-heading-main">
                 <span class="catalog-public-mark" aria-hidden="true">B</span>
                 <span class="catalog-public-title">
-                  <strong>公共评分与标签</strong>
-                  <small>Bangumi 社区数据</small>
+                  <strong>Bangumi 评分与标签</strong>
+                  <small>个人缓存 · Bangumi Archive 上游</small>
                 </span>
               </span>
               <span class="catalog-public-heading-state">
+                <span id="catalogMetadataPersonalBadge" class="catalog-public-cache-pill is-personal" hidden>
+                  个人 0
+                </span>
                 <span id="catalogMetadataCacheBadge" class="catalog-public-cache-pill" hidden>
-                  缓存 0
+                  本机 0
                 </span>
                 <span id="catalogMetadataStatus" role="status" aria-live="polite">
                   等待读取
                 </span>
               </span>
             </summary>
-            <div class="catalog-public-stats" aria-label="本页 Bangumi 公共信息统计">
+            <div class="catalog-public-stats" aria-label="本页 Bangumi 信息统计">
               <span>
                 <small>本页条目</small>
                 <strong id="catalogMetadataTotalCount">0</strong>
               </span>
               <span>
-                <small>缓存命中</small>
+                <small>个人缓存命中</small>
                 <strong id="catalogMetadataCacheCount">0</strong>
               </span>
               <span>
-                <small>浏览器缓存</small>
+                <small>本机缓存命中</small>
                 <strong id="catalogMetadataLocalCount">0</strong>
               </span>
               <span>
-                <small>公共评分</small>
+                <small>评分条目</small>
                 <strong id="catalogMetadataScoreCount">0</strong>
               </span>
               <span>
-                <small>公共标签</small>
+                <small>标签条目</small>
                 <strong id="catalogMetadataTagCount">0</strong>
               </span>
               <span>
@@ -470,11 +473,48 @@
                 target="_blank"
                 rel="noreferrer"
               >
-                数据来自 Bangumi Archive
+                上游数据来自 Bangumi Archive
               </a>
             </div>
+            <div class="catalog-cache-manager">
+              <div class="catalog-cache-facts">
+                <span>
+                  <small>个人仓库缓存</small>
+                  <strong id="catalogMetadataPersonalCount">0 条</strong>
+                </span>
+                <span>
+                  <small>本机临时缓存</small>
+                  <strong id="catalogMetadataLocalSize">0 KB</strong>
+                </span>
+                <span>
+                  <small>个人缓存最近更新</small>
+                  <strong id="catalogMetadataPersonalUpdatedAt">尚未保存</strong>
+                </span>
+                <code id="catalogMetadataPersonalFile">data/bangumi-cache.jsonl</code>
+              </div>
+              <div class="catalog-cache-actions">
+                <button id="catalogMetadataSavePage" class="button button-primary" type="button">
+                  保存本页
+                </button>
+                <button id="catalogMetadataSyncAll" class="button button-quiet" type="button">
+                  合并本机
+                </button>
+                <button id="catalogMetadataRemovePage" class="button button-quiet" type="button">
+                  移除本页
+                </button>
+                <button id="catalogMetadataClearLocal" class="text-button" type="button">
+                  清空本机
+                </button>
+                <button id="catalogMetadataClearPersonal" class="text-button is-danger" type="button">
+                  清空个人
+                </button>
+              </div>
+              <p id="catalogMetadataManagerStatus" role="status" aria-live="polite">
+                正在读取个人仓库缓存...
+              </p>
+            </div>
             <div class="catalog-public-controls">
-              <div class="filter-range catalog-public-score" role="group" aria-label="Bangumi 公共评分范围">
+              <div class="filter-range catalog-public-score" role="group" aria-label="Bangumi 评分范围">
                 <span class="filter-range-label">Bangumi 评分</span>
                 <div class="filter-range-inputs">
                   <label>
@@ -504,11 +544,11 @@
                 </div>
               </details>
               <label class="compact-field">
-                <span>公共信息</span>
+                <span>Bangumi 信息</span>
                 <select id="catalogMetadataAvailability">
                   <option value="all" selected>全部番剧</option>
-                  <option value="available">已有公共信息</option>
-                  <option value="unavailable">暂无公共信息</option>
+                  <option value="available">已有 Bangumi 信息</option>
+                  <option value="unavailable">暂无 Bangumi 信息</option>
                 </select>
               </label>
               <label class="compact-field">
@@ -523,7 +563,7 @@
                 id="catalogMetadataRefresh"
                 class="button button-quiet catalog-public-refresh"
                 type="button"
-                title="更新本页 Bangumi 公共数据"
+                title="从 Bangumi Archive 更新本页评分与标签"
               >
                 更新本页
               </button>

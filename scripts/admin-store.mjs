@@ -25,6 +25,13 @@ import {
   applySiteSettings,
   siteSettingsPayload,
 } from "./site-settings.mjs";
+import {
+  bangumiCacheStatistics,
+  mergeBangumiCacheEntries,
+  parseBangumiCacheJsonl,
+  removeBangumiCacheEntries,
+  serializeBangumiCache,
+} from "./bangumi-cache-data.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -60,6 +67,32 @@ async function runGit(root, args) {
   }
 }
 
+async function existingOrTrackedPaths(root, paths) {
+  const relativePaths = paths.map((filePath) => path.relative(root, filePath));
+  const existingPaths = [];
+  for (const [index, filePath] of paths.entries()) {
+    try {
+      await fs.access(filePath);
+      existingPaths.push(relativePaths[index]);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  const tracked = await runGit(root, [
+    "ls-files",
+    "--",
+    ...relativePaths,
+  ]).catch(() => ({ stdout: "" }));
+  return [
+    ...new Set([
+      ...existingPaths,
+      ...tracked.stdout.split("\n").map((entry) => entry.trim()).filter(Boolean),
+    ]),
+  ];
+}
+
 export class LibraryAdminStore {
   constructor(root, options = {}) {
     this.root = path.resolve(root);
@@ -73,6 +106,7 @@ export class LibraryAdminStore {
       configFile: path.join(this.root, "config", "site.json"),
       dataFile: path.join(this.root, config.dataFile),
       indexFile: path.join(this.root, config.indexFile),
+      bangumiCacheFile: path.join(this.root, config.bangumiCacheFile),
       backupDirectory: path.join(this.root, config.backupDirectory),
     };
   }
@@ -109,6 +143,68 @@ export class LibraryAdminStore {
     return {
       ...context,
       ...library,
+    };
+  }
+
+  async loadBangumiCache() {
+    const context = await this.context();
+    let text = "";
+    try {
+      text = await fs.readFile(context.bangumiCacheFile, "utf8");
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    const entries = parseBangumiCacheJsonl(
+      text,
+      context.config.bangumiCacheFile,
+    );
+    return {
+      ...bangumiCacheStatistics(entries, text),
+      entries,
+      text,
+      file: path.relative(this.root, context.bangumiCacheFile),
+    };
+  }
+
+  async saveBangumiCache(input = {}) {
+    const context = await this.context();
+    const current = await this.loadBangumiCache();
+    const mode = cleanString(input.mode) || "merge";
+    let entries;
+    if (mode === "remove") {
+      entries = removeBangumiCacheEntries(
+        current.entries,
+        input.subjectIds,
+      );
+    } else if (mode === "replace") {
+      if (!Array.isArray(input.entries)) {
+        throw new Error("替换 Bangumi 缓存时缺少 entries");
+      }
+      entries = parseBangumiCacheJsonl(
+        serializeBangumiCache(input.entries),
+        "提交的 Bangumi 缓存",
+      );
+    } else if (mode === "merge") {
+      if (!Array.isArray(input.entries)) {
+        throw new Error("合并 Bangumi 缓存时缺少 entries");
+      }
+      entries = mergeBangumiCacheEntries(current.entries, input.entries);
+    } else {
+      throw new Error(`不支持的 Bangumi 缓存操作：${mode}`);
+    }
+    const text = serializeBangumiCache(entries);
+    const changed = text !== current.text;
+    if (changed) {
+      await writeFileAtomic(context.bangumiCacheFile, text);
+    }
+    return {
+      ...bangumiCacheStatistics(entries, text),
+      entries,
+      text,
+      file: path.relative(this.root, context.bangumiCacheFile),
+      changed,
     };
   }
 
@@ -287,17 +383,27 @@ export class LibraryAdminStore {
     const context = await this.context();
     const paths = [
       context.configFile,
-      context.config.dataFile,
-      context.config.indexFile,
-      context.config.backupDirectory,
+      context.dataFile,
+      context.indexFile,
+      context.bangumiCacheFile,
+      context.backupDirectory,
     ];
+    const scopedPaths = await existingOrTrackedPaths(this.root, paths);
     const [branch, remote, status] = await Promise.all([
       runGit(this.root, ["branch", "--show-current"]),
       runGit(this.root, ["remote", "get-url", "origin"]).catch(() => ({
         stdout: "",
         stderr: "",
       })),
-      runGit(this.root, ["status", "--short", "--", ...paths]),
+      scopedPaths.length
+        ? runGit(this.root, [
+            "status",
+            "--short",
+            "--untracked-files=all",
+            "--",
+            ...scopedPaths,
+          ])
+        : Promise.resolve({ stdout: "", stderr: "" }),
     ]);
     return {
       branch: branch.stdout || "(detached)",
@@ -315,17 +421,22 @@ export class LibraryAdminStore {
     const context = await this.context();
     const paths = [
       context.configFile,
-      context.config.dataFile,
-      context.config.indexFile,
-      context.config.backupDirectory,
+      context.dataFile,
+      context.indexFile,
+      context.bangumiCacheFile,
+      context.backupDirectory,
     ];
-    await runGit(this.root, ["add", "--", ...paths]);
+    const scopedPaths = await existingOrTrackedPaths(this.root, paths);
+    if (!scopedPaths.length) {
+      throw new Error("当前仓库没有可同步的数据文件");
+    }
+    await runGit(this.root, ["add", "-A", "--", ...scopedPaths]);
     const staged = await runGit(this.root, [
       "diff",
       "--cached",
       "--name-only",
       "--",
-      ...paths,
+      ...scopedPaths,
     ]);
     const hasStagedChanges = Boolean(staged.stdout);
     let commit = "";

@@ -2,11 +2,11 @@ import {
   bangumiSubjectId,
   fetchBangumiSubject,
 } from "./bangumi-subject.js";
+import { normalizeBangumiCacheEntry } from "../scripts/bangumi-cache-data.mjs";
 
 const DATABASE_NAME = "myanimelife-bangumi-metadata";
 const STORE_NAME = "subjects";
 const DATABASE_VERSION = 1;
-const MAX_TAGS = 40;
 const FETCH_CONCURRENCY = 3;
 const PUBLIC_SNAPSHOT_URL = new URL("./bangumi-public.json", import.meta.url);
 const PUBLIC_SNAPSHOT_SCHEMA_VERSION = 1;
@@ -18,48 +18,9 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
-function normalizeUrl(value) {
-  const url = clean(value);
-  if (!url) {
-    return null;
-  }
-  const resolved = url.startsWith("//") ? `https:${url}` : url;
-  return /^https?:\/\//iu.test(resolved) ? resolved : null;
-}
-
-function normalizeScore(value) {
-  const score = Number(value);
-  return Number.isFinite(score) && score > 0 && score <= 10
-    ? Math.round(score * 10) / 10
-    : null;
-}
-
-function normalizeCount(value) {
-  const count = Number(value);
-  return Number.isInteger(count) && count >= 0 ? count : 0;
-}
-
-function normalizeTags(values) {
-  const tags = new Map();
-  for (const value of Array.isArray(values) ? values : []) {
-    const name = clean(value?.name);
-    const key = name.normalize("NFKC").toLocaleLowerCase("zh-CN");
-    if (!name || !key) {
-      continue;
-    }
-    const count = normalizeCount(value?.count);
-    const previous = tags.get(key);
-    if (!previous || count > previous.count) {
-      tags.set(key, { name, count });
-    }
-  }
-  return [...tags.values()]
-    .sort(
-      (left, right) =>
-        right.count - left.count ||
-        left.name.localeCompare(right.name, "zh-CN"),
-    )
-    .slice(0, MAX_TAGS);
+function timestamp(value) {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function normalizeBangumiMetadata(
@@ -71,23 +32,20 @@ export function normalizeBangumiMetadata(
   if (!id) {
     throw new Error("Bangumi 元数据缺少条目 ID");
   }
-  return {
-    schemaVersion: 1,
+  return normalizeBangumiCacheEntry({
     subjectId: id,
-    score: normalizeScore(payload?.rating?.score),
-    ratingCount: normalizeCount(
-      payload?.rating?.total ?? payload?.rating?.count,
-    ),
-    rank: normalizeCount(payload?.rank) || null,
-    tags: normalizeTags(payload?.tags),
-    summary: clean(payload?.summary).slice(0, 4000),
-    coverUrl: normalizeUrl(
+    score: payload?.rating?.score,
+    ratingCount: payload?.rating?.total ?? payload?.rating?.count,
+    rank: payload?.rank,
+    tags: payload?.tags,
+    summary: payload?.summary,
+    coverUrl:
       payload?.images?.large ??
-        payload?.images?.common ??
-        payload?.images?.medium,
-    ),
+      payload?.images?.common ??
+      payload?.images?.medium,
     fetchedAt,
-  };
+    source: "bangumi-api",
+  });
 }
 
 export function normalizeBangumiSnapshotSubject(
@@ -100,22 +58,27 @@ export function normalizeBangumiSnapshotSubject(
     return null;
   }
   const [score, ratingCount, rank, rawTags] = compactSubject;
-  return {
-    schemaVersion: 1,
+  return normalizeBangumiCacheEntry({
     subjectId: id,
-    score: normalizeScore(score),
-    ratingCount: normalizeCount(ratingCount),
-    rank: normalizeCount(rank) || null,
-    tags: normalizeTags(
+    score,
+    ratingCount,
+    rank,
+    tags: (
       (Array.isArray(rawTags) ? rawTags : []).map((tag) => ({
         name: tag?.[0],
         count: tag?.[1],
-      })),
+      }))
     ),
-    summary: "",
-    coverUrl: null,
     fetchedAt: clean(fetchedAt) || new Date().toISOString(),
-  };
+    source: "bangumi-archive",
+  });
+}
+
+export function toBangumiCacheEntry(metadata) {
+  return normalizeBangumiCacheEntry({
+    ...metadata,
+    source: metadata?.source ?? "bangumi-admin",
+  });
 }
 
 async function loadPublicSnapshot(options = {}) {
@@ -226,7 +189,26 @@ export async function countBangumiMetadata() {
   }
 }
 
-async function writeBangumiMetadata(entries) {
+export async function readAllBangumiMetadata() {
+  const database = await openDatabase();
+  if (!database) {
+    return [];
+  }
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readonly");
+      const request = transaction.objectStore(STORE_NAME).getAll();
+      request.addEventListener("success", () => resolve(request.result ?? []));
+      request.addEventListener("error", () =>
+        reject(request.error ?? new Error("读取 Bangumi 元数据缓存失败")),
+      );
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function writeBangumiMetadata(entries, options = {}) {
   if (!entries.size) {
     return;
   }
@@ -238,12 +220,224 @@ async function writeBangumiMetadata(entries) {
     await new Promise((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
-      for (const [subjectId, metadata] of entries) {
-        store.put(metadata, subjectId);
+      for (const [subjectId, rawMetadata] of entries) {
+        const previous = options.previous?.get(subjectId);
+        const storageSource =
+          rawMetadata.storageSource ??
+          options.storageSource ??
+          previous?.storageSource ??
+          "browser";
+        const pendingSync =
+          rawMetadata.pendingSync ??
+          options.pendingSync ??
+          (storageSource === "personal" && !options.fromPersonal);
+        store.put(
+          {
+            ...rawMetadata,
+            storageSource,
+            pendingSync,
+          },
+          subjectId,
+        );
       }
       transaction.addEventListener("complete", resolve);
       transaction.addEventListener("error", () =>
         reject(transaction.error ?? new Error("写入 Bangumi 元数据缓存失败")),
+      );
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function importBangumiMetadata(
+  entries,
+  storageSource = "personal",
+) {
+  const map = new Map();
+  for (const rawEntry of entries ?? []) {
+    try {
+      const entry = toBangumiCacheEntry(rawEntry);
+      map.set(entry.subjectId, entry);
+    } catch {
+      // A malformed personal entry must not block the rest of the cache.
+    }
+  }
+  await writeBangumiMetadata(map, {
+    storageSource,
+    pendingSync: false,
+    fromPersonal: storageSource === "personal",
+  });
+  return map;
+}
+
+export async function replaceBangumiMetadataBySource(
+  entries,
+  storageSource = "personal",
+) {
+  const map = new Map();
+  for (const rawEntry of entries ?? []) {
+    try {
+      const entry = toBangumiCacheEntry(rawEntry);
+      map.set(entry.subjectId, entry);
+    } catch {
+      // Keep the rest of the personal cache usable when one line is malformed.
+    }
+  }
+  const database = await openDatabase();
+  if (!database) {
+    return map;
+  }
+  const remaining = new Map(map);
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      const cursorRequest = store.openCursor();
+      cursorRequest.addEventListener("success", () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          for (const [subjectId, entry] of remaining) {
+            store.put(
+              {
+                ...entry,
+                storageSource,
+                pendingSync: false,
+              },
+              subjectId,
+            );
+          }
+          return;
+        }
+        const subjectId = cursor.value?.subjectId ?? cursor.primaryKey;
+        const existingSource = cursor.value?.storageSource ?? "browser";
+        const incoming = remaining.get(subjectId);
+        if (existingSource === storageSource) {
+          if (!incoming) {
+            if (!cursor.value?.pendingSync) {
+              cursor.delete();
+            }
+          } else {
+            const localIsNewer =
+              cursor.value?.pendingSync &&
+              timestamp(cursor.value?.fetchedAt) >=
+                timestamp(incoming?.fetchedAt);
+            if (!localIsNewer) {
+              cursor.update({
+                ...incoming,
+                storageSource,
+                pendingSync: false,
+              });
+            }
+            remaining.delete(subjectId);
+          }
+        } else if (incoming) {
+          const localIsNewer =
+            cursor.value?.pendingSync &&
+            timestamp(cursor.value?.fetchedAt) >= timestamp(incoming?.fetchedAt);
+          if (!localIsNewer) {
+            cursor.update({
+              ...incoming,
+              storageSource,
+              pendingSync: false,
+            });
+          }
+          remaining.delete(subjectId);
+        }
+        cursor.continue();
+      });
+      cursorRequest.addEventListener("error", () =>
+        reject(cursorRequest.error ?? new Error("同步 Bangumi 元数据缓存失败")),
+      );
+      transaction.addEventListener("complete", resolve);
+      transaction.addEventListener("error", () =>
+        reject(transaction.error ?? new Error("同步 Bangumi 元数据缓存失败")),
+      );
+    });
+  } finally {
+    database.close();
+  }
+  return map;
+}
+
+export async function markBangumiMetadataPersonal(entries) {
+  const map = new Map();
+  for (const rawEntry of entries ?? []) {
+    try {
+      const entry = toBangumiCacheEntry(rawEntry);
+      map.set(entry.subjectId, {
+        ...entry,
+        storageSource: "personal",
+        pendingSync: false,
+      });
+    } catch {
+      // Ignore malformed local copies after a successful repository write.
+    }
+  }
+  await writeBangumiMetadata(map, {
+    storageSource: "personal",
+    pendingSync: false,
+    fromPersonal: true,
+  });
+}
+
+export async function removeBangumiMetadata(subjectIds) {
+  const ids = [...new Set((subjectIds ?? []).map(clean).filter(Boolean))];
+  if (!ids.length) {
+    return;
+  }
+  const database = await openDatabase();
+  if (!database) {
+    return;
+  }
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      for (const id of ids) {
+        store.delete(id);
+      }
+      transaction.addEventListener("complete", resolve);
+      transaction.addEventListener("error", () =>
+        reject(transaction.error ?? new Error("移除 Bangumi 元数据缓存失败")),
+      );
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function clearBangumiMetadata(storageSource = "") {
+  const database = await openDatabase();
+  if (!database) {
+    return;
+  }
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readwrite");
+      const store = transaction.objectStore(STORE_NAME);
+      if (!clean(storageSource)) {
+        store.clear();
+      } else {
+        const request = store.openCursor();
+        request.addEventListener("success", () => {
+          const cursor = request.result;
+          if (!cursor) {
+            return;
+          }
+          const source = cursor.value?.storageSource ?? "browser";
+          if (source === clean(storageSource)) {
+            cursor.delete();
+          }
+          cursor.continue();
+        });
+        request.addEventListener("error", () =>
+          reject(request.error ?? new Error("清空 Bangumi 元数据缓存失败")),
+        );
+      }
+      transaction.addEventListener("complete", resolve);
+      transaction.addEventListener("error", () =>
+        reject(transaction.error ?? new Error("清空 Bangumi 元数据缓存失败")),
       );
     });
   } finally {
@@ -290,7 +484,10 @@ export async function resolveBangumiMetadata(items, options = {}) {
   );
   const updates = new Map();
   const sourceById = new Map(
-    [...cachedIds].map((subjectId) => [subjectId, "cache"]),
+    [...cachedIds].map((subjectId) => [
+      subjectId,
+      cached.get(subjectId)?.storageSource ?? "browser",
+    ]),
   );
   let failed = 0;
   let snapshotError = "";
@@ -310,8 +507,16 @@ export async function resolveBangumiMetadata(items, options = {}) {
           snapshotFetchedAt,
         );
         if (metadata) {
-          updates.set(subjectId, metadata);
-          sourceById.set(subjectId, "snapshot");
+          const storageSource =
+            cached.get(subjectId)?.storageSource === "personal"
+              ? "personal"
+              : "browser";
+          updates.set(subjectId, {
+            ...metadata,
+            storageSource,
+            pendingSync: true,
+          });
+          sourceById.set(subjectId, storageSource);
         }
       }
       options.onProgress?.({
@@ -333,11 +538,19 @@ export async function resolveBangumiMetadata(items, options = {}) {
       limiter(async () => {
         try {
           const payload = await fetchBangumiSubject(subjectId);
+          const storageSource =
+            cached.get(subjectId)?.storageSource === "personal"
+              ? "personal"
+              : "browser";
           updates.set(
             subjectId,
-            normalizeBangumiMetadata(payload, subjectId),
+            {
+              ...normalizeBangumiMetadata(payload, subjectId),
+              storageSource,
+              pendingSync: true,
+            },
           );
-          sourceById.set(subjectId, "network");
+          sourceById.set(subjectId, storageSource);
           apiFetched += 1;
         } catch {
           failed += 1;
@@ -353,7 +566,10 @@ export async function resolveBangumiMetadata(items, options = {}) {
       }),
     ),
   );
-  await writeBangumiMetadata(updates);
+  await writeBangumiMetadata(updates, {
+    previous: cached,
+    pendingSync: true,
+  });
   return {
     metadata: new Map([...cached, ...updates]),
     requested: candidates.size,
@@ -394,7 +610,7 @@ export function hasUsableBangumiMetadata(metadata) {
 
 export function isCachedBangumiMetadata(item) {
   return (
-    item?.bangumiMetadataSource === "cache" &&
+    ["personal", "browser", "cache"].includes(item?.bangumiMetadataSource) &&
     hasUsableBangumiMetadata(item?.bangumiMetadata)
   );
 }
@@ -405,6 +621,11 @@ export function summarizeBangumiMetadata(items) {
     indexed: 0,
     cached: 0,
     cachedAvailable: 0,
+    personal: 0,
+    personalAvailable: 0,
+    browser: 0,
+    browserAvailable: 0,
+    pending: 0,
     scored: 0,
     tagged: 0,
     available: 0,
@@ -420,10 +641,26 @@ export function summarizeBangumiMetadata(items) {
     if (available) {
       summary.available += 1;
     }
-    if (item.bangumiMetadataSource === "cache") {
+    if (isCachedBangumiMetadata(item)) {
       summary.cached += 1;
       if (available) {
         summary.cachedAvailable += 1;
+      }
+    }
+    if (metadata?.pendingSync) {
+      summary.pending += 1;
+    }
+    if (item.bangumiMetadataSource === "personal") {
+      summary.personal += 1;
+      if (available) {
+        summary.personalAvailable += 1;
+      }
+    } else if (
+      ["browser", "cache"].includes(item.bangumiMetadataSource)
+    ) {
+      summary.browser += 1;
+      if (available) {
+        summary.browserAvailable += 1;
       }
     }
     if (Number.isFinite(metadata?.score)) {

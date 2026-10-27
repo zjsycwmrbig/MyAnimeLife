@@ -7,7 +7,7 @@ import { findDuplicateGroups } from "../scripts/duplicate-data.mjs";
 
 const SETTINGS_KEY = "myanimelife.admin.github.settings";
 const TOKEN_KEY = "myanimelife.admin.github.token";
-const LIBRARY_CACHE_VERSION = 1;
+const LIBRARY_CACHE_VERSION = 2;
 const LIBRARY_REVALIDATE_INTERVAL = 30 * 1000;
 
 function cleanString(value) {
@@ -152,6 +152,8 @@ function writePersistentLibraryCache(snapshot) {
         config: snapshot.config ?? {},
         records: snapshot.records ?? [],
         index: snapshot.index ?? [],
+        bangumiCache: snapshot.bangumiCache ?? [],
+        bangumiCacheText: snapshot.bangumiCacheText ?? "",
         backupLimit: snapshot.config?.backupLimit ?? 5,
       }),
     );
@@ -446,6 +448,38 @@ async function onlineApi(path, options) {
   }
   if (url.pathname === "/api/settings" && method === "PUT") {
     return store.saveSiteSettings(parseBody(options));
+  }
+  if (url.pathname === "/api/bangumi-cache" && method === "GET") {
+    const library = await githubLibrary();
+    const text = library.bangumiCacheText ?? "";
+    return {
+      entries: library.bangumiCache ?? [],
+      count: (library.bangumiCache ?? []).length,
+      size: new TextEncoder().encode(text).length,
+      updatedAt:
+        (library.bangumiCache ?? [])
+          .map((entry) => entry.fetchedAt)
+          .filter(Boolean)
+          .sort()
+          .at(-1) ?? null,
+      file:
+        library.config?.bangumiCacheFile ?? "data/bangumi-cache.jsonl",
+    };
+  }
+  if (url.pathname === "/api/bangumi-cache" && method === "PUT") {
+    const result = await store.saveBangumiCache(parseBody(options));
+    invalidateLibraryCache();
+    return result;
+  }
+  if (url.pathname === "/api/bangumi-cache" && method === "DELETE") {
+    const body = parseBody(options);
+    const result = await store.saveBangumiCache(
+      body.all
+        ? { mode: "replace", entries: [] }
+        : { mode: "remove", subjectIds: body.subjectIds },
+    );
+    invalidateLibraryCache();
+    return result;
   }
   if (url.pathname === "/api/template/status" && method === "GET") {
     return store.templateStatus({ onProgress: options.onProgress });

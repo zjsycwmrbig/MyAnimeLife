@@ -71,6 +71,11 @@ async function createFixture() {
     "",
     "utf8",
   );
+  await fs.writeFile(
+    path.join(fixtureRoot, "data", "bangumi-cache.jsonl"),
+    "",
+    "utf8",
+  );
   return fixtureRoot;
 }
 
@@ -153,6 +158,80 @@ test("saves display and share preferences to the site config", async () => {
       accent: "blue",
     });
     assert.equal(config.dataFile, "data/anime.jsonl");
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
+test("keeps Bangumi cache as personal data beside the anime library", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    await writeLibrary(fixtureRoot, [baseRecord]);
+    const store = new LibraryAdminStore(fixtureRoot);
+    const initial = await store.loadBangumiCache();
+    assert.equal(initial.count, 0);
+
+    const saved = await store.saveBangumiCache({
+      mode: "merge",
+      entries: [
+        {
+          subjectId: "101",
+          score: 8.1,
+          ratingCount: 120,
+          tags: [{ name: "科幻", count: 80 }],
+          coverUrl: "https://images.example.test/101.jpg",
+          fetchedAt: "2026-10-27T08:00:00Z",
+          source: "bangumi-archive",
+        },
+        {
+          subjectId: "102",
+          score: 7.6,
+          tags: [{ name: "日常", count: 50 }],
+          fetchedAt: "2026-10-27T09:00:00Z",
+          source: "bangumi-api",
+        },
+      ],
+    });
+
+    assert.equal(saved.changed, true);
+    assert.equal(saved.count, 2);
+    const personalFile = path.join(
+      fixtureRoot,
+      "data",
+      "bangumi-cache.jsonl",
+    );
+    assert.match(await fs.readFile(personalFile, "utf8"), /"subjectId":"101"/u);
+    assert.equal((await store.load()).records.length, 1);
+    assert.deepEqual(
+      await fs.readdir(path.join(fixtureRoot, "data", "backups")),
+      [],
+    );
+
+    const merged = await store.saveBangumiCache({
+      mode: "merge",
+      entries: [
+        {
+          subjectId: "101",
+          score: 9.2,
+          fetchedAt: "2026-10-27T10:00:00Z",
+          source: "bangumi-api",
+        },
+      ],
+    });
+    assert.equal(
+      merged.entries.find((entry) => entry.subjectId === "101")?.score,
+      9.2,
+    );
+
+    const removed = await store.saveBangumiCache({
+      mode: "remove",
+      subjectIds: ["102"],
+    });
+    assert.deepEqual(
+      removed.entries.map((entry) => entry.subjectId),
+      ["101"],
+    );
+    assert.equal((await store.loadBangumiCache()).count, 1);
   } finally {
     await cleanup(fixtureRoot);
   }
