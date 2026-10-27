@@ -26,6 +26,7 @@ import {
   siteSettingsPayload,
 } from "./site-settings.mjs";
 import {
+  BANGUMI_CACHE_JSONL_PATH,
   bangumiCacheStatistics,
   mergeBangumiCacheEntries,
   parseBangumiCacheJsonl,
@@ -101,12 +102,14 @@ export class LibraryAdminStore {
 
   async context() {
     const config = await loadSiteConfig(this.root);
+    const bangumiCacheFile =
+      config.bangumiCacheFile ?? BANGUMI_CACHE_JSONL_PATH;
     return {
       config,
       configFile: path.join(this.root, "config", "site.json"),
       dataFile: path.join(this.root, config.dataFile),
       indexFile: path.join(this.root, config.indexFile),
-      bangumiCacheFile: path.join(this.root, config.bangumiCacheFile),
+      bangumiCacheFile: path.join(this.root, bangumiCacheFile),
       backupDirectory: path.join(this.root, config.backupDirectory),
     };
   }

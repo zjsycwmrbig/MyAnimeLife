@@ -96,6 +96,24 @@ async function cleanup(fixtureRoot) {
   await fs.rm(fixtureRoot, { recursive: true, force: true });
 }
 
+test("keeps legacy site configs working with the default Bangumi cache path", async () => {
+  const fixtureRoot = await createFixture();
+  try {
+    const configFile = path.join(fixtureRoot, "config", "site.json");
+    const config = JSON.parse(await fs.readFile(configFile, "utf8"));
+    delete config.bangumiCacheFile;
+    await fs.writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+    const store = new LibraryAdminStore(fixtureRoot);
+    const cache = await store.loadBangumiCache();
+
+    assert.equal(cache.file, "data/bangumi-cache.jsonl");
+    assert.equal(cache.count, 0);
+  } finally {
+    await cleanup(fixtureRoot);
+  }
+});
+
 test("saves edits and rebuilds the lightweight JSONL index", async () => {
   const fixtureRoot = await createFixture();
   try {
