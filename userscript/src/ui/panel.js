@@ -1,6 +1,8 @@
 import {
   Bot,
   Check,
+  CircleAlert,
+  CircleCheck,
   CircleHelp,
   CloudDownload,
   Database,
@@ -24,6 +26,8 @@ import {
   Sparkles,
   Star,
   Trash2,
+  LoaderCircle,
+  Info,
   X,
 } from "lucide";
 import { createElement as createLucideElement } from "lucide";
@@ -243,6 +247,22 @@ function option(value, label, selected) {
   return element("option", { value, text: label, checked: selected });
 }
 
+function feedbackIcon(tone) {
+  if (tone === "success") {
+    return CircleCheck;
+  }
+  if (tone === "error") {
+    return CircleAlert;
+  }
+  if (tone === "warning") {
+    return CircleHelp;
+  }
+  if (tone === "progress") {
+    return LoaderCircle;
+  }
+  return Info;
+}
+
 export class ScoutPanel {
   constructor(options) {
     this.settingsStore = options.settingsStore;
@@ -283,6 +303,7 @@ export class ScoutPanel {
     this.batchLoading = false;
     this.batchImporting = false;
     this.batchMessage = "";
+    this.batchMessageTone = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
     this.batchProgress = null;
@@ -861,7 +882,7 @@ export class ScoutPanel {
         input: () => {
           this.enterRecordFocusMode();
           this.recordDirty = true;
-          this.recordStatus.textContent = "正在缓存本机草稿";
+          this.setRecordStatus("正在缓存本机草稿", "progress");
           this.clearDuplicateWarning();
           this.scheduleRecognitionDraftSave();
         },
@@ -932,9 +953,12 @@ export class ScoutPanel {
       },
       [icon(ExternalLink), "查看 GitHub 记录"],
     );
+    this.duplicateWarningTitle = element("strong", {
+      text: "发现疑似重复番剧",
+    });
     this.duplicateWarningSummary = element("p", {
       className: "scout-duplicate-summary",
-      text: "仓库中已有相似记录。季度不同或只是同一作品的另一版本时，请取消同步。",
+      text: "仓库中已有相似记录。继续会新增一条独立记录，不会修改原记录。",
     });
     this.duplicateWarningList = element("div", {
       className: "scout-duplicate-list",
@@ -945,7 +969,7 @@ export class ScoutPanel {
       () => this.cancelDuplicateSync(),
     );
     this.confirmDuplicateButton = button(
-      "仍然同步",
+      "仍然添加",
       CloudDownload,
       () => this.confirmDuplicateSync(),
       { variant: "primary" },
@@ -959,7 +983,7 @@ export class ScoutPanel {
       [
         element("div", { className: "scout-duplicate-heading" }, [
           icon(CircleHelp),
-          element("strong", { text: "发现疑似重复番剧" }),
+          this.duplicateWarningTitle,
         ]),
         this.duplicateWarningSummary,
         this.duplicateWarningList,
@@ -993,6 +1017,7 @@ export class ScoutPanel {
         ratingOptions,
         this.reviewInput,
         this.reviewDisplay,
+        this.duplicateWarning,
         element("div", { className: "scout-record-footer" }, [
           this.recordStatus,
           element("div", { className: "scout-record-actions" }, [
@@ -1002,7 +1027,6 @@ export class ScoutPanel {
         ]),
         this.recordNote,
         this.recordRemoteLink,
-        this.duplicateWarning,
       ],
     );
     this.recordSection.hidden = true;
@@ -2000,6 +2024,7 @@ export class ScoutPanel {
     this.batchLoading = false;
     this.batchImporting = false;
     this.batchMessage = "";
+    this.batchMessageTone = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
     this.batchProgress = null;
@@ -2387,9 +2412,10 @@ export class ScoutPanel {
     this.recordDirty = false;
     if (!options.silent) {
       const savedAt = formatRecordTime(saved?.updatedAt || draft?.updatedAt);
-      this.recordStatus.textContent = savedAt
-        ? `已缓存本机 · ${savedAt}`
-        : "已缓存本机草稿";
+      this.setRecordStatus(
+        savedAt ? `已缓存本机 · ${savedAt}` : "已缓存本机草稿",
+        "warning",
+      );
     }
     return draft;
   }
@@ -2409,7 +2435,7 @@ export class ScoutPanel {
     this.recordDirty = false;
     this.clearDuplicateWarning();
     this.syncRecordRating();
-    this.recordStatus.textContent = "本机草稿已清除";
+    this.setRecordStatus("本机草稿已清除");
     this.showToast("已清除当前番剧的本机草稿");
   }
 
@@ -2421,7 +2447,7 @@ export class ScoutPanel {
     this.enterRecordFocusMode();
     this.recordDirty = true;
     this.clearDuplicateWarning();
-    this.recordStatus.textContent = "正在缓存本机草稿";
+    this.setRecordStatus("正在缓存本机草稿", "progress");
     this.syncRecordRating();
     this.scheduleRecognitionDraftSave();
   }
@@ -2517,12 +2543,14 @@ export class ScoutPanel {
       this.recordDirty = false;
       this.reviewInput.value = record?.review ?? "";
       this.renderRecordReview();
-      this.recordStatus.textContent =
+      this.setRecordStatus(
         matchingDraft
           ? "已恢复本机未同步草稿"
           : record?.rating || record?.review
-          ? "已载入本地草稿"
-          : "尚未填写";
+            ? "已载入本地草稿"
+            : "尚未填写",
+        matchingDraft ? "warning" : "",
+      );
       if (item?.id && !matchingDraft) {
         this.recognitionCache?.save(location.href, {
           item,
@@ -2676,7 +2704,7 @@ export class ScoutPanel {
     const requestId = ++this.recordLoadRequestId;
     const selectedResult =
       this.selectedResult?.item?.id === item.id ? this.selectedResult : null;
-    this.recordStatus.textContent = "本地草稿已载入 · 正在读取 GitHub";
+    this.setRecordStatus("本地草稿已载入 · 正在读取 GitHub", "progress");
     try {
       const remote = await this.githubRecords.loadForItem(
         item,
@@ -2688,18 +2716,21 @@ export class ScoutPanel {
       this.recordRemoteRecord = remote;
       this.setRecordRemoteLink(remote);
       if (!remote) {
-        this.recordStatus.textContent = hasRecordContent(
-          this.personalRecordStore?.get(item.id),
-        )
-          ? "已载入本地草稿 · GitHub 尚无记录"
-          : "尚未填写 · GitHub 尚无记录";
+        this.setRecordStatus(
+          hasRecordContent(this.personalRecordStore?.get(item.id))
+            ? "已载入本地草稿 · GitHub 尚无记录"
+            : "尚未填写 · GitHub 尚无记录",
+          "warning",
+        );
         return;
       }
 
       const local = this.personalRecordStore?.get(item.id);
       if (this.recordDirty) {
-        this.recordStatus.textContent =
-          "GitHub 记录已载入，当前编辑尚未覆盖";
+        this.setRecordStatus(
+          "GitHub 记录已载入，当前编辑尚未覆盖",
+          "warning",
+        );
         return;
       }
       if (
@@ -2708,22 +2739,36 @@ export class ScoutPanel {
       ) {
         this.applyRemoteRecord(remote.record);
         const updatedAt = formatRecordTime(remote.record?.updatedAt);
-        this.recordStatus.textContent = updatedAt
-          ? `已从 GitHub 载入 · ${updatedAt}`
-          : "已从 GitHub 载入";
+        this.setRecordStatus(
+          updatedAt ? `已从 GitHub 载入 · ${updatedAt}` : "已从 GitHub 载入",
+          "success",
+        );
       } else {
-        this.recordStatus.textContent =
-          "本地草稿较新 · 保存时将同步到 GitHub";
+        this.setRecordStatus(
+          "本地草稿较新 · 保存时将同步到 GitHub",
+          "warning",
+        );
       }
     } catch (error) {
       if (requestId !== this.recordLoadRequestId || this.recordItem?.id !== item.id) {
         return;
       }
       const local = this.personalRecordStore?.get(item.id);
-      this.recordStatus.textContent = hasRecordContent(local)
-        ? "本地草稿可用 · GitHub 读取失败"
-        : "尚未填写 · GitHub 读取失败";
-      this.showToast(`GitHub 读取失败：${toErrorMessage(error)}`);
+      this.setRecordStatus(
+        hasRecordContent(local)
+          ? "本地草稿可用 · GitHub 读取失败"
+          : "尚未填写 · GitHub 读取失败",
+        "error",
+      );
+      this.showToast(
+        hasRecordContent(local)
+          ? `无法读取远端记录。本地草稿仍然保留。\n${toErrorMessage(error)}`
+          : `无法读取远端记录。\n${toErrorMessage(error)}`,
+        {
+          tone: "error",
+          title: "GitHub 读取失败",
+        },
+      );
     } finally {
       this.syncRecordGithubState();
     }
@@ -2747,7 +2792,11 @@ export class ScoutPanel {
       review: this.reviewInput.value,
     });
     if (!saved) {
-      this.showToast("草稿保存失败");
+      this.setRecordStatus("本机草稿保存失败", "error");
+      this.showToast("无法写入浏览器本机存储，请检查脚本存储权限。", {
+        tone: "error",
+        title: "草稿保存失败",
+      });
       return;
     }
     this.recordDirty = false;
@@ -2765,7 +2814,7 @@ export class ScoutPanel {
       hour: "2-digit",
       minute: "2-digit",
     });
-    this.recordStatus.textContent = `本地草稿已保存 · ${savedAt}`;
+    this.setRecordStatus(`本地草稿已保存 · ${savedAt}`, "warning");
     this.saveRecordButton.classList.add("is-confirmed");
     setTimeout(
       () => this.saveRecordButton.classList.remove("is-confirmed"),
@@ -2778,7 +2827,10 @@ export class ScoutPanel {
       Boolean(String(settings.github.token ?? "").trim());
     if (!writable || !this.githubRecords) {
       this.syncRecordGithubState();
-      this.showToast("本地评分与短评草稿已保存");
+      this.showToast("评分与短评已保存为本地草稿，刷新页面后仍可恢复。", {
+        tone: "success",
+        title: "草稿已保存",
+      });
       return;
     }
 
@@ -2799,9 +2851,14 @@ export class ScoutPanel {
     }
     this.recordSaving = true;
     this.syncRecordGithubState();
-    this.recordStatus.textContent = options.allowDuplicates
-      ? "本地草稿已保存 · 已确认重复，正在同步"
-      : "本地草稿已保存 · 正在同步到 GitHub";
+    this.saveRecordButton.classList.add("is-loading");
+    this.saveRecordButtonTextNode.textContent = "正在同步";
+    this.setRecordStatus(
+      options.allowDuplicates
+        ? "本地草稿已保存 · 已确认仍要添加，正在同步"
+        : "本地草稿已保存 · 正在同步到 GitHub",
+      "progress",
+    );
     try {
       const remote = await this.githubRecords.saveRecord({
         ...saveRequest,
@@ -2826,34 +2883,84 @@ export class ScoutPanel {
         },
       });
       this.githubLastSyncedAt = updatedSettings.github.lastSyncedAt;
-      this.recordStatus.textContent = `已保存到 GitHub · ${formatRecordTime(
-        this.githubLastSyncedAt,
-      )}`;
-      this.showToast("评分与短评已保存到 GitHub");
+      const syncedAtLabel = formatRecordTime(this.githubLastSyncedAt);
+      this.setRecordStatus(
+        `已保存到 GitHub · ${syncedAtLabel}`,
+        "success",
+      );
+      this.showToast(
+        `《${itemDisplayTitle(saveRequest.item)}》的评分与短评${
+          remote.appendedDuplicate ? "已作为新记录追加" : "已写入"
+        }到个人数据仓库。` +
+          (syncedAtLabel ? `\n同步时间：${syncedAtLabel}` : ""),
+        {
+          tone: "success",
+          title: "同步成功",
+        },
+      );
     } catch (error) {
       if (error instanceof DuplicateRecordError) {
+        const hasExistingRecord = error.duplicates.some(
+          (duplicate) => duplicate.kind === "existing",
+        );
         this.pendingGithubSave = saveRequest;
         this.renderDuplicateWarning(error);
-        this.recordStatus.textContent =
-          "本地草稿已保存 · 等待确认疑似重复";
-        this.showToast(error.message);
+        this.setRecordStatus(
+          hasExistingRecord
+            ? "本地草稿已保存 · 等待确认仍然添加"
+            : "本地草稿已保存 · 等待确认疑似重复",
+          "warning",
+        );
+        this.showToast(
+          hasExistingRecord
+            ? "个人仓库中已有这部番剧。继续会新增一条独立记录，原评分与短评不会被修改。"
+            : `${error.message}。请检查下方候选，确认不是同一季度后再同步。`,
+          {
+            tone: "warning",
+            title: hasExistingRecord ? "仓库中已有该番剧" : "需要确认重复项",
+          },
+        );
         return;
       }
       this.pendingGithubSave = null;
       this.clearDuplicateWarning();
-      this.recordStatus.textContent =
-        "本地草稿已保存 · GitHub 同步失败";
-      this.showToast(`GitHub 保存失败：${toErrorMessage(error)}`);
+      this.setRecordStatus(
+        "本地草稿已保存 · GitHub 同步失败",
+        "error",
+      );
+      this.showToast(
+        `评分与短评仍保留在本机，修正问题后可再次点击同步。\n${toErrorMessage(
+          error,
+        )}`,
+        {
+          tone: "error",
+          title: "GitHub 同步失败",
+          duration: 12000,
+        },
+      );
     } finally {
       this.recordSaving = false;
+      this.saveRecordButton.classList.remove("is-loading");
       this.syncRecordGithubState();
     }
   }
 
   renderDuplicateWarning(error) {
+    const hasExistingRecord = error.duplicates.some(
+      (duplicate) => duplicate.kind === "existing",
+    );
+    this.duplicateWarningTitle.textContent = hasExistingRecord
+      ? "这部番剧已在个人仓库中"
+      : "发现疑似重复番剧";
+    this.duplicateWarning.dataset.kind = hasExistingRecord
+      ? "existing"
+      : "similar";
     this.duplicateWarningSummary.textContent =
-      `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。` +
-      "不同季度属于不同番剧，请确认后再同步。";
+      hasExistingRecord
+        ? `扫描 ${error.scannedCount} 条记录后发现已有记录。继续会新增一条独立记录，不会修改原记录。`
+        : `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。` +
+          "不同季度属于不同番剧，继续会新增一条独立记录。";
+    this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
     this.duplicateWarningList.replaceChildren();
     for (const duplicate of error.duplicates) {
       const season = duplicate.season?.label
@@ -2878,6 +2985,10 @@ export class ScoutPanel {
     this.duplicateWarning.hidden = false;
     this.cancelDuplicateButton.disabled = this.recordSaving;
     this.confirmDuplicateButton.disabled = this.recordSaving;
+    this.duplicateWarning.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
   }
 
   clearDuplicateWarning() {
@@ -2886,14 +2997,22 @@ export class ScoutPanel {
     }
     this.pendingGithubSave = null;
     this.duplicateWarning.hidden = true;
+    delete this.duplicateWarning.dataset.kind;
     this.duplicateWarningList.replaceChildren();
+    this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
   }
 
   cancelDuplicateSync() {
     this.pendingGithubSave = null;
     this.clearDuplicateWarning();
-    this.recordStatus.textContent = "本地草稿已保留 · 已取消 GitHub 同步";
-    this.showToast("已取消同步，本地草稿仍然保留");
+    this.setRecordStatus(
+      "本地草稿已保留 · 已取消 GitHub 同步",
+      "warning",
+    );
+    this.showToast("没有写入 GitHub，评分与短评仍保留在本机。", {
+      tone: "warning",
+      title: "已取消同步",
+    });
   }
 
   confirmDuplicateSync() {
@@ -2984,6 +3103,7 @@ export class ScoutPanel {
       this.batchSelectedIds.delete(String(mediaId));
     }
     this.batchMessage = "";
+    this.batchMessageTone = "";
     this.renderBatchCards();
   }
 
@@ -2998,6 +3118,7 @@ export class ScoutPanel {
       ? new Set()
       : new Set(importableIds);
     this.batchMessage = "";
+    this.batchMessageTone = "";
     this.renderBatchCards();
   }
 
@@ -3165,6 +3286,11 @@ export class ScoutPanel {
 
     this.batchStatus.textContent = this.batchMessage;
     this.batchStatus.hidden = !this.batchMessage;
+    if (this.batchMessageTone) {
+      this.batchStatus.dataset.tone = this.batchMessageTone;
+    } else {
+      delete this.batchStatus.dataset.tone;
+    }
     const writable = this.batchGithubWritable();
     this.batchActionNote.textContent = writable
       ? "新记录默认未评分、无评价；已存在的番剧会自动跳过，并一次写入当前选择。"
@@ -3188,6 +3314,10 @@ export class ScoutPanel {
     this.batchImportButtonTextNode.textContent = this.batchImporting
       ? "正在同步"
       : "导入并同步";
+    this.batchImportButton.classList.toggle(
+      "is-loading",
+      this.batchImporting,
+    );
   }
 
   async syncSelectedBatchCards() {
@@ -3195,7 +3325,10 @@ export class ScoutPanel {
       return;
     }
     if (!this.batchGithubWritable()) {
-      this.showToast("请先在设置中连接 GitHub 仓库并填写 Token");
+      this.showToast("请先在设置中连接 GitHub 仓库并填写 Token。", {
+        tone: "warning",
+        title: "尚未配置同步仓库",
+      });
       return;
     }
 
@@ -3203,13 +3336,25 @@ export class ScoutPanel {
       this.batchSelectedIds.has(String(card.mediaId)),
     );
     if (!selectedCards.length) {
-      this.showToast("请先选择要导入的追番");
+      this.showToast("请先勾选至少一部可以导入的追番。", {
+        tone: "warning",
+        title: "尚未选择番剧",
+      });
       return;
     }
 
     this.batchImporting = true;
+    this.batchMessageTone = "progress";
     this.batchMessage = `正在获取封面并写入 ${selectedCards.length} 项`;
     this.renderBatchCards();
+    this.showToast(
+      `正在处理 ${selectedCards.length} 部追番，请勿关闭面板。完成后会显示写入结果。`,
+      {
+        tone: "progress",
+        title: "正在批量同步",
+        duration: 0,
+      },
+    );
     try {
       await this.resolveBatchCovers(
         selectedCards.map((card) => card.selectedResult.item),
@@ -3230,17 +3375,40 @@ export class ScoutPanel {
       });
       this.githubLastSyncedAt = updatedSettings.github.lastSyncedAt;
       this.batchSelectedIds.clear();
+      const importedCount = result.imported.length;
+      const skippedCount = result.skippedCount;
       this.batchMessage =
-        result.imported.length > 0
-          ? `已导入 ${result.imported.length} 条，跳过 ${result.skippedCount} 条`
-          : `选中的 ${result.skippedCount} 条均已存在，没有重复写入`;
-      this.showToast(this.batchMessage);
+        importedCount > 0
+          ? `已导入 ${importedCount} 条，跳过 ${skippedCount} 条`
+          : `选中的 ${skippedCount} 条均已存在，没有重复写入`;
+      this.batchMessageTone = importedCount > 0 ? "success" : "warning";
+      this.showToast(
+        importedCount > 0
+          ? `已写入个人数据仓库。\n新增 ${importedCount} 条，跳过已有记录 ${skippedCount} 条。`
+          : `这 ${skippedCount} 部追番都已在个人数据仓库中，本次没有重复写入。`,
+        {
+          tone: this.batchMessageTone,
+          title:
+            importedCount > 0 ? "批量同步成功" : "没有需要新增的记录",
+        },
+      );
       this.updateGithubSetupChecklist();
     } catch (error) {
-      this.batchMessage = `批量同步失败：${toErrorMessage(error)}`;
-      this.showToast(this.batchMessage);
+      const detail = toErrorMessage(error);
+      this.batchMessageTone = "error";
+      this.batchMessage =
+        "批量同步失败 · 请检查仓库权限、Token 与网络后重试";
+      this.showToast(
+        `本次没有在远端写入新增记录。请检查仓库权限、Token 与网络后重试。\n${detail}`,
+        {
+          tone: "error",
+          title: "批量同步失败",
+          duration: 12000,
+        },
+      );
     } finally {
       this.batchImporting = false;
+      this.batchProgress = null;
       this.renderBatchCards();
     }
   }
@@ -3292,6 +3460,7 @@ export class ScoutPanel {
     this.batchLoading = false;
     this.batchImporting = false;
     this.batchMessage = "";
+    this.batchMessageTone = "";
     this.batchDiagnostics = [];
     this.batchTotal = 0;
     this.batchProgress = null;
@@ -3359,12 +3528,15 @@ export class ScoutPanel {
         this.batchTotal = Number(payload.total) || this.batchCards.length;
         this.batchDiagnostics = (payload.diagnostics ?? []).filter(Boolean);
         this.batchMessage = this.batchDiagnostics.join("；");
+        this.batchMessageTone =
+          this.batchDiagnostics.length > 0 ? "warning" : "";
         this.batchProgress = null;
       } catch (error) {
         if (requestId !== this.batchScanRequestId) {
           return;
         }
         this.batchCards = [];
+        this.batchMessageTone = "error";
         this.batchMessage = `追番列表读取失败：${toErrorMessage(error)}`;
       } finally {
         if (
@@ -3465,17 +3637,92 @@ export class ScoutPanel {
     });
   }
 
-  showToast(message) {
+  setRecordStatus(message, tone = "") {
+    if (!this.recordStatus) {
+      return;
+    }
+    this.recordStatus.textContent = message;
+    if (tone) {
+      this.recordStatus.dataset.tone = tone;
+    } else {
+      delete this.recordStatus.dataset.tone;
+    }
+  }
+
+  showToast(message, options = {}) {
+    const allowedTones = new Set([
+      "info",
+      "success",
+      "warning",
+      "error",
+      "progress",
+    ]);
+    const tone = allowedTones.has(options.tone) ? options.tone : "info";
+    const title = String(options.title ?? "").trim();
     this.shadow.querySelector(".scout-toast")?.remove();
+    const closeButton = element(
+      "button",
+      {
+        className: "scout-toast-close",
+        attrs: {
+          type: "button",
+          title: "关闭提示",
+          "aria-label": "关闭提示",
+        },
+        on: {
+          click: (event) => event.currentTarget.closest(".scout-toast")?.remove(),
+        },
+      },
+      [icon(X)],
+    );
+    const iconNode = icon(feedbackIcon(tone));
+    if (tone === "progress") {
+      iconNode.classList.add("scout-spin");
+    }
     const toast = element("div", {
       className: "scout-toast",
-      text: message,
-    });
+      dataset: { tone },
+      attrs: {
+        role: tone === "error" ? "alert" : "status",
+        "aria-live": tone === "error" ? "assertive" : "polite",
+        "aria-atomic": "true",
+      },
+    }, [
+      element("span", { className: "scout-toast-icon" }, [iconNode]),
+      element("div", { className: "scout-toast-copy" }, [
+        title
+          ? element("strong", {
+              className: "scout-toast-title",
+              text: title,
+            })
+          : null,
+        element("p", {
+          className: "scout-toast-message",
+          text: message,
+        }),
+      ]),
+      closeButton,
+    ]);
+    const defaults = {
+      error: 10000,
+      success: 6500,
+      warning: 7000,
+      progress: 0,
+      info: 3600,
+    };
+    const duration = Number.isFinite(options.duration)
+      ? Math.max(0, options.duration)
+      : defaults[tone];
+    toast.dataset.autoDismiss = duration > 0 ? "true" : "false";
+    toast.style.setProperty("--scout-toast-duration", `${duration || 1}ms`);
     const container = this.settingsWindow.hidden
       ? this.panel
       : this.settingsWindow;
     container.append(toast);
-    setTimeout(() => toast.remove(), 3200);
+    if (duration > 0) {
+      setTimeout(() => toast.remove(), duration);
+    }
+    return toast;
   }
 
   open(options = {}) {

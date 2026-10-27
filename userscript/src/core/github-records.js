@@ -34,7 +34,7 @@ const DUPLICATE_SCORE_THRESHOLD = 0.72;
 
 export class DuplicateRecordError extends Error {
   constructor(duplicates, scannedCount = 0) {
-    super(`发现 ${duplicates.length} 条疑似重复记录，请确认后再同步`);
+    super(`发现 ${duplicates.length} 条疑似重复记录，请确认是否仍然添加`);
     this.name = "DuplicateRecordError";
     this.code = "DUPLICATE_RECORDS";
     this.duplicates = duplicates;
@@ -69,6 +69,34 @@ function fnv1a(text) {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function createDuplicateRecordId(baseId, records, now) {
+  const occupiedIds = new Set(
+    (records ?? []).map((record) => cleanString(record?.id)).filter(Boolean),
+  );
+  const compactTimestamp =
+    cleanString(now)
+      .replace(/[^0-9a-z]/giu, "")
+      .toLocaleLowerCase()
+      .slice(0, 20) || fnv1a(now);
+  let counter = 1;
+
+  while (counter < 1000) {
+    const suffix = `-copy-${compactTimestamp}${
+      counter > 1 ? `-${counter}` : ""
+    }`;
+    const prefix = (cleanString(baseId) || "anime").slice(
+      0,
+      Math.max(3, 64 - suffix.length),
+    );
+    const candidate = `${prefix}${suffix}`;
+    if (!occupiedIds.has(candidate)) {
+      return candidate;
+    }
+    counter += 1;
+  }
+  throw new Error("无法为重复番剧生成新的记录 ID");
 }
 
 function itemDisplayTitle(item) {
@@ -467,8 +495,16 @@ function bestTitleSimilarity(incomingTitles, existingTitles) {
   return best;
 }
 
-function duplicateCandidate(incoming, existing, score, reason, titleScore) {
+function duplicateCandidate(
+  incoming,
+  existing,
+  score,
+  reason,
+  titleScore,
+  kind = "similar",
+) {
   return {
+    kind,
     id: cleanString(existing.id) || null,
     title: itemDisplayTitle(existing) || cleanString(existing.title),
     season: seasonForRecord(existing),
@@ -485,6 +521,22 @@ function compareRecordDuplicate({
   aiResult,
   existing,
 }) {
+  const incomingIds = recordIdsForItem(item, selectedResult);
+  const existingIdentityTokens = new Set(recordIdentityTokens(existing));
+  const matchingIds = incomingIds.filter((id) =>
+    existingIdentityTokens.has(cleanString(id)),
+  );
+  if (matchingIds.length) {
+    return duplicateCandidate(
+      item,
+      existing,
+      1,
+      `个人仓库中已存在同一番剧：${matchingIds.join("、")}`,
+      1,
+      "existing",
+    );
+  }
+
   const incomingSeason = seasonForItem(item, selectedResult);
   const existingSeason = seasonForRecord(existing);
   if (
@@ -518,6 +570,7 @@ function compareRecordDuplicate({
         .map(([source, id]) => `${source}:${id}`)
         .join("、")}`,
       1,
+      "existing",
     );
   }
 
@@ -802,10 +855,9 @@ export class GitHubRecordsService {
   }
 
   inspectDuplicateRecords(records, { item, selectedResult, aiResult, excludeIds }) {
-    const excluded = new Set([
-      ...recordIdsForItem(item, selectedResult),
-      ...excludeIds.map((id) => cleanString(id)).filter(Boolean),
-    ]);
+    const excluded = new Set(
+      (excludeIds ?? []).map((id) => cleanString(id)).filter(Boolean),
+    );
     const duplicates = (records ?? [])
       .filter(({ id }) => !excluded.has(cleanString(id)))
       .map((record) =>
@@ -906,7 +958,6 @@ export class GitHubRecordsService {
           item,
           selectedResult,
           aiResult,
-          excludeIds: ids,
         });
         if (inspection.duplicates.length) {
           throw new DuplicateRecordError(
@@ -916,16 +967,33 @@ export class GitHubRecordsService {
         }
       }
 
-      const id = existingId ?? ids[0];
-      const merged = mergeAnimeRecord(existing, {
-        item,
-        selectedResult,
-        aiResult,
-        id,
-        rating,
-        review,
-        now: requestedAt,
-      });
+      const appendedDuplicate = Boolean(allowDuplicates && existing);
+      const id = appendedDuplicate
+        ? createDuplicateRecordId(
+            existingId ?? ids[0],
+            library.records,
+            requestedAt,
+          )
+        : existingId ?? ids[0];
+      const merged = appendedDuplicate
+        ? createAnimeRecord({
+            item,
+            selectedResult,
+            aiResult,
+            id,
+            rating,
+            review,
+            now: requestedAt,
+          })
+        : mergeAnimeRecord(existing, {
+            item,
+            selectedResult,
+            aiResult,
+            id,
+            rating,
+            review,
+            now: requestedAt,
+          });
       const nextRecords = upsertRecord(library.records, merged);
       const nextIndex = buildAnimeIndex(nextRecords);
       const animeText = serializeJsonl(nextRecords);
@@ -941,7 +1009,9 @@ export class GitHubRecordsService {
           ANIME_JSONL_PATH,
           animeText,
           library.animeFile.sha,
-          `chore(data): save ${commitTitle(merged.title)} (${id})`,
+          `chore(data): ${
+            appendedDuplicate ? "add duplicate" : "save"
+          } ${commitTitle(merged.title)} (${id})`,
         );
         const indexWrite = await this.putContentFile(
           config,
@@ -960,6 +1030,7 @@ export class GitHubRecordsService {
         return {
           id,
           record: merged,
+          appendedDuplicate,
           sha: animeWrite.sha,
           htmlUrl: animeWrite.htmlUrl,
           path: ANIME_JSONL_PATH,

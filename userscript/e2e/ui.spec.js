@@ -484,6 +484,16 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
   await expect(host.locator(".scout-batch-status")).toHaveText(
     "已导入 1 条，跳过 1 条",
   );
+  await expect(host.locator(".scout-batch-status")).toHaveAttribute(
+    "data-tone",
+    "success",
+  );
+  await expect(host.locator('.scout-toast[data-tone="success"]')).toContainText(
+    "批量同步成功",
+  );
+  await page.screenshot({
+    path: "test-results/batch-sync-success.png",
+  });
   await expect(
     host.locator('[data-view="settings"] .scout-setup-summary'),
   ).toHaveText("配置进度 4/4");
@@ -535,6 +545,38 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
     review: "",
     title: "葬送的芙莉莲",
   });
+});
+
+test("shows an actionable error when Bilibili batch syncing fails", async ({
+  page,
+}) => {
+  await routeBilibiliFollowPage(page);
+  await page.goto(
+    `http://space.bilibili.com:${previewPort}/123/bangumi`,
+    { waitUntil: "networkidle" },
+  );
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  const host = page.locator("#bangumi-scout-host");
+  await configureGithub(page, host, "write-fail-token");
+  await page.evaluate(() => window.BangumiScout.open());
+  await host.getByRole("button", { name: "识别当前页" }).click();
+  await expect(host.locator(".scout-batch-row")).toHaveCount(2);
+
+  await host.getByRole("button", { name: "全选可导入" }).click();
+  await host.getByRole("button", { name: "导入并同步" }).click();
+
+  const batchStatus = host.locator(".scout-batch-status");
+  await expect(batchStatus).toContainText("批量同步失败");
+  await expect(batchStatus).toHaveAttribute("data-tone", "error");
+  const errorToast = host.locator('.scout-toast[data-tone="error"]');
+  await expect(errorToast).toContainText("批量同步失败");
+  await expect(errorToast).toContainText("本次没有在远端写入新增记录");
+  await expect(errorToast).toContainText("Preview write failure");
+  await page.screenshot({
+    path: "test-results/batch-sync-error.png",
+  });
+  await expect(host.getByRole("button", { name: "导入并同步" })).toBeEnabled();
 });
 
 test("saves DeepSeek settings and performs a manual AI identification", async ({
@@ -655,8 +697,40 @@ test("loads and saves a rating through the configured GitHub repository", async 
   );
   await host.getByRole("button", { name: "同步到 GitHub" }).click();
 
+  const duplicateWarning = host.locator(".scout-duplicate-warning");
+  await expect(duplicateWarning).toBeVisible();
+  await expect(duplicateWarning).toHaveAttribute("data-kind", "existing");
+  await expect(duplicateWarning).toContainText("这部番剧已在个人仓库中");
+  await expect(duplicateWarning).toContainText("个人仓库中已存在同一番剧");
+  await expect(duplicateWarning).toContainText("新增一条独立记录");
+  await expect(
+    host.getByRole("button", { name: "仍然添加" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests.filter(
+          (request) =>
+            request.method === "PUT" &&
+            request.url.startsWith(
+              "https://api.github.com/repos/preview-user/anime-records/contents/",
+            ),
+        ).length,
+    ),
+  ).toBe(0);
+  await page.screenshot({
+    path: "test-results/duplicate-record-confirmation.png",
+  });
+  await host.getByRole("button", { name: "仍然添加" }).click();
+
   await expect(host.locator(".scout-record .scout-footer-status")).toContainText(
     "已保存到 GitHub",
+  );
+  await expect(
+    host.locator(".scout-record .scout-footer-status"),
+  ).toHaveAttribute("data-tone", "success");
+  await expect(host.locator('.scout-toast[data-tone="success"]')).toContainText(
+    "同步成功",
   );
   await expect(host.getByRole("link", { name: "查看 GitHub 记录" })).toBeVisible();
 
@@ -686,23 +760,44 @@ test("loads and saves a rating through the configured GitHub repository", async 
   const indexBody = JSON.parse(indexPut.data);
   expect(animeBody.sha).toBe("sha-preview-1");
   expect(indexBody.sha).toBe("sha-preview-index-1");
-  const savedRecord = await page.evaluate((content) => {
+  const savedRecords = await page.evaluate((content) => {
     const binary = atob(content.replace(/\s+/gu, ""));
     const bytes = Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
-    return JSON.parse(new TextDecoder().decode(bytes).trim());
+    return new TextDecoder()
+      .decode(bytes)
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line));
   }, animeBody.content);
-  const savedIndex = await page.evaluate((content) => {
+  const savedIndexes = await page.evaluate((content) => {
     const binary = atob(content.replace(/\s+/gu, ""));
     const bytes = Uint8Array.from(binary, (character) =>
       character.charCodeAt(0),
     );
-    return JSON.parse(new TextDecoder().decode(bytes).trim());
+    return new TextDecoder()
+      .decode(bytes)
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line));
   }, indexBody.content);
+  expect(savedRecords).toHaveLength(2);
+  const originalRecord = savedRecords.find(
+    (record) => record.id === "bili-292073015",
+  );
+  const savedRecord = savedRecords.find(
+    (record) => record.id !== "bili-292073015",
+  );
+  expect(originalRecord.rating).toBe(8);
+  expect(originalRecord.review).toBe("这条评价来自预览 GitHub 仓库。");
+  expect(savedRecord.id).toMatch(/^bili-292073015-copy-/u);
   expect(savedRecord.rating).toBe(9);
   expect(savedRecord.review).toBe("更新后的 GitHub 评价。");
-  expect(savedIndex.id).toBe(savedRecord.id);
+  expect(savedIndexes).toHaveLength(2);
+  const savedIndex = savedIndexes.find(
+    (record) => record.id === savedRecord.id,
+  );
   expect(savedIndex.rating).toBe(9);
   expect(savedIndex.reviewExcerpt).toBe("更新后的 GitHub 评价。");
   await expect(
@@ -727,8 +822,18 @@ test("keeps the local draft when GitHub writing fails", async ({ page }) => {
   const review = host.locator('textarea[name="personal.review"]');
   await review.fill("即使远端失败，这段内容也要留在本地。");
   await host.getByRole("button", { name: "同步到 GitHub" }).click();
+  await host.getByRole("button", { name: "仍然添加" }).click();
   await expect(host.locator(".scout-record .scout-footer-status")).toContainText(
     "本地草稿已保存 · GitHub 同步失败",
+  );
+  await expect(
+    host.locator(".scout-record .scout-footer-status"),
+  ).toHaveAttribute("data-tone", "error");
+  await expect(host.locator('.scout-toast[data-tone="error"]')).toContainText(
+    "GitHub 同步失败",
+  );
+  await expect(host.locator('.scout-toast[data-tone="error"]')).toContainText(
+    "评分与短评仍保留在本机",
   );
 
   const localRecord = await page.evaluate(() => {

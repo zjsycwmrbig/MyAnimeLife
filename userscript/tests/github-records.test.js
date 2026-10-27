@@ -336,7 +336,7 @@ test("uses the Bilibili season id as the preferred record identity", () => {
   ]);
 });
 
-test("updates both JSONL files with at most two data-file reads", async () => {
+test("confirms existing records before appending a separate JSONL record", async () => {
   const existing = {
     ...createAnimeRecord({
       item,
@@ -353,15 +353,35 @@ test("updates both JSONL files with at most two data-file reads", async () => {
   const api = createGithubMock({ records: [existing] });
   const service = createService(api.requestJson);
 
+  await assert.rejects(
+    () =>
+      service.saveRecord({
+        item,
+        selectedResult,
+        rating: 9,
+        review: "新评价",
+      }),
+    (error) =>
+      error.code === "DUPLICATE_RECORDS" &&
+      error.duplicates[0]?.kind === "existing",
+  );
+  assert.equal(
+    api.calls.filter((call) => call.method === "PUT").length,
+    0,
+  );
+
   const saved = await service.saveRecord({
     item,
     selectedResult,
     rating: 9,
     review: "新评价",
+    allowDuplicates: true,
   });
 
+  assert.equal(saved.appendedDuplicate, true);
+  assert.notEqual(saved.id, existing.id);
   assert.equal(saved.record.rating, 9);
-  assert.equal(saved.record.note, "不能丢失");
+  assert.equal(saved.record.note, "");
   assert.equal(saved.path, ANIME_JSONL_PATH);
   const dataReads = api.calls.filter(
     (call) =>
@@ -385,9 +405,15 @@ test("updates both JSONL files with at most two data-file reads", async () => {
     Buffer.from(animeBody.content, "base64").toString("utf8"),
     ANIME_JSONL_PATH,
   );
-  assert.equal(uploadedRecords.length, 1);
-  assert.equal(uploadedRecords[0].rating, 9);
-  assert.equal(uploadedRecords[0].review, "新评价");
+  assert.equal(uploadedRecords.length, 2);
+  const original = uploadedRecords.find((record) => record.id === existing.id);
+  const appended = uploadedRecords.find((record) => record.id === saved.id);
+  assert.equal(original.rating, 7);
+  assert.equal(original.review, "旧评价");
+  assert.equal(original.note, "不能丢失");
+  assert.equal(appended.rating, 9);
+  assert.equal(appended.review, "新评价");
+  assert.deepEqual(appended.externalIds, existing.externalIds);
 
   const indexPut = api.calls.find(
     (call) =>
@@ -508,7 +534,7 @@ test("batch imports new anime once and preserves existing ratings and reviews", 
   assert.deepEqual(index, buildAnimeIndex(records));
 });
 
-test("a confirmed edit wins even when the remote timestamp is ahead", async () => {
+test("a confirmed duplicate appends even when the remote timestamp is ahead", async () => {
   const existing = createAnimeRecord({
     item,
     selectedResult,
@@ -528,16 +554,22 @@ test("a confirmed edit wins even when the remote timestamp is ahead", async () =
     selectedResult,
     rating: 9,
     review: "时钟偏差下的新评价",
+    allowDuplicates: true,
   });
   const records = parseJsonl(
     api.state.get(ANIME_JSONL_PATH).text,
     ANIME_JSONL_PATH,
   );
 
+  assert.equal(saved.appendedDuplicate, true);
   assert.equal(saved.record.rating, 9);
-  assert.equal(records[0].rating, 9);
-  assert.equal(records[0].review, "时钟偏差下的新评价");
-  assert.equal(records[0].updatedAt, "2026-10-25T10:00:00.001Z");
+  assert.equal(saved.record.updatedAt, "2026-10-25T09:00:00.000Z");
+  assert.equal(records.length, 2);
+  assert.equal(records.find((record) => record.id === existing.id).rating, 7);
+  assert.equal(
+    records.find((record) => record.id === saved.id).review,
+    "时钟偏差下的新评价",
+  );
 });
 
 test("refetches both JSONL files and retries once after a conflict", async () => {
@@ -574,9 +606,10 @@ test("refetches both JSONL files and retries once after a conflict", async () =>
     selectedResult,
     rating: 10,
     review: "最终评价",
+    allowDuplicates: true,
   });
 
-  assert.equal(saved.record.note, "冲突期间的新备注");
+  assert.equal(saved.appendedDuplicate, true);
   const animePuts = api.calls.filter(
     (call) =>
       call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
@@ -595,8 +628,19 @@ test("refetches both JSONL files and retries once after a conflict", async () =>
     ANIME_INDEX_JSONL_PATH,
   );
   assert.deepEqual(finalIndex, buildAnimeIndex(finalRecords));
-  assert.equal(finalRecords[0].rating, 10);
-  assert.equal(finalRecords[0].review, "最终评价");
+  assert.equal(finalRecords.length, 2);
+  assert.equal(
+    finalRecords.find((record) => record.id === remoteChange.id).note,
+    "冲突期间的新备注",
+  );
+  assert.equal(
+    finalRecords.find((record) => record.id === saved.id).rating,
+    10,
+  );
+  assert.equal(
+    finalRecords.find((record) => record.id === saved.id).review,
+    "最终评价",
+  );
 });
 
 test("keeps only the newest five backup snapshots", async () => {
@@ -622,6 +666,7 @@ test("keeps only the newest five backup snapshots", async () => {
     selectedResult,
     rating: 8,
     review: "触发备份",
+    allowDuplicates: true,
   });
 
   const backups = [...api.state.keys()]
@@ -705,6 +750,7 @@ test("suspected duplicates respect season identity and can be confirmed", async 
     title: "测试番剧 第一季",
     displayTitle: "测试番剧 第1季",
     names: ["测试番剧 第一季"],
+    sites: { bangumi: "300", bilibili: "902" },
   };
   const differentSeason = await service.inspectDuplicates({
     item: firstSeason,
