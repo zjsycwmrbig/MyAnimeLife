@@ -3,6 +3,7 @@ import {
   GitHubAdminStore,
   GitHubClient,
 } from "./github-client.js";
+import { readAllBangumiMetadata } from "./bangumi-metadata-cache.js";
 import { findDuplicateGroups } from "../scripts/duplicate-data.mjs";
 
 const SETTINGS_KEY = "myanimelife.admin.github.settings";
@@ -503,6 +504,7 @@ async function onlineApi(path, options) {
   }
   if (url.pathname === "/api/catalog" && method === "GET") {
     const library = await githubLibrary();
+    const metadataEntries = await readAllBangumiMetadata().catch(() => []);
     const payload = await getCatalogStore().search(
       {
         query: url.searchParams.get("q") ?? "",
@@ -512,6 +514,12 @@ async function onlineApi(path, options) {
         offset: url.searchParams.get("offset") ?? "0",
         limit: url.searchParams.get("limit") ?? "30",
         refresh: url.searchParams.get("refresh") === "1",
+        tags: url.searchParams.getAll("tag"),
+        scoreMin: url.searchParams.get("scoreMin") ?? "",
+        scoreMax: url.searchParams.get("scoreMax") ?? "",
+        availability: url.searchParams.get("availability") ?? "all",
+        sort: url.searchParams.get("sort") ?? "default",
+        metadataEntries,
       },
       library.index,
     );

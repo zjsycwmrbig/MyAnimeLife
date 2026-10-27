@@ -55,15 +55,31 @@ test("passes owned identities to the catalog worker before pagination", async ()
       },
     ],
   });
+  const metadataEntries = [
+    {
+      subjectId: "100",
+      score: 8.8,
+      tags: [{ name: "奇幻", count: 20 }],
+      storageSource: "personal",
+    },
+  ];
   const store = new BrowserCatalogStore({
     createWorker: () => worker,
   });
   const result = await store.search(
-    { owned: "owned", limit: 30, offset: 0 },
+    {
+      owned: "owned",
+      limit: 30,
+      offset: 0,
+      tags: ["奇幻"],
+      metadataEntries,
+    },
     [{ id: "bgm-100", externalIds: { bangumi: "100" } }],
   );
 
   assert.equal(worker.lastMessage.options.owned, "owned");
+  assert.deepEqual(worker.lastMessage.options.metadataEntries, metadataEntries);
+  assert.deepEqual(worker.lastMessage.options.tags, ["奇幻"]);
   assert.deepEqual(worker.lastMessage.options.ownedKeys, [
     "id:bgm-100",
     "bangumi:100",

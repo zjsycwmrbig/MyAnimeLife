@@ -176,6 +176,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (url.pathname === "/api/catalog" && request.method === "GET") {
       const library = await store.load();
+      const metadataEntries = await store
+        .loadBangumiCache()
+        .then((cache) => cache.entries ?? [])
+        .catch(() => []);
       const result = await catalogStore.search(
         {
           query: url.searchParams.get("q") ?? "",
@@ -185,6 +189,12 @@ const server = http.createServer(async (request, response) => {
           offset: url.searchParams.get("offset") ?? "0",
           limit: url.searchParams.get("limit") ?? "30",
           refresh: url.searchParams.get("refresh") === "1",
+          tags: url.searchParams.getAll("tag"),
+          scoreMin: url.searchParams.get("scoreMin") ?? "",
+          scoreMax: url.searchParams.get("scoreMax") ?? "",
+          availability: url.searchParams.get("availability") ?? "all",
+          sort: url.searchParams.get("sort") ?? "default",
+          metadataEntries,
         },
         library.index,
       );

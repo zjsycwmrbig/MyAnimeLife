@@ -120,6 +120,69 @@ test("filters the catalog by owned records using stable site identities", () => 
   );
 });
 
+test("filters and sorts all cached Bangumi metadata before pagination", () => {
+  const items = buildCatalog(rawCatalog).items;
+  const metadataEntries = [
+    {
+      subjectId: "265",
+      score: 9.2,
+      tags: [{ name: "热血", count: 1200 }],
+      storageSource: "personal",
+    },
+    {
+      subjectId: "400602",
+      score: 8.6,
+      tags: [
+        { name: "奇幻", count: 980 },
+        { name: "旅行", count: 540 },
+      ],
+      storageSource: "browser",
+    },
+  ];
+
+  const fantasy = searchCatalog(items, {
+    metadataEntries,
+    tags: ["奇幻"],
+  });
+  assert.equal(fantasy.total, 1);
+  assert.equal(fantasy.items[0].displayTitle, "葬送的芙莉莲");
+  assert.equal(
+    fantasy.items[0].bangumiMetadataSource,
+    "browser",
+  );
+
+  const firstPage = searchCatalog(items, {
+    metadataEntries,
+    scoreMin: "8",
+    sort: "bangumi-score-desc",
+    limit: 1,
+  });
+  assert.equal(firstPage.total, 2);
+  assert.equal(firstPage.items[0].displayTitle, "进击的巨人");
+
+  const secondPage = searchCatalog(items, {
+    metadataEntries,
+    scoreMin: "8",
+    sort: "bangumi-score-desc",
+    limit: 1,
+    offset: 1,
+  });
+  assert.equal(secondPage.items[0].displayTitle, "葬送的芙莉莲");
+
+  const withoutScore = searchCatalog(items, {
+    metadataEntries: [
+      {
+        subjectId: "265",
+        score: null,
+        tags: [{ name: "热血", count: 1200 }],
+      },
+    ],
+    scoreMin: "0",
+    scoreMax: "10",
+  });
+  assert.equal(withoutScore.total, 0);
+});
+
 test("creates a stable record from a catalog candidate", () => {
   const item = buildCatalog(rawCatalog).items[0];
   const record = createRecordFromCatalog(

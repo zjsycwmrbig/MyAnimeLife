@@ -364,6 +364,126 @@ function normalizeYearFilter(value) {
   return years;
 }
 
+function bangumiSubjectId(item) {
+  return cleanString(item?.sites?.bangumi);
+}
+
+function hasUsableBangumiMetadata(metadata) {
+  const score = metadata?.score;
+  return Boolean(
+    metadata &&
+      ((score !== null &&
+        score !== undefined &&
+        score !== "" &&
+        Number.isFinite(Number(score))) ||
+        metadata.tags?.length),
+  );
+}
+
+function normalizeBangumiMetadata(entries) {
+  const metadataBySubject = new Map();
+  for (const rawEntry of entries ?? []) {
+    const subjectId = cleanString(rawEntry?.subjectId);
+    if (!subjectId) {
+      continue;
+    }
+    const rawScore = rawEntry?.score;
+    const score =
+      rawScore === null || rawScore === undefined || rawScore === ""
+        ? null
+        : Number(rawScore);
+    metadataBySubject.set(subjectId, {
+      ...rawEntry,
+      subjectId,
+      score:
+        Number.isFinite(score) && score > 0 && score <= 10
+          ? Math.round(score * 10) / 10
+          : null,
+      tags: Array.isArray(rawEntry.tags)
+        ? rawEntry.tags
+            .map((tag) => ({
+              name: cleanString(tag?.name),
+              count: Number(tag?.count) || 0,
+            }))
+            .filter((tag) => tag.name)
+        : [],
+    });
+  }
+  return metadataBySubject;
+}
+
+function withBangumiMetadata(item, metadataBySubject) {
+  const metadata = metadataBySubject.get(bangumiSubjectId(item));
+  if (!metadata) {
+    return item;
+  }
+  return {
+    ...item,
+    bangumiMetadata: metadata,
+    bangumiMetadataResolved: true,
+    bangumiMetadataSource: cleanString(metadata.storageSource) || "browser",
+  };
+}
+
+function normalizedTag(value) {
+  return cleanString(value).normalize("NFKC").toLocaleLowerCase("zh-CN");
+}
+
+function metadataScoreBounds(options) {
+  const normalize = (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return null;
+    }
+    const number = Number(value);
+    return Number.isFinite(number)
+      ? Math.max(0, Math.min(10, number))
+      : null;
+  };
+  let minimum = normalize(options.scoreMin);
+  let maximum = normalize(options.scoreMax);
+  if (minimum !== null && maximum !== null && minimum > maximum) {
+    [minimum, maximum] = [maximum, minimum];
+  }
+  return { minimum, maximum };
+}
+
+function matchesBangumiMetadata(item, options, scoreBounds, selectedTags) {
+  const metadata = item.bangumiMetadata;
+  const available = hasUsableBangumiMetadata(metadata);
+  if (options.availability === "available" && !available) {
+    return false;
+  }
+  if (options.availability === "unavailable" && available) {
+    return false;
+  }
+  if (scoreBounds.minimum !== null || scoreBounds.maximum !== null) {
+    if (!Number.isFinite(metadata?.score)) {
+      return false;
+    }
+    if (
+      scoreBounds.minimum !== null &&
+      metadata.score < scoreBounds.minimum
+    ) {
+      return false;
+    }
+    if (
+      scoreBounds.maximum !== null &&
+      metadata.score > scoreBounds.maximum
+    ) {
+      return false;
+    }
+  }
+  if (selectedTags.size) {
+    const itemTags = new Set(
+      (metadata?.tags ?? []).map((tag) => normalizedTag(tag.name)),
+    );
+    if (![...selectedTags].some((tag) => itemTags.has(tag))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function searchCatalog(items, options = {}) {
   const query = cleanString(options.query);
   const normalizedQuery = normalizeCatalogQuery(query);
@@ -383,9 +503,26 @@ export function searchCatalog(items, options = {}) {
     60,
     Math.max(1, Math.floor(Number(options.limit) || 30)),
   );
+  const metadataBySubject = normalizeBangumiMetadata(options.metadataEntries);
+  const scoreBounds = metadataScoreBounds(options);
+  const selectedTags = new Set(
+    (Array.isArray(options.tags)
+      ? options.tags
+      : cleanString(options.tags).split(/[,，]/u)
+    )
+      .map(normalizedTag)
+      .filter(Boolean),
+  );
+  const metadataAvailability =
+    cleanString(options.availability) || "all";
+  const metadataSort = cleanString(options.sort);
 
   const matched = (items ?? [])
-    .filter((item) => {
+    .map((item, index) => ({
+      item: withBangumiMetadata(item, metadataBySubject),
+      index,
+    }))
+    .filter(({ item }) => {
       if (years.size && !years.has(item.year)) {
         return false;
       }
@@ -408,9 +545,17 @@ export function searchCatalog(items, options = {}) {
       );
     })
     .map((item) => ({
-      item,
-      score: scoreItem(item, normalizedQuery, segments),
+      ...item,
+      score: scoreItem(item.item, normalizedQuery, segments),
     }))
+    .filter(({ item }) =>
+      matchesBangumiMetadata(
+        item,
+        { availability: metadataAvailability },
+        scoreBounds,
+        selectedTags,
+      ),
+    )
     .sort((left, right) => {
       return (
         left.score - right.score ||
@@ -424,6 +569,34 @@ export function searchCatalog(items, options = {}) {
         )
       );
     });
+
+  if (
+    metadataSort === "bangumi-score-desc" ||
+    metadataSort === "bangumi-score-asc"
+  ) {
+    const direction = metadataSort === "bangumi-score-desc" ? -1 : 1;
+    matched.sort((left, right) => {
+      const leftScore = Number.isFinite(left.item.bangumiMetadata?.score)
+        ? left.item.bangumiMetadata.score
+        : null;
+      const rightScore = Number.isFinite(right.item.bangumiMetadata?.score)
+        ? right.item.bangumiMetadata.score
+        : null;
+      if (leftScore === null && rightScore === null) {
+        return left.index - right.index;
+      }
+      if (leftScore === null) {
+        return 1;
+      }
+      if (rightScore === null) {
+        return -1;
+      }
+      return (
+        (leftScore - rightScore) * direction ||
+        left.index - right.index
+      );
+    });
+  }
 
   return {
     total: matched.length,
@@ -521,6 +694,9 @@ export function catalogItemView(item, ownedRecordId = null) {
     season: item.season,
     coverUrl: item.coverUrl,
     ownedRecordId,
+    bangumiMetadata: item.bangumiMetadata ?? null,
+    bangumiMetadataResolved: Boolean(item.bangumiMetadataResolved),
+    bangumiMetadataSource: item.bangumiMetadataSource ?? null,
   };
 }
 
