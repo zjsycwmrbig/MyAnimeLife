@@ -542,19 +542,23 @@ export class GitHubClient {
   }
 
   async getTextAtRef(filePath, ref, allowNotFound = false) {
-    if (!this.token && /^[a-f0-9]{40,64}$/iu.test(String(ref))) {
-      const text = await this.requestRaw(
-        filePath,
-        ref,
-        allowNotFound,
-      );
-      return text === null
-        ? null
-        : {
-            type: "file",
-            path: filePath,
-            text,
-          };
+    if (/^[a-f0-9]{40,64}$/iu.test(String(ref))) {
+      try {
+        const text = await this.requestRaw(filePath, ref, allowNotFound);
+        if (text !== null || !this.token) {
+          return text === null
+            ? null
+            : {
+                type: "file",
+                path: filePath,
+                text,
+              };
+        }
+      } catch (error) {
+        if (!this.token) {
+          throw error;
+        }
+      }
     }
     const payload = await this.getContentAtRef(filePath, ref, allowNotFound);
     if (!payload) {
@@ -613,22 +617,44 @@ export class GitHubClient {
     config = normalizeConfig(config);
     this.backupDirectory = config.backupDirectory;
 
-    // The Contents API has a 1 MB practical limit. Personal Bangumi caches
-    // routinely exceed it, so authenticated reads use the Git Blob API.
-    const repositoryTree = this.token
-      ? await this.getTreeFor(this.repository, commit.tree.sha)
-      : null;
+    // Prefer Raw for public repositories. Private repositories fall back to
+    // the Git Blob API, which also avoids the Contents API's 1 MB limit.
+    const loadBangumiCacheFile = async () => {
+      try {
+        const text = await this.requestRaw(
+          config.bangumiCacheFile,
+          headSha,
+          true,
+        );
+        if (text !== null || !this.token) {
+          return text === null
+            ? null
+            : {
+                type: "file",
+                path: config.bangumiCacheFile,
+                text,
+              };
+        }
+      } catch (error) {
+        if (!this.token) {
+          throw error;
+        }
+      }
+      const repositoryTree = await this.getTreeFor(
+        this.repository,
+        commit.tree.sha,
+      );
+      return this.getTextFromTree(
+        this.repository,
+        repositoryTree,
+        config.bangumiCacheFile,
+        true,
+      );
+    };
     const [dataFile, indexFile, bangumiCacheFile, backups] = await Promise.all([
       this.getTextAtRef(config.dataFile, headSha),
       this.getTextAtRef(config.indexFile, headSha),
-      repositoryTree
-        ? this.getTextFromTree(
-            this.repository,
-            repositoryTree,
-            config.bangumiCacheFile,
-            true,
-          )
-        : this.getTextAtRef(config.bangumiCacheFile, headSha, true),
+      loadBangumiCacheFile(),
       options.includeBackups ? this.listBackups(headSha) : [],
     ]);
     const records = sortRecordsById(parseJsonl(dataFile.text, config.dataFile));

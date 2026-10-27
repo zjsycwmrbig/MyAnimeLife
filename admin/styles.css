@@ -1126,8 +1126,9 @@ h2 {
   font-weight: 720;
 }
 
-.catalog-multi-filter summary {
+.catalog-multi-filter-trigger {
   position: relative;
+  width: 100%;
   height: 40px;
   padding: 5px 30px 5px 10px;
   display: grid;
@@ -1136,15 +1137,14 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
+  color: inherit;
   cursor: pointer;
+  font: inherit;
   list-style: none;
+  text-align: left;
 }
 
-.catalog-multi-filter summary::-webkit-details-marker {
-  display: none;
-}
-
-.catalog-multi-filter summary::after {
+.catalog-multi-filter-trigger::after {
   position: absolute;
   width: 6px;
   height: 6px;
@@ -1157,16 +1157,16 @@ h2 {
   transition: transform 120ms ease;
 }
 
-.catalog-multi-filter[open] summary {
+.catalog-multi-filter-trigger[aria-expanded="true"] {
   border-color: var(--line-strong);
 }
 
-.catalog-multi-filter[open] summary::after {
+.catalog-multi-filter-trigger[aria-expanded="true"]::after {
   top: 18px;
   transform: rotate(225deg);
 }
 
-.catalog-multi-filter summary:focus-visible {
+.catalog-multi-filter-trigger:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -1177,7 +1177,7 @@ h2 {
   line-height: 1;
 }
 
-.catalog-multi-filter summary strong {
+.catalog-multi-filter-trigger strong {
   overflow: hidden;
   color: var(--ink);
   font-size: 12px;
@@ -1188,32 +1188,27 @@ h2 {
 }
 
 .catalog-multi-filter-panel {
-  position: fixed;
-  z-index: 40;
-  width: min(720px, calc(100vw - 32px));
-  max-width: none;
-  max-height: min(64vh, 560px);
-  bottom: 0;
-  left: max(12px, calc(50% - 360px));
+  width: 100%;
+  height: clamp(250px, 34vh, 320px);
+  min-height: 250px;
+  margin-top: 10px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: 12px 12px 0 0;
+  border-radius: 8px;
   background: var(--surface);
-  box-shadow:
-    0 24px 70px rgb(24 33 47 / 24%),
-    0 3px 12px rgb(24 33 47 / 10%);
-  animation: catalog-filter-drawer-in 180ms ease-out both;
+  box-shadow: 0 8px 24px rgb(24 33 47 / 8%);
+  animation: catalog-filter-expand 160ms ease-out both;
 }
 
-.catalog-multi-filter-panel::before {
-  width: 38px;
-  height: 4px;
-  margin: 7px auto 1px;
-  display: block;
-  border-radius: 999px;
-  background: var(--line-strong);
-  content: "";
+.catalog-multi-filter-panel[hidden] {
+  display: none;
+}
+
+.catalog-tag-panel {
+  margin: 0 13px 13px;
+  width: calc(100% - 26px);
 }
 
 .catalog-multi-filter-heading {
@@ -1240,10 +1235,12 @@ h2 {
 }
 
 .catalog-year-options {
-  max-height: min(45vh, 390px);
+  min-height: 0;
+  height: 100%;
   padding: 10px 13px 14px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  align-content: start;
   gap: 5px;
   overflow-y: auto;
 }
@@ -1290,10 +1287,10 @@ h2 {
   text-align: center;
 }
 
-@keyframes catalog-filter-drawer-in {
+@keyframes catalog-filter-expand {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(-6px);
   }
 
   to {

@@ -107,6 +107,7 @@ const elements = {
   aboutWorkspace: document.querySelector("#aboutWorkspace"),
   catalogSearch: document.querySelector("#catalogSearch"),
   catalogYearFilter: document.querySelector("#catalogYearFilter"),
+  catalogYearPanel: document.querySelector("#catalogYearPanel"),
   catalogYearSummary: document.querySelector("#catalogYearSummary"),
   catalogYearOptions: document.querySelector("#catalogYearOptions"),
   catalogYearClear: document.querySelector("#catalogYearClear"),
@@ -181,6 +182,7 @@ const elements = {
     "#catalogMetadataManagerStatus",
   ),
   catalogTagFilter: document.querySelector("#catalogTagFilter"),
+  catalogTagPanel: document.querySelector("#catalogTagPanel"),
   catalogTagSummary: document.querySelector("#catalogTagSummary"),
   catalogTagOptions: document.querySelector("#catalogTagOptions"),
   catalogTagClear: document.querySelector("#catalogTagClear"),
@@ -261,34 +263,56 @@ let toastTimer = null;
 let requestSequence = 0;
 let templateBusy = false;
 let personalCachePromise = null;
+let personalCacheSequence = 0;
 
-function positionCatalogFilterDrawer(filter) {
-  if (!filter?.open) {
+function catalogFilterPanel(filter) {
+  if (filter === elements.catalogYearFilter) {
+    return elements.catalogYearPanel;
+  }
+  if (filter === elements.catalogTagFilter) {
+    return elements.catalogTagPanel;
+  }
+  return null;
+}
+
+function openCatalogFilter(filter) {
+  const panel = catalogFilterPanel(filter);
+  if (!filter || !panel) {
     return;
   }
-  const panel = filter.querySelector(".catalog-multi-filter-panel");
-  const host = filter.closest(".library-pane");
-  if (!panel || !host) {
-    return;
+  const otherFilter =
+    filter === elements.catalogYearFilter
+      ? elements.catalogTagFilter
+      : elements.catalogYearFilter;
+  const otherPanel = catalogFilterPanel(otherFilter);
+  if (otherFilter && otherPanel) {
+    otherFilter.setAttribute("aria-expanded", "false");
+    otherPanel.hidden = true;
   }
-  const hostRect = host.getBoundingClientRect();
-  const hostStyles = getComputedStyle(host);
-  const left =
-    hostRect.left + Number.parseFloat(hostStyles.paddingLeft || "0");
-  const right =
-    hostRect.right - Number.parseFloat(hostStyles.paddingRight || "0");
-  const viewportWidth = document.documentElement.clientWidth;
-  const width = Math.max(0, Math.min(right - left, viewportWidth - 24));
-  panel.style.width = `${width}px`;
-  panel.style.left = `${Math.max(12, Math.min(left, viewportWidth - width - 12))}px`;
+  filter.setAttribute("aria-expanded", "true");
+  panel.hidden = false;
 }
 
 function closeCatalogFilter(filter) {
-  if (!filter?.open) {
+  const panel = catalogFilterPanel(filter);
+  if (!filter || !panel || panel.hidden) {
     return;
   }
-  filter.open = false;
-  filter.querySelector("summary")?.focus();
+  filter.setAttribute("aria-expanded", "false");
+  panel.hidden = true;
+  filter.focus();
+}
+
+function toggleCatalogFilter(filter) {
+  const panel = catalogFilterPanel(filter);
+  if (!filter || !panel) {
+    return;
+  }
+  if (panel.hidden) {
+    openCatalogFilter(filter);
+  } else {
+    closeCatalogFilter(filter);
+  }
 }
 
 function showToast(message, options = {}) {
@@ -756,11 +780,12 @@ function renderCacheManager() {
   const busy = state.metadataCacheBusy;
   const pageEntries = bangumiEntriesForItems();
   const personalPageIds = currentPagePersonalBangumiIds();
-  const disabled =
+  const baseDisabled =
     busy ||
     state.loading ||
-    state.metadataLoading ||
-    state.metadataPersonalLoading;
+    state.metadataLoading;
+  const cacheActionsDisabled =
+    baseDisabled || state.metadataPersonalLoading;
   if (elements.catalogMetadataPersonalCount) {
     elements.catalogMetadataPersonalCount.textContent =
       `${state.metadataPersonalCount.toLocaleString("zh-CN")} 条`;
@@ -782,7 +807,7 @@ function renderCacheManager() {
     elements.catalogMetadataPersonalFile.title = state.metadataPersonalFile;
   }
   if (elements.catalogMetadataReload) {
-    elements.catalogMetadataReload.disabled = disabled;
+    elements.catalogMetadataReload.disabled = baseDisabled;
     elements.catalogMetadataReload.textContent =
       state.metadataCacheAction === "reload-personal"
         ? "正在装填"
@@ -794,7 +819,7 @@ function renderCacheManager() {
   }
   if (elements.catalogMetadataSavePage) {
     elements.catalogMetadataSavePage.disabled =
-      disabled || !writable || pageEntries.length === 0;
+      cacheActionsDisabled || !writable || pageEntries.length === 0;
     elements.catalogMetadataSavePage.textContent =
       state.metadataCacheAction === "save-page"
         ? "正在保存"
@@ -806,7 +831,7 @@ function renderCacheManager() {
   }
   if (elements.catalogMetadataSyncAll) {
     elements.catalogMetadataSyncAll.disabled =
-      disabled || !writable || state.metadataLocalCount === 0;
+      cacheActionsDisabled || !writable || state.metadataLocalCount === 0;
     elements.catalogMetadataSyncAll.textContent =
       state.metadataCacheAction === "sync-all"
         ? "正在合并"
@@ -818,7 +843,7 @@ function renderCacheManager() {
   }
   if (elements.catalogMetadataRemovePage) {
     elements.catalogMetadataRemovePage.disabled =
-      disabled || !writable || personalPageIds.length === 0;
+      cacheActionsDisabled || !writable || personalPageIds.length === 0;
     elements.catalogMetadataRemovePage.textContent =
       state.metadataCacheAction === "remove-page"
         ? "正在移除"
@@ -899,29 +924,44 @@ async function loadPersonalBangumiCache(options = {}) {
   if (state.metadataPersonalLoaded && !options.force) {
     return;
   }
-  if (personalCachePromise) {
+  if (personalCachePromise && !options.force) {
     return personalCachePromise;
   }
+  const sequence = ++personalCacheSequence;
   state.metadataPersonalLoading = true;
   renderCacheManager();
-  personalCachePromise = (async () => {
+  const promise = (async () => {
     setCacheManagerStatus("正在读取个人仓库中的 Bangumi 缓存...");
     try {
-      const result = await api("/api/bangumi-cache?fresh=1");
+      const result = await api(
+        `/api/bangumi-cache?fresh=1&request=${sequence}-${Date.now()}`,
+      );
+      if (sequence !== personalCacheSequence) {
+        return null;
+      }
       applyPersonalCacheResult(result);
       setCacheManagerStatus(
         `已从个人仓库读取 ${state.metadataPersonalCount.toLocaleString("zh-CN")} 条缓存，` +
           "正在同步本机索引...",
       );
       await replaceBangumiMetadataBySource(result.entries ?? [], "personal");
+      if (sequence !== personalCacheSequence) {
+        return null;
+      }
       state.metadataPersonalLoaded = true;
       await refreshLocalBangumiCacheFacts();
+      if (sequence !== personalCacheSequence) {
+        return null;
+      }
       setCacheManagerStatus(
         `已载入 ${state.metadataPersonalCount.toLocaleString("zh-CN")} 条个人缓存；` +
           "新读取的信息会先保存在本机，确认后才写入个人仓库。",
         "success",
       );
     } catch (error) {
+      if (sequence !== personalCacheSequence) {
+        return null;
+      }
       // Avoid retrying the full cache download on every filter change. The
       // explicit reload button still forces a fresh attempt.
       state.metadataPersonalLoaded = true;
@@ -935,13 +975,19 @@ async function loadPersonalBangumiCache(options = {}) {
       }
     }
     renderCacheManager();
+    return null;
   })();
+  personalCachePromise = promise;
   try {
-    await personalCachePromise;
+    return await promise;
   } finally {
-    state.metadataPersonalLoading = false;
-    personalCachePromise = null;
-    renderCacheManager();
+    if (personalCachePromise === promise) {
+      personalCachePromise = null;
+    }
+    if (sequence === personalCacheSequence) {
+      state.metadataPersonalLoading = false;
+      renderCacheManager();
+    }
   }
 }
 
@@ -954,7 +1000,7 @@ async function reloadPersonalBangumiCache() {
       throwOnError: true,
     });
     await refreshLocalBangumiCacheFacts();
-    applyCatalogView({ render: true });
+    await loadCatalog();
     const message =
       `已从个人仓库装填 ${state.metadataPersonalCount.toLocaleString("zh-CN")} 条 Bangumi 缓存，` +
       `本机临时缓存 ${state.metadataLocalCount.toLocaleString("zh-CN")} 条待同步。`;
@@ -2835,40 +2881,12 @@ elements.catalogMetadataClearPersonal?.addEventListener(
   clearPersonalBangumiCache,
 );
 
-document.addEventListener("click", (event) => {
-  if (
-    elements.catalogYearFilter.open &&
-    !elements.catalogYearFilter.contains(event.target)
-  ) {
-    elements.catalogYearFilter.open = false;
-  }
-  if (
-    elements.catalogTagFilter.open &&
-    !elements.catalogTagFilter.contains(event.target)
-  ) {
-    elements.catalogTagFilter.open = false;
-  }
-});
-
-for (const filter of [
-  elements.catalogYearFilter,
-  elements.catalogTagFilter,
-]) {
-  filter.addEventListener("toggle", () => {
-    if (filter.open) {
-      requestAnimationFrame(() => positionCatalogFilterDrawer(filter));
-    }
-  });
-}
-
-window.addEventListener("resize", () => {
-  for (const filter of [
-    elements.catalogYearFilter,
-    elements.catalogTagFilter,
-  ]) {
-    positionCatalogFilterDrawer(filter);
-  }
-});
+elements.catalogYearFilter?.addEventListener("click", () =>
+  toggleCatalogFilter(elements.catalogYearFilter),
+);
+elements.catalogTagFilter?.addEventListener("click", () =>
+  toggleCatalogFilter(elements.catalogTagFilter),
+);
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
@@ -2878,7 +2896,7 @@ document.addEventListener("keydown", (event) => {
     elements.catalogYearFilter,
     elements.catalogTagFilter,
   ]) {
-    if (filter.open) {
+    if (filter?.getAttribute("aria-expanded") === "true") {
       closeCatalogFilter(filter);
     }
   }
@@ -2998,6 +3016,8 @@ window.addEventListener("anime-runtime:changed", () => {
   state.metadataPersonalUpdatedAt = null;
   state.metadataPersonalLoaded = false;
   state.metadataPersonalLoading = false;
+  personalCacheSequence += 1;
+  personalCachePromise = null;
   state.metadataEntries.clear();
   state.metadataBrowserCount = 0;
   state.metadataLocalCount = 0;

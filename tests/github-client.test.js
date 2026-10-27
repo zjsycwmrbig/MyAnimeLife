@@ -535,6 +535,75 @@ test("loads an authenticated personal Bangumi cache through the Git Blob API", a
   );
 });
 
+test("prefers raw files for authenticated public repositories", async () => {
+  const library = buildLibraryData([baseRecord]);
+  const bangumiCacheText = serializeBangumiCache([
+    {
+      subjectId: "400602",
+      score: 8.7,
+      fetchedAt: "2026-10-27T08:00:00Z",
+      source: "bangumi-archive",
+    },
+  ]);
+  const headSha = "a".repeat(40);
+  const config = {
+    dataFile: "data/anime.jsonl",
+    indexFile: "data/anime-index.jsonl",
+    bangumiCacheFile: "data/bangumi-cache.jsonl",
+    backupDirectory: "data/backups",
+    backupLimit: 5,
+  };
+  const requests = [];
+  const fetchImpl = async (url) => {
+    const parsed = new URL(url);
+    requests.push(parsed);
+    if (parsed.pathname.endsWith("/git/ref/heads/main")) {
+      return response({ object: { sha: headSha } });
+    }
+    if (parsed.pathname.endsWith(`/git/commits/${headSha}`)) {
+      return response({ tree: { sha: "b".repeat(40) } });
+    }
+    if (parsed.hostname === "raw.githubusercontent.com") {
+      if (parsed.pathname.endsWith("/config/site.json")) {
+        return textResponse(JSON.stringify(config));
+      }
+      if (parsed.pathname.endsWith("/data/anime.jsonl")) {
+        return textResponse(library.dataText);
+      }
+      if (parsed.pathname.endsWith("/data/anime-index.jsonl")) {
+        return textResponse(library.indexText);
+      }
+      if (parsed.pathname.endsWith("/data/bangumi-cache.jsonl")) {
+        return textResponse(bangumiCacheText);
+      }
+    }
+    return response({ message: "Not found" }, 404);
+  };
+  const client = new GitHubClient({
+    repository: "example/anime",
+    branch: "main",
+    token: "github_pat_secret",
+    fetchImpl,
+  });
+
+  const snapshot = await client.loadSnapshot();
+
+  assert.equal(snapshot.bangumiCacheText, bangumiCacheText);
+  assert.equal(snapshot.bangumiCache[0].subjectId, "400602");
+  assert.equal(
+    requests.some((request) =>
+      request.pathname.includes("/git/trees/"),
+    ),
+    false,
+  );
+  assert.equal(
+    requests.some((request) =>
+      request.pathname.endsWith("/contents/data/bangumi-cache.jsonl"),
+    ),
+    false,
+  );
+});
+
 test("publishes merged personal Bangumi cache with one file commit", async () => {
   const initialText = serializeBangumiCache([
     {

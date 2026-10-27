@@ -53,3 +53,34 @@ test("places the reading link first and hides connection details from the topbar
   assert.match(html, /id="runtimeBadge" class="runtime-badge" hidden/u);
   assert.match(html, /id="templateUpdateButton"[^>]*hidden/u);
 });
+
+test("keeps year and tag filters in the document flow", async () => {
+  const [html, css] = await Promise.all([
+    fs.readFile(new URL("../admin/index.html", import.meta.url), "utf8"),
+    fs.readFile(new URL("../admin/styles.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="catalogYearFilter"[\s\S]*?aria-controls="catalogYearPanel"/u,
+  );
+  assert.match(
+    html,
+    /id="catalogYearPanel"[\s\S]*?class="catalog-multi-filter-panel"[\s\S]*?hidden/u,
+  );
+  assert.match(
+    html,
+    /id="catalogTagFilter"[\s\S]*?aria-controls="catalogTagPanel"/u,
+  );
+  assert.match(
+    html,
+    /id="catalogTagPanel"[\s\S]*?class="catalog-multi-filter-panel catalog-tag-panel"[\s\S]*?hidden/u,
+  );
+
+  const panelRule = css.match(
+    /\.catalog-multi-filter-panel\s*\{([^}]*)\}/u,
+  )?.[1];
+  assert.ok(panelRule);
+  assert.doesNotMatch(panelRule, /position:\s*fixed/u);
+  assert.match(panelRule, /height:\s*clamp\(/u);
+});

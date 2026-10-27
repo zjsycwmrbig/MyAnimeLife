@@ -390,26 +390,18 @@
                 autocomplete="off"
               />
             </label>
-            <details id="catalogYearFilter" class="catalog-multi-filter">
-              <summary>
+            <div class="catalog-multi-filter">
+              <button
+                id="catalogYearFilter"
+                class="catalog-multi-filter-trigger"
+                type="button"
+                aria-expanded="false"
+                aria-controls="catalogYearPanel"
+              >
                 <span class="catalog-multi-filter-label">年份</span>
                 <strong id="catalogYearSummary">全部年份</strong>
-              </summary>
-              <div class="catalog-multi-filter-panel">
-                <div class="catalog-multi-filter-heading">
-                  <span>可多选年份</span>
-                  <div class="catalog-multi-filter-actions">
-                    <button id="catalogYearClear" class="text-button" type="button" disabled>
-                      清空
-                    </button>
-                    <button id="catalogYearClose" class="text-button" type="button">
-                      收起
-                    </button>
-                  </div>
-                </div>
-                <div id="catalogYearOptions" class="catalog-year-options"></div>
-              </div>
-            </details>
+              </button>
+            </div>
             <label class="compact-field">
               <span>收录状态</span>
               <select id="catalogOwnership">
@@ -425,6 +417,26 @@
               </select>
             </label>
           </div>
+
+          <section
+            id="catalogYearPanel"
+            class="catalog-multi-filter-panel"
+            aria-label="年份筛选"
+            hidden
+          >
+            <div class="catalog-multi-filter-heading">
+              <span>可多选年份</span>
+              <div class="catalog-multi-filter-actions">
+                <button id="catalogYearClear" class="text-button" type="button" disabled>
+                  清空
+                </button>
+                <button id="catalogYearClose" class="text-button" type="button">
+                  收起
+                </button>
+              </div>
+            </div>
+            <div id="catalogYearOptions" class="catalog-year-options"></div>
+          </section>
 
           <details class="catalog-public-panel">
             <summary class="catalog-public-heading">
@@ -536,26 +548,18 @@
                   </label>
                 </div>
               </div>
-              <details id="catalogTagFilter" class="catalog-multi-filter catalog-tag-filter">
-                <summary>
+              <div class="catalog-multi-filter catalog-tag-filter">
+                <button
+                  id="catalogTagFilter"
+                  class="catalog-multi-filter-trigger"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="catalogTagPanel"
+                >
                   <span class="catalog-multi-filter-label">标签</span>
                   <strong id="catalogTagSummary">全部标签</strong>
-                </summary>
-                <div class="catalog-multi-filter-panel">
-                  <div class="catalog-multi-filter-heading">
-                    <span>可多选 · 匹配任一标签</span>
-                    <div class="catalog-multi-filter-actions">
-                      <button id="catalogTagClear" class="text-button" type="button" disabled>
-                        清空
-                      </button>
-                      <button id="catalogTagClose" class="text-button" type="button">
-                        收起
-                      </button>
-                    </div>
-                  </div>
-                  <div id="catalogTagOptions" class="catalog-year-options"></div>
-                </div>
-              </details>
+                </button>
+              </div>
               <label class="compact-field">
                 <span>Bangumi 信息</span>
                 <select id="catalogMetadataAvailability">
@@ -581,6 +585,25 @@
                 更新本页
               </button>
             </div>
+            <section
+              id="catalogTagPanel"
+              class="catalog-multi-filter-panel catalog-tag-panel"
+              aria-label="Bangumi 标签筛选"
+              hidden
+            >
+              <div class="catalog-multi-filter-heading">
+                <span>可多选 · 匹配任一标签</span>
+                <div class="catalog-multi-filter-actions">
+                  <button id="catalogTagClear" class="text-button" type="button" disabled>
+                    清空
+                  </button>
+                  <button id="catalogTagClose" class="text-button" type="button">
+                    收起
+                  </button>
+                </div>
+              </div>
+              <div id="catalogTagOptions" class="catalog-year-options"></div>
+            </section>
           </details>
 
           <div class="catalog-result-bar">
