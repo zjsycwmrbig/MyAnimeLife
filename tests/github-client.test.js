@@ -29,10 +29,10 @@ const baseRecord = {
   updatedAt: "2026-10-25T12:00:00Z",
 };
 
-function response(payload, status = 200) {
+function response(payload, status = 200, headers = {}) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -110,6 +110,116 @@ test("calls the default fetch with the global browser receiver", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("retries transient failures for idempotent GitHub requests", async () => {
+  let attempts = 0;
+  const delays = [];
+  const client = new GitHubClient({
+    repository: "example/anime",
+    maxAttempts: 3,
+    retryBaseDelayMs: 0,
+    sleepImpl: async (delay) => delays.push(delay),
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new TypeError("Failed to fetch");
+      }
+      return response({ full_name: "example/anime" });
+    },
+  });
+
+  const result = await client.request("");
+
+  assert.equal(result.full_name, "example/anime");
+  assert.equal(attempts, 3);
+  assert.equal(client.retryCount, 2);
+  assert.deepEqual(delays, [0, 0]);
+});
+
+test("retries transient raw file responses", async () => {
+  let attempts = 0;
+  const client = new GitHubClient({
+    repository: "example/anime",
+    maxAttempts: 2,
+    retryBaseDelayMs: 0,
+    sleepImpl: async () => {},
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return response({ message: "temporarily unavailable" }, 503);
+      }
+      return textResponse("archive content");
+    },
+  });
+
+  const text = await client.requestRaw("admin/app.js", "main");
+
+  assert.equal(text, "archive content");
+  assert.equal(attempts, 2);
+  assert.equal(client.retryCount, 1);
+});
+
+test("does not retry write requests or permanent client errors", async () => {
+  let writeAttempts = 0;
+  const writeClient = new GitHubClient({
+    repository: "example/anime",
+    maxAttempts: 3,
+    retryBaseDelayMs: 0,
+    sleepImpl: async () => {},
+    fetchImpl: async () => {
+      writeAttempts += 1;
+      return response({ message: "temporarily unavailable" }, 503);
+    },
+  });
+
+  await assert.rejects(
+    () => writeClient.request("/git/commits", { method: "POST", body: {} }),
+    (error) => error instanceof GitHubApiError && error.status === 503,
+  );
+  assert.equal(writeAttempts, 1);
+
+  let readAttempts = 0;
+  const readClient = new GitHubClient({
+    repository: "example/anime",
+    maxAttempts: 3,
+    retryBaseDelayMs: 0,
+    sleepImpl: async () => {},
+    fetchImpl: async () => {
+      readAttempts += 1;
+      return response({ message: "Forbidden" }, 403);
+    },
+  });
+
+  await assert.rejects(
+    () => readClient.request(""),
+    (error) => error instanceof GitHubApiError && error.status === 403,
+  );
+  assert.equal(readAttempts, 1);
+});
+
+test("aborts stalled GitHub reads and reports a timeout", async () => {
+  const client = new GitHubClient({
+    repository: "example/anime",
+    maxAttempts: 1,
+    requestTimeoutMs: 5,
+    fetchImpl: (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      }),
+  });
+
+  await assert.rejects(
+    () => client.request(""),
+    (error) =>
+      error instanceof GitHubApiError &&
+      error.status === 0 &&
+      /请求超时/u.test(error.message),
+  );
 });
 
 test("publishes data, index, and rotated backups in one Git Data commit", async () => {

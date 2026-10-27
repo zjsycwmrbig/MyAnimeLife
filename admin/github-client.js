@@ -26,6 +26,12 @@ import {
 const API_ROOT = "https://api.github.com";
 const RAW_ROOT = "https://raw.githubusercontent.com";
 const DEFAULT_BACKUP_LIMIT = 5;
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_RETRY_BASE_DELAY_MS = 400;
+const DEFAULT_RETRY_MAX_DELAY_MS = 5_000;
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD"]);
 
 function defaultFetch(...args) {
   return Reflect.apply(globalThis.fetch, globalThis, args);
@@ -116,6 +122,32 @@ function shortHash(value) {
   return (hash >>> 0).toString(16).padStart(8, "0").slice(0, 8);
 }
 
+async function readGitHubResponse(response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = await response.text();
+  if (!contentType.includes("json")) {
+    return text;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function responseErrorDetail(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return "";
+  }
+  try {
+    const payload = JSON.parse(text);
+    return cleanString(payload?.message) || text.slice(0, 300);
+  } catch {
+    return text.slice(0, 300);
+  }
+}
+
 function backupName(createdAt, animeText, indexText) {
   const safeTime = createdAt.replace(/[:.]/gu, "-");
   const hash = shortHash(`${animeText}\n${indexText}`);
@@ -150,12 +182,37 @@ function sameLibrary(left, right) {
   return left.dataText === right.dataText && left.indexText === right.indexText;
 }
 
+function positiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function nonNegativeNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function retryAfterMs(response, maxDelayMs) {
+  const value = response.headers.get("retry-after");
+  if (!value) {
+    return null;
+  }
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds)
+    ? seconds * 1_000
+    : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) && delay > 0
+    ? Math.min(delay, maxDelayMs)
+    : null;
+}
+
 export class GitHubApiError extends Error {
-  constructor(status, message, payload = null) {
+  constructor(status, message, payload = null, options = {}) {
     super(message);
     this.name = "GitHubApiError";
     this.status = status;
     this.payload = payload;
+    this.retryAfterMs = options.retryAfterMs ?? null;
   }
 }
 
@@ -166,6 +223,26 @@ export class GitHubClient {
     this.token = cleanString(options.token);
     this.fetchImpl = options.fetchImpl ?? defaultFetch;
     this.now = options.now ?? (() => new Date().toISOString());
+    this.maxAttempts = positiveInteger(
+      options.maxAttempts,
+      DEFAULT_MAX_ATTEMPTS,
+    );
+    this.requestTimeoutMs = positiveInteger(
+      options.requestTimeoutMs,
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
+    this.retryBaseDelayMs = nonNegativeNumber(
+      options.retryBaseDelayMs,
+      DEFAULT_RETRY_BASE_DELAY_MS,
+    );
+    this.retryMaxDelayMs = nonNegativeNumber(
+      options.retryMaxDelayMs,
+      DEFAULT_RETRY_MAX_DELAY_MS,
+    );
+    this.sleepImpl =
+      options.sleepImpl ??
+      ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+    this.retryCount = 0;
   }
 
   configure({ repository, branch, token }) {
@@ -181,6 +258,7 @@ export class GitHubClient {
 
   async requestRepository(repository, path, options = {}) {
     assertRepository(repository);
+    const method = String(options.method ?? "GET").toUpperCase();
     const headers = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
@@ -193,55 +271,35 @@ export class GitHubClient {
       headers["Content-Type"] = "application/json";
     }
 
-    let response;
-    try {
-      response = await this.fetchImpl(
-        `${API_ROOT}/repos/${repository}${path}`,
-        {
-          method: options.method ?? "GET",
-          headers,
-          body:
-            options.body === undefined
-              ? undefined
-              : JSON.stringify(options.body),
+    return this.requestWithRetry(
+      `${API_ROOT}/repos/${repository}${path}`,
+      {
+        method,
+        headers,
+        body:
+          options.body === undefined
+            ? undefined
+            : JSON.stringify(options.body),
+      },
+      {
+        method,
+        allowNotFound: options.allowNotFound,
+        readResponse: readGitHubResponse,
+        describeHttpError(status, detail) {
+          let message = `GitHub 请求失败 (HTTP ${status})`;
+          if (detail) {
+            message += `：${detail}`;
+          }
+          if (status === 401) {
+            message = "GitHub Token 无效或已过期，请重新填写";
+          } else if (status === 403) {
+            message =
+              "GitHub 拒绝访问。请确认 Token 对该仓库拥有 Contents 读写权限，且 API 额度未耗尽";
+          }
+          return message;
         },
-      );
-    } catch (error) {
-      throw new GitHubApiError(
-        0,
-        `无法连接 GitHub：${error.message || "网络错误"}`,
-      );
-    }
-
-    let payload = null;
-    const contentType = response.headers.get("content-type") ?? "";
-    try {
-      payload = contentType.includes("json")
-        ? await response.json()
-        : await response.text();
-    } catch {
-      payload = null;
-    }
-
-    if (!response.ok) {
-      if (options.allowNotFound && response.status === 404) {
-        return null;
-      }
-      const detail =
-        payload && typeof payload === "object" ? payload.message : payload;
-      let message = `GitHub 请求失败 (HTTP ${response.status})`;
-      if (detail) {
-        message += `：${detail}`;
-      }
-      if (response.status === 401) {
-        message = "GitHub Token 无效或已过期，请重新填写";
-      } else if (response.status === 403) {
-        message =
-          "GitHub 拒绝访问。请确认 Token 对该仓库拥有 Contents 读写权限，且 API 额度未耗尽";
-      }
-      throw new GitHubApiError(response.status, message, payload);
-    }
-    return payload;
+      },
+    );
   }
 
   async requestRaw(path, ref, allowNotFound = false) {
@@ -254,42 +312,147 @@ export class GitHubClient {
   }
 
   async requestRawRepository(repository, path, ref, allowNotFound = false) {
-    const response = await this.fetchImpl(
+    return this.requestWithRetry(
       `${RAW_ROOT}/${repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
       {
         method: "GET",
         headers: { Accept: "text/plain" },
       },
+      {
+        method: "GET",
+        allowNotFound,
+        readResponse: async (response) => ({
+          text: await response.text(),
+        }),
+        describeHttpError(status, detail) {
+          return `GitHub 原始文件请求失败 (HTTP ${status})${detail ? `：${detail}` : ""}`;
+        },
+      },
     );
-    if (allowNotFound && response.status === 404) {
-      return null;
-    }
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new GitHubApiError(
-        response.status,
-        `GitHub 原始文件请求失败 (HTTP ${response.status})${detail ? `：${detail}` : ""}`,
-      );
-    }
-    return { text: await response.text() };
   }
 
   async getRawBase64For(repository, path, ref) {
-    const response = await this.fetchImpl(
+    const bytes = await this.requestWithRetry(
       `${RAW_ROOT}/${repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
       {
         method: "GET",
         headers: { Accept: "application/octet-stream" },
       },
+      {
+        method: "GET",
+        readResponse: async (response) =>
+          new Uint8Array(await response.arrayBuffer()),
+        describeHttpError(status, detail) {
+          return `GitHub 原始文件请求失败 (HTTP ${status})${detail ? `：${detail}` : ""}`;
+        },
+      },
     );
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new GitHubApiError(
-        response.status,
-        `GitHub 原始文件请求失败 (HTTP ${response.status})${detail ? `：${detail}` : ""}`,
-      );
+    return bytesToBase64(bytes);
+  }
+
+  async requestWithRetry(url, init, options) {
+    const method = String(options.method ?? init.method ?? "GET").toUpperCase();
+    const maxAttempts = IDEMPOTENT_METHODS.has(method) ? this.maxAttempts : 1;
+    let lastError = null;
+    let attemptsUsed = 0;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      attemptsUsed = attempt + 1;
+      const timeout = this.createTimeout();
+      try {
+        let response;
+        try {
+          response = await this.fetchImpl(url, {
+            ...init,
+            signal: timeout.signal,
+          });
+        } catch (error) {
+          throw this.transportError(error, timeout);
+        }
+
+        if (options.allowNotFound && response.status === 404) {
+          return null;
+        }
+        if (!response.ok) {
+          const detail = await responseErrorDetail(response);
+          throw new GitHubApiError(
+            response.status,
+            options.describeHttpError(response.status, detail),
+            null,
+            {
+              retryAfterMs: retryAfterMs(response, this.retryMaxDelayMs),
+            },
+          );
+        }
+        return await options.readResponse(response);
+      } catch (error) {
+        lastError =
+          error instanceof GitHubApiError
+            ? error
+            : new GitHubApiError(
+                0,
+                `无法读取 GitHub 响应：${error.message || "未知错误"}`,
+              );
+        const canRetry =
+          attemptsUsed < maxAttempts && this.isRetryable(lastError);
+        if (!canRetry) {
+          break;
+        }
+        this.retryCount += 1;
+        await this.waitBeforeRetry(lastError, attempt);
+      } finally {
+        timeout.cleanup();
+      }
     }
-    return bytesToBase64(new Uint8Array(await response.arrayBuffer()));
+
+    const suffix =
+      attemptsUsed > 1 ? `（已自动尝试 ${attemptsUsed} 次）` : "";
+    throw new GitHubApiError(
+      lastError.status,
+      `${lastError.message}${suffix}`,
+      lastError.payload,
+    );
+  }
+
+  createTimeout() {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.requestTimeoutMs);
+    return {
+      signal: controller.signal,
+      cleanup: () => clearTimeout(timer),
+      timedOut: () => timedOut,
+    };
+  }
+
+  transportError(error, timeout) {
+    const message =
+      timeout.timedOut() ||
+      error?.name === "AbortError" ||
+      error?.name === "TimeoutError"
+        ? "请求超时"
+        : error?.message || "网络错误";
+    return new GitHubApiError(0, `无法连接 GitHub：${message}`);
+  }
+
+  isRetryable(error) {
+    return error.status === 0 || RETRYABLE_STATUS_CODES.has(error.status);
+  }
+
+  async waitBeforeRetry(error, attempt) {
+    const exponentialDelay = Math.min(
+      this.retryMaxDelayMs,
+      this.retryBaseDelayMs * 2 ** attempt,
+    );
+    const jitter =
+      this.retryBaseDelayMs > 0
+        ? Math.floor(Math.random() * Math.max(1, this.retryBaseDelayMs / 4))
+        : 0;
+    const delay = error.retryAfterMs ?? exponentialDelay + jitter;
+    await this.sleepImpl(delay);
   }
 
   async getRepository() {

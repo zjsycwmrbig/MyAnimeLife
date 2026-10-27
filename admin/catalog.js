@@ -699,7 +699,11 @@ async function updateTemplate() {
     ].filter(Boolean).join(" · ");
     elements.templateCommitLink.href = result.templateCommitUrl || elements.templateCommitLink.href;
     elements.templateUpdateBadge.textContent = `已更新 ${result.commitShort}`;
-    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。刷新页面后加载最新管理页。`;
+    const retryNote =
+      result.retryCount > 0
+        ? `期间网络波动已自动重试 ${result.retryCount} 次。`
+        : "";
+    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。${retryNote}刷新页面后加载最新管理页。`;
     state.templateStatus = {
       ...state.templateStatus,
       updateAvailable: false,
@@ -713,7 +717,10 @@ async function updateTemplate() {
     };
     elements.templateUpdateAvailable.hidden = true;
     elements.templateUpdateButton.hidden = true;
-    showToast(`管理页已更新，提交 ${result.commitShort}`, { duration: 7000 });
+    showToast(
+      `管理页已更新，提交 ${result.commitShort}${result.retryCount > 0 ? `，自动重试 ${result.retryCount} 次` : ""}`,
+      { duration: 7000 },
+    );
   } catch (error) {
     elements.templateUpdateStatus.textContent = error.message;
     showToast(error.message, { error: true, duration: 8000 });

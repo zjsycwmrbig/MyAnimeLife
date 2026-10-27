@@ -5,6 +5,7 @@ import {
   compareTemplateTrees,
   getTemplateStatus,
   getTemplateUpdateStatus,
+  updateFromTemplate,
 } from "../admin/template-updater.js";
 
 test("template tree keeps target data and personal site settings", () => {
@@ -147,4 +148,127 @@ test("reports update availability and the last template update commit", async ()
   assert.equal(status.changedFileCount, 1);
   assert.equal(status.targetCommitShort, "bbbbbbb");
   assert.equal(status.lastTemplateUpdate.commitShort, "ccccccc");
+});
+
+test("copies only template files that differ from the target", async () => {
+  const rawRequests = [];
+  const blobRequests = [];
+  const writeRequests = [];
+  const client = {
+    token: "github_pat_test",
+    repository: "example/personal",
+    branch: "main",
+    retryCount: 0,
+    async getRef() {
+      return { object: { sha: "target-head" } };
+    },
+    async getRefFor(repository) {
+      assert.equal(repository, "example/template");
+      return { object: { sha: "template-head" } };
+    },
+    async getCommitFor(repository) {
+      if (repository === "example/template") {
+        return {
+          message: "feat: latest template",
+          author: { name: "Maintainer", date: "2026-10-27T10:00:00Z" },
+        };
+      }
+      return { tree: { sha: "target-tree" } };
+    },
+    async getTreeFor(repository) {
+      return repository === "example/template"
+        ? {
+            tree: [
+              {
+                path: "admin/app.js",
+                type: "blob",
+                mode: "100644",
+                sha: "template-changed",
+              },
+              {
+                path: "admin/shared.css",
+                type: "blob",
+                mode: "100644",
+                sha: "shared-blob",
+              },
+              {
+                path: "data/anime.jsonl",
+                type: "blob",
+                mode: "100644",
+                sha: "template-data",
+              },
+            ],
+          }
+        : {
+            tree: [
+              {
+                path: "admin/app.js",
+                type: "blob",
+                mode: "100644",
+                sha: "target-old",
+              },
+              {
+                path: "admin/shared.css",
+                type: "blob",
+                mode: "100644",
+                sha: "shared-blob",
+              },
+              {
+                path: "data/anime.jsonl",
+                type: "blob",
+                mode: "100644",
+                sha: "personal-data",
+              },
+              {
+                path: "config/site.json",
+                type: "blob",
+                mode: "100644",
+                sha: "personal-config",
+              },
+            ],
+          };
+    },
+    async getRawBase64For(repository, path, ref) {
+      assert.equal(repository, "example/template");
+      assert.equal(ref, "main");
+      rawRequests.push(path);
+      return Buffer.from(`content:${path}`).toString("base64");
+    },
+    async createBlobBase64(content) {
+      const text = Buffer.from(content, "base64").toString("utf8");
+      blobRequests.push(text);
+      return `copied-${text.replace("content:", "")}`;
+    },
+    async request(path, options = {}) {
+      writeRequests.push({ path, options });
+      if (path === "/git/trees") {
+        return { sha: "next-tree" };
+      }
+      if (path === "/git/commits") {
+        return { sha: "next-commit" };
+      }
+      if (path === "/git/refs/heads/main") {
+        return { object: { sha: "next-commit" } };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    },
+  };
+
+  const result = await updateFromTemplate(client, {
+    repository: "example/template",
+    branch: "main",
+  });
+
+  assert.deepEqual(rawRequests, ["admin/app.js"]);
+  assert.deepEqual(blobRequests, ["content:admin/app.js"]);
+  assert.equal(result.updatedFiles, 1);
+
+  const treeRequest = writeRequests.find(({ path }) => path === "/git/trees");
+  const entries = new Map(
+    treeRequest.options.body.tree.map((entry) => [entry.path, entry.sha]),
+  );
+  assert.equal(entries.get("admin/app.js"), "copied-admin/app.js");
+  assert.equal(entries.get("admin/shared.css"), "shared-blob");
+  assert.equal(entries.get("data/anime.jsonl"), "personal-data");
+  assert.equal(entries.get("config/site.json"), "personal-config");
 });

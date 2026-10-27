@@ -53,13 +53,18 @@ export function buildTemplateTree(templateTree, targetTree) {
   const entries = new Map();
 
   for (const entry of blobEntries(templateTree)) {
+    const target = targetByPath.get(entry.path);
+    const mode = entry.mode || "100644";
+    const preserveTarget = isPreservedPath(entry.path) && target;
+    const unchangedTarget =
+      target &&
+      target.sha === entry.sha &&
+      (target.mode || "100644") === mode;
     entries.set(entry.path, {
       path: entry.path,
-      mode: entry.mode || "100644",
+      mode,
       type: "blob",
-      sha: isPreservedPath(entry.path) && targetByPath.has(entry.path)
-        ? targetByPath.get(entry.path).sha
-        : entry.sha,
+      sha: preserveTarget || unchangedTarget ? target.sha : entry.sha,
     });
   }
 
@@ -77,6 +82,23 @@ export function buildTemplateTree(templateTree, targetTree) {
   return [...entries.values()].sort((left, right) =>
     left.path.localeCompare(right.path, "en"),
   );
+}
+
+function templateEntriesToCopy(templateTree, targetTree) {
+  const targetByPath = new Map(
+    blobEntries(targetTree).map((entry) => [entry.path, entry]),
+  );
+  return blobEntries(templateTree).filter((entry) => {
+    const target = targetByPath.get(entry.path);
+    if (isPreservedPath(entry.path)) {
+      return !target;
+    }
+    return !(
+      target &&
+      target.sha === entry.sha &&
+      (target.mode || "100644") === (entry.mode || "100644")
+    );
+  });
 }
 
 function createLimiter(limit) {
@@ -220,6 +242,7 @@ export async function updateFromTemplate(client, options = {}) {
   if (!client.token) {
     throw new Error("更新管理页需要先在 GitHub 连接设置中填写 Token");
   }
+  const retryCountBefore = Number(client.retryCount) || 0;
   const templateRepository = options.repository ?? TEMPLATE_REPOSITORY;
   const templateBranch = options.branch ?? TEMPLATE_BRANCH;
   const targetRef = await client.getRef();
@@ -246,29 +269,21 @@ export async function updateFromTemplate(client, options = {}) {
     client.getTreeFor(templateRepository, templateHead),
     client.getTreeFor(client.repository, targetCommit.tree.sha),
   ]);
-  const targetPreservedPaths = new Set(
-    blobEntries(targetTree)
-      .filter((entry) => isPreservedPath(entry.path))
-      .map((entry) => entry.path),
-  );
   const sourceEntries = blobEntries(templateTree);
-  const limiter = createLimiter(4);
+  const entriesToCopy = templateEntriesToCopy(templateTree, targetTree);
+  const limiter = createLimiter(3);
   const copiedSha = new Map();
   await Promise.all(
-    sourceEntries
-      .filter(
-        (entry) =>
-          !isPreservedPath(entry.path) ||
-          !targetPreservedPaths.has(entry.path),
-      )
-      .map((entry) => limiter(async () => {
+    entriesToCopy.map((entry) =>
+      limiter(async () => {
         const content = await client.getRawBase64For(
           templateRepository,
           entry.path,
           templateBranch,
         );
         copiedSha.set(entry.path, await client.createBlobBase64(content));
-      })),
+      }),
+    ),
   );
 
   const tree = buildTemplateTree(
@@ -322,6 +337,7 @@ export async function updateFromTemplate(client, options = {}) {
       ? 1
       : 0,
     updatedFiles: copiedSha.size,
+    retryCount: (Number(client.retryCount) || 0) - retryCountBefore,
     removedFiles: blobEntries(targetTree).filter(
       (entry) =>
         !isPreservedPath(entry.path) &&
