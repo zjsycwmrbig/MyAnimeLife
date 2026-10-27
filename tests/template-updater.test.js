@@ -92,6 +92,7 @@ test("detects updates by comparing non-data template files", () => {
 test("reports update availability and the last template update commit", async () => {
   const templateSha = "a".repeat(40);
   const targetSha = "b".repeat(40);
+  const progress = [];
   const status = await getTemplateUpdateStatus({
     repository: "example/anime-records",
     branch: "main",
@@ -142,18 +143,30 @@ test("reports update availability and the last template update commit", async ()
         },
       ];
     },
-  }, { repository: "example/template", branch: "main" });
+  }, {
+    repository: "example/template",
+    branch: "main",
+    onProgress(entry) {
+      progress.push(entry);
+    },
+  });
 
   assert.equal(status.updateAvailable, true);
   assert.equal(status.changedFileCount, 1);
   assert.equal(status.targetCommitShort, "bbbbbbb");
   assert.equal(status.lastTemplateUpdate.commitShort, "ccccccc");
+  assert.deepEqual(
+    progress.map((entry) => entry.stage),
+    ["check:start", "check:compare"],
+  );
+  assert.match(progress[1].message, /1 个待同步文件/u);
 });
 
 test("copies only template files that differ from the target", async () => {
   const rawRequests = [];
   const blobRequests = [];
   const writeRequests = [];
+  const progress = [];
   const client = {
     token: "github_pat_test",
     repository: "example/personal",
@@ -257,6 +270,9 @@ test("copies only template files that differ from the target", async () => {
   const result = await updateFromTemplate(client, {
     repository: "example/template",
     branch: "main",
+    onProgress(entry) {
+      progress.push(entry);
+    },
   });
 
   assert.deepEqual(rawRequests, ["admin/app.js"]);
@@ -271,4 +287,18 @@ test("copies only template files that differ from the target", async () => {
   assert.equal(entries.get("admin/shared.css"), "shared-blob");
   assert.equal(entries.get("data/anime.jsonl"), "personal-data");
   assert.equal(entries.get("config/site.json"), "personal-config");
+  assert.deepEqual(
+    progress.map((entry) => entry.stage),
+    [
+      "update:start",
+      "update:versions",
+      "update:compare",
+      "update:files",
+      "update:tree",
+      "update:commit",
+      "update:publish",
+      "update:complete",
+    ],
+  );
+  assert.match(progress[3].message, /admin\/app\.js/u);
 });

@@ -326,6 +326,7 @@ test("ships three independently buildable templates", async () => {
     for (const file of [
       "admin/index.html",
       "admin/app.js",
+      "admin/dom.js",
       "admin/draft-store.js",
       "admin/runtime.js",
       "admin/github-client.js",

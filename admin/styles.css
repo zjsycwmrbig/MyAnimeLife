@@ -2923,6 +2923,128 @@ th:nth-child(4) {
   line-height: 1.6;
 }
 
+.about-status.is-error {
+  color: #9b3d32;
+}
+
+.about-status.is-success {
+  color: #326a55;
+}
+
+.template-update-log {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #171d1b;
+  color: #e8eeeb;
+}
+
+.template-update-log-heading {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  background: #202825;
+}
+
+.template-update-log-heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.template-update-log-heading span {
+  color: #9bb1a7;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.template-update-log-heading strong {
+  overflow: hidden;
+  color: #f7faf8;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-update-log-clear.button {
+  min-height: 28px;
+  padding: 5px 9px;
+  border-color: rgb(255 255 255 / 16%);
+  background: transparent;
+  color: #dce6e1;
+  font-size: 10px;
+}
+
+.template-update-log-clear.button:hover {
+  border-color: rgb(255 255 255 / 32%);
+  background: rgb(255 255 255 / 6%);
+  color: #fff;
+}
+
+.template-update-log-list {
+  max-height: 220px;
+  margin: 0;
+  padding: 8px 12px 10px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-color: #58665f transparent;
+}
+
+.template-update-log-list li {
+  position: relative;
+  min-width: 0;
+  padding: 5px 0 5px 15px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  color: #ccd7d2;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.template-update-log-list li::before {
+  position: absolute;
+  top: 10px;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #77a891;
+  content: "";
+}
+
+.template-update-log-list li.is-success::before {
+  background: #7ec29e;
+}
+
+.template-update-log-list li.is-warning::before {
+  background: #d8aa5c;
+}
+
+.template-update-log-list li.is-error {
+  color: #f0b8b2;
+}
+
+.template-update-log-list li.is-error::before {
+  background: #df756a;
+}
+
+.template-update-log-list time {
+  color: #7f9189;
+  font-variant-numeric: tabular-nums;
+}
+
+.template-update-log-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .about-actions {
   margin-top: 8px;
   display: flex;

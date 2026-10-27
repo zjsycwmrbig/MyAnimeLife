@@ -819,6 +819,33 @@
                 <span class="update-available-pulse" aria-hidden="true"></span>
               </div>
               <p id="templateUpdateStatus" class="about-status" role="status" aria-live="polite"></p>
+              <section
+                id="templateUpdateLogPanel"
+                class="template-update-log"
+                aria-labelledby="templateUpdateLogSummary"
+                hidden
+              >
+                <header class="template-update-log-heading">
+                  <div>
+                    <span>UPDATE ACTIVITY</span>
+                    <strong id="templateUpdateLogSummary">等待操作</strong>
+                  </div>
+                  <button
+                    id="templateUpdateLogClear"
+                    class="button button-quiet template-update-log-clear"
+                    type="button"
+                  >
+                    清空日志
+                  </button>
+                </header>
+                <ol
+                  id="templateUpdateLogList"
+                  class="template-update-log-list"
+                  role="log"
+                  aria-live="polite"
+                  aria-relevant="additions"
+                ></ol>
+              </section>
               <div class="about-actions">
                 <button id="templateCheckButton" class="button button-quiet" type="button">检查更新</button>
                 <button id="templateUpdateButton" class="button button-primary" type="button" hidden>拉取最新管理页</button>

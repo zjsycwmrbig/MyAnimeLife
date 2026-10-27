@@ -953,13 +953,13 @@ export class GitHubAdminStore {
     };
   }
 
-  async templateStatus() {
-    return getTemplateUpdateStatus(this.client);
+  async templateStatus(options = {}) {
+    return getTemplateUpdateStatus(this.client, options);
   }
 
-  async updateTemplate() {
+  async updateTemplate(options = {}) {
     this.requireWriteAccess();
-    return updateFromTemplate(this.client);
+    return updateFromTemplate(this.client, options);
   }
 }
 

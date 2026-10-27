@@ -7,6 +7,7 @@ import {
   getPaginationState,
   renderPagination,
 } from "./pagination.js";
+import { replaceChildrenSafe } from "./dom.js";
 import { queryLibraryRecords } from "./library-query.js";
 import { createRatingControl } from "./rating-control.js";
 import {
@@ -129,7 +130,7 @@ function scheduleCurrentDraft() {
 function flushCurrentDraft() {
   if (queueCurrentRecordDraft()) {
     updatePendingSummary();
-    elements.pendingList.replaceChildren(...pendingRows());
+    replaceChildrenSafe("待提交记录", elements.pendingList, ...pendingRows());
   }
 }
 
@@ -312,7 +313,7 @@ function pendingRows() {
 
 function renderPendingListOnly() {
   updatePendingSummary();
-  elements.pendingList.replaceChildren(...pendingRows());
+  replaceChildrenSafe("待提交记录", elements.pendingList, ...pendingRows());
 }
 
 function updatePendingSummary() {
@@ -327,7 +328,7 @@ function updatePendingSummary() {
 function renderPendingPanel() {
   const pending = refreshPendingDrafts();
   updatePendingSummary();
-  elements.pendingList.replaceChildren(...pendingRows());
+  replaceChildrenSafe("待提交记录", elements.pendingList, ...pendingRows());
 }
 
 function removePendingEntry(kind, entry) {
@@ -493,10 +494,14 @@ function createRecordCard(record) {
 function renderRows() {
   const records = filteredRecords();
   const pageRecords = currentPageRecords(records);
-  elements.libraryTable.hidden = state.layout !== "list";
-  elements.recordCards.hidden = state.layout !== "cards";
-  elements.recordRows.replaceChildren();
-  elements.recordCards.replaceChildren();
+  if (elements.libraryTable) {
+    elements.libraryTable.hidden = state.layout !== "list";
+  }
+  if (elements.recordCards) {
+    elements.recordCards.hidden = state.layout !== "cards";
+  }
+  replaceChildrenSafe("番剧表格", elements.recordRows);
+  replaceChildrenSafe("番剧卡片", elements.recordCards);
   elements.recordCount.textContent = String(state.records.length);
   elements.libraryResultLabel.textContent =
     records.length === state.records.length
@@ -602,10 +607,10 @@ function renderRows() {
         selectRecord();
       }
     });
-    elements.recordRows.append(row);
+    elements.recordRows?.append(row);
   }
   if (state.layout === "cards") {
-    elements.recordCards.append(...pageRecords.map(createRecordCard));
+    elements.recordCards?.append(...pageRecords.map(createRecordCard));
   }
   renderPagination(
     {
@@ -1072,7 +1077,7 @@ window.addEventListener("anime-pending:changed", (event) => {
   refreshPendingDrafts();
   updatePendingSummary();
   if (event.detail?.source !== "editor") {
-    elements.pendingList.replaceChildren(...pendingRows());
+    replaceChildrenSafe("待提交记录", elements.pendingList, ...pendingRows());
   }
 });
 

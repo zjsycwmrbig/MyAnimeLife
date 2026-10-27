@@ -448,10 +448,10 @@ async function onlineApi(path, options) {
     return store.saveSiteSettings(parseBody(options));
   }
   if (url.pathname === "/api/template/status" && method === "GET") {
-    return store.templateStatus();
+    return store.templateStatus({ onProgress: options.onProgress });
   }
   if (url.pathname === "/api/template/update" && method === "POST") {
-    const result = await store.updateTemplate();
+    const result = await store.updateTemplate({ onProgress: options.onProgress });
     invalidateLibraryCache();
     return result;
   }

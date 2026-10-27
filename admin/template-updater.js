@@ -18,6 +18,19 @@ function isPreservedPath(path) {
   return isDataPath(path) || path === "config/site.json";
 }
 
+function reportProgress(options, stage, message, detail = {}) {
+  try {
+    options?.onProgress?.({
+      stage,
+      message,
+      at: new Date().toISOString(),
+      ...detail,
+    });
+  } catch {
+    // Progress reporting must never interrupt the update itself.
+  }
+}
+
 function blobEntries(tree) {
   return (tree?.tree ?? []).filter(
     (entry) => entry?.type === "blob" && typeof entry.path === "string" && entry.sha,
@@ -199,6 +212,12 @@ async function latestTemplateUpdate(client) {
 }
 
 export async function getTemplateUpdateStatus(client, options = {}) {
+  const retryCountBefore = Number(client.retryCount) || 0;
+  reportProgress(
+    options,
+    "check:start",
+    "正在连接 GitHub，读取模板仓库和当前数据仓库版本",
+  );
   const latest = await getTemplateStatus(client, options);
   const targetRef = await client.getRef();
   const targetCommitSha = targetRef?.object?.sha;
@@ -221,6 +240,14 @@ export async function getTemplateUpdateStatus(client, options = {}) {
     client.getTreeFor(client.repository, targetCommit.tree.sha),
   ]);
   const comparison = compareTemplateTrees(templateTree, targetTree);
+  reportProgress(
+    options,
+    "check:compare",
+    comparison.updateAvailable
+      ? `比较完成：发现 ${comparison.changedFileCount} 个待同步文件`
+      : "比较完成：页面代码已与模板一致",
+    { changedFileCount: comparison.changedFileCount },
+  );
   const targetDetails = commitDetails(
     targetCommit,
     client.repository,
@@ -235,6 +262,7 @@ export async function getTemplateUpdateStatus(client, options = {}) {
     targetCommitDate: targetDetails.date,
     targetCommitUrl: targetDetails.url,
     lastTemplateUpdate,
+    retryCount: (Number(client.retryCount) || 0) - retryCountBefore,
   };
 }
 
@@ -245,6 +273,11 @@ export async function updateFromTemplate(client, options = {}) {
   const retryCountBefore = Number(client.retryCount) || 0;
   const templateRepository = options.repository ?? TEMPLATE_REPOSITORY;
   const templateBranch = options.branch ?? TEMPLATE_BRANCH;
+  reportProgress(
+    options,
+    "update:start",
+    "正在读取数据仓库与公开模板的当前提交",
+  );
   const targetRef = await client.getRef();
   const targetHead = targetRef?.object?.sha;
   if (!targetHead) {
@@ -260,6 +293,15 @@ export async function updateFromTemplate(client, options = {}) {
     throw new Error("无法读取模板或数据仓库的 Git 树");
   }
   const templateCommit = await client.getCommitFor(templateRepository, templateHead);
+  reportProgress(
+    options,
+    "update:versions",
+    `已锁定模板 ${templateHead.slice(0, 7)}，准备比较文件树`,
+    {
+      templateCommit: templateHead,
+      targetCommit: targetHead,
+    },
+  );
   const templateDetails = commitDetails(
     templateCommit,
     templateRepository,
@@ -271,8 +313,18 @@ export async function updateFromTemplate(client, options = {}) {
   ]);
   const sourceEntries = blobEntries(templateTree);
   const entriesToCopy = templateEntriesToCopy(templateTree, targetTree);
+  reportProgress(
+    options,
+    "update:compare",
+    entriesToCopy.length
+      ? `比较完成：需要同步 ${entriesToCopy.length} 个文件`
+      : "比较完成：当前页面文件已与模板一致",
+    { totalFiles: entriesToCopy.length },
+  );
   const limiter = createLimiter(3);
   const copiedSha = new Map();
+  let copiedFiles = 0;
+  const progressStep = Math.max(1, Math.ceil(entriesToCopy.length / 8));
   await Promise.all(
     entriesToCopy.map((entry) =>
       limiter(async () => {
@@ -282,10 +334,28 @@ export async function updateFromTemplate(client, options = {}) {
           templateBranch,
         );
         copiedSha.set(entry.path, await client.createBlobBase64(content));
+        copiedFiles += 1;
+        if (
+          copiedFiles === 1 ||
+          copiedFiles === entriesToCopy.length ||
+          copiedFiles % progressStep === 0
+        ) {
+          reportProgress(
+            options,
+            "update:files",
+            `正在同步模板文件 ${copiedFiles}/${entriesToCopy.length}：${entry.path}`,
+            {
+              completedFiles: copiedFiles,
+              totalFiles: entriesToCopy.length,
+              path: entry.path,
+            },
+          );
+        }
       }),
     ),
   );
 
+  reportProgress(options, "update:tree", "正在构建保留个人数据的 Git 文件树");
   const tree = buildTemplateTree(
     {
       tree: sourceEntries.map((entry) => ({
@@ -299,6 +369,7 @@ export async function updateFromTemplate(client, options = {}) {
     method: "POST",
     body: { tree },
   });
+  reportProgress(options, "update:commit", "正在创建数据仓库更新提交");
   const commit = await client.request("/git/commits", {
     method: "POST",
     body: {
@@ -311,6 +382,12 @@ export async function updateFromTemplate(client, options = {}) {
   });
 
   try {
+    reportProgress(
+      options,
+      "update:publish",
+      `正在发布提交 ${commit.sha.slice(0, 7)} 到 ${client.branch} 分支`,
+      { commit: commit.sha, branch: client.branch },
+    );
     await client.request(`/git/refs/heads/${encodePath(client.branch)}`, {
       method: "PATCH",
       body: { sha: commit.sha, force: false },
@@ -322,6 +399,13 @@ export async function updateFromTemplate(client, options = {}) {
     throw error;
   }
 
+  const retryCount = (Number(client.retryCount) || 0) - retryCountBefore;
+  reportProgress(
+    options,
+    "update:complete",
+    `更新完成：提交 ${commit.sha.slice(0, 7)} 已发布`,
+    { commit: commit.sha, retryCount },
+  );
   return {
     commit: commit.sha,
     commitShort: commit.sha.slice(0, 7),
@@ -337,7 +421,7 @@ export async function updateFromTemplate(client, options = {}) {
       ? 1
       : 0,
     updatedFiles: copiedSha.size,
-    retryCount: (Number(client.retryCount) || 0) - retryCountBefore,
+    retryCount,
     removedFiles: blobEntries(targetTree).filter(
       (entry) =>
         !isPreservedPath(entry.path) &&

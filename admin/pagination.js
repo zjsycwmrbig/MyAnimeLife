@@ -1,3 +1,5 @@
+import { replaceChildrenSafe } from "./dom.js";
+
 function positiveInteger(value, fallback) {
   const number = Math.trunc(Number(value));
   return Number.isFinite(number) && number > 0 ? number : fallback;
@@ -77,11 +79,15 @@ export function renderPagination(controls, options = {}) {
     options.page,
   );
   const disabled = Boolean(options.disabled);
-  controls.nav.hidden = info.total === 0;
-  controls.summary.textContent =
-    info.total === 0
-      ? "共 0 条"
-      : `第 ${info.page} / ${info.pageCount} 页 · 共 ${info.total.toLocaleString("zh-CN")} 条`;
+  if (controls.nav) {
+    controls.nav.hidden = info.total === 0;
+  }
+  if (controls.summary) {
+    controls.summary.textContent =
+      info.total === 0
+        ? "共 0 条"
+        : `第 ${info.page} / ${info.pageCount} 页 · 共 ${info.total.toLocaleString("zh-CN")} 条`;
+  }
 
   const pageButtons = getPageSequence(info.page, info.pageCount).map((page) => {
     if (page === null) {
@@ -104,9 +110,13 @@ export function renderPagination(controls, options = {}) {
     button.addEventListener("click", () => options.onSelect?.(page));
     return button;
   });
-  controls.pages.replaceChildren(...pageButtons);
-  controls.previous.disabled = disabled || info.page <= 1;
-  controls.next.disabled = disabled || info.page >= info.pageCount;
-  controls.nav.setAttribute("aria-busy", String(Boolean(options.loading)));
+  replaceChildrenSafe("分页按钮", controls.pages, ...pageButtons);
+  if (controls.previous) {
+    controls.previous.disabled = disabled || info.page <= 1;
+  }
+  if (controls.next) {
+    controls.next.disabled = disabled || info.page >= info.pageCount;
+  }
+  controls.nav?.setAttribute("aria-busy", String(Boolean(options.loading)));
   return info;
 }

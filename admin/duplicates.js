@@ -3,6 +3,7 @@ import {
   getRuntime,
   refreshRuntimeLibrary,
 } from "./runtime.js";
+import { replaceChildrenSafe } from "./dom.js";
 
 const state = {
   groups: [],
@@ -212,9 +213,15 @@ function createGroup(group) {
 
 function renderGroups() {
   elements.groupCount.textContent = String(state.groups.length);
-  elements.groups.replaceChildren(...state.groups.map(createGroup));
+  replaceChildrenSafe(
+    "重复检查分组",
+    elements.groups,
+    ...state.groups.map(createGroup),
+  );
   elements.empty.hidden = state.loading || state.groups.length > 0;
-  elements.groups.hidden = state.loading || state.groups.length === 0;
+  if (elements.groups) {
+    elements.groups.hidden = state.loading || state.groups.length === 0;
+  }
   renderSelection();
 }
 

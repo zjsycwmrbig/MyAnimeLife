@@ -1066,7 +1066,7 @@
       const svgPreview = dialog.querySelector(".share-dialog-svg-preview");
       image.removeAttribute("src");
       image.hidden = true;
-      svgPreview.replaceChildren();
+      svgPreview?.replaceChildren();
       svgPreview.hidden = true;
       dialog.querySelector(".share-dialog-loading").hidden = false;
     });
@@ -1168,7 +1168,7 @@
       state.width = result.width;
       state.height = result.height;
       const svgPreview = dialog.querySelector(".share-dialog-svg-preview");
-      svgPreview.replaceChildren();
+      svgPreview?.replaceChildren();
       svgPreview.innerHTML = result.svg;
       svgPreview.querySelector("svg")?.setAttribute(
         "aria-label",

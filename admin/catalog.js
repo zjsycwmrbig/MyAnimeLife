@@ -18,8 +18,10 @@ import {
   writePendingDrafts,
 } from "./draft-store.js";
 import { applyAdminAppearance } from "./appearance.js";
+import { replaceChildrenSafe } from "./dom.js";
 
 const MAX_BATCH_SIZE = 100;
+const MAX_TEMPLATE_LOGS = 40;
 const LOCAL_APPEARANCE_KEY = "myanimelife.appearance.preferences";
 
 const state = {
@@ -29,6 +31,7 @@ const state = {
   loading: false,
   busy: false,
   settingsBusy: false,
+  templateLogs: [],
   remoteSettings: null,
   templateStatus: null,
   items: [],
@@ -103,6 +106,10 @@ const elements = {
   templateUpdateAvailable: document.querySelector("#templateUpdateAvailable"),
   templateUpdateAvailableText: document.querySelector("#templateUpdateAvailableText"),
   templateUpdateStatus: document.querySelector("#templateUpdateStatus"),
+  templateUpdateLogPanel: document.querySelector("#templateUpdateLogPanel"),
+  templateUpdateLogList: document.querySelector("#templateUpdateLogList"),
+  templateUpdateLogSummary: document.querySelector("#templateUpdateLogSummary"),
+  templateUpdateLogClear: document.querySelector("#templateUpdateLogClear"),
   templateCheckButton: document.querySelector("#templateCheckButton"),
   templateUpdateButton: document.querySelector("#templateUpdateButton"),
   siteSettingsForm: document.querySelector("#siteSettingsForm"),
@@ -134,6 +141,9 @@ let requestSequence = 0;
 let templateBusy = false;
 
 function showToast(message, options = {}) {
+  if (!elements.toast) {
+    return;
+  }
   clearTimeout(toastTimer);
   elements.toast.textContent = message;
   elements.toast.classList.toggle("is-error", Boolean(options.error));
@@ -142,6 +152,82 @@ function showToast(message, options = {}) {
     () => elements.toast.classList.remove("is-visible"),
     options.duration ?? 3600,
   );
+}
+
+function formatTemplateLogTime(value = new Date()) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(value);
+}
+
+function renderTemplateLogs() {
+  if (!elements.templateUpdateLogPanel) {
+    return;
+  }
+  elements.templateUpdateLogPanel.hidden = state.templateLogs.length === 0;
+  const rows = state.templateLogs.map((entry) => {
+    const item = document.createElement("li");
+    item.classList.toggle("is-success", entry.tone === "success");
+    item.classList.toggle("is-warning", entry.tone === "warning");
+    item.classList.toggle("is-error", entry.tone === "error");
+    const time = document.createElement("time");
+    time.dateTime = entry.at;
+    time.textContent = entry.time;
+    const message = document.createElement("span");
+    message.textContent = entry.message;
+    item.append(time, message);
+    return item;
+  });
+  replaceChildrenSafe(
+    "更新日志",
+    elements.templateUpdateLogList,
+    ...rows,
+  );
+  if (elements.templateUpdateLogList) {
+    elements.templateUpdateLogList.scrollTop =
+      elements.templateUpdateLogList.scrollHeight;
+  }
+}
+
+function appendTemplateLog(message, tone = "info") {
+  const text = String(message ?? "").replace(/\s+/gu, " ").trim();
+  if (!text) {
+    return;
+  }
+  const now = new Date();
+  state.templateLogs.push({
+    at: now.toISOString(),
+    time: formatTemplateLogTime(now),
+    message: text,
+    tone,
+  });
+  state.templateLogs = state.templateLogs.slice(-MAX_TEMPLATE_LOGS);
+  if (elements.templateUpdateLogSummary) {
+    elements.templateUpdateLogSummary.textContent = text;
+  }
+  renderTemplateLogs();
+}
+
+function clearTemplateLogs(summary = "等待操作") {
+  state.templateLogs = [];
+  if (elements.templateUpdateLogSummary) {
+    elements.templateUpdateLogSummary.textContent = summary;
+  }
+  renderTemplateLogs();
+}
+
+function setTemplateStatus(message, tone = "") {
+  elements.templateUpdateStatus?.classList.toggle("is-error", tone === "error");
+  elements.templateUpdateStatus?.classList.toggle(
+    "is-success",
+    tone === "success",
+  );
+  if (elements.templateUpdateStatus) {
+    elements.templateUpdateStatus.textContent = message;
+  }
 }
 
 function formatDate(value) {
@@ -603,6 +689,8 @@ function renderAbout() {
   const updateAvailable = Boolean(status?.updateAvailable);
   elements.templateCheckButton.disabled = templateBusy || runtime.mode === "local";
   elements.templateUpdateButton.disabled = templateBusy || !writable;
+  elements.templateCheckButton.classList.toggle("is-loading", templateBusy);
+  elements.templateUpdateButton.classList.toggle("is-loading", templateBusy);
   elements.templateUpdateButton.hidden = !updateAvailable || !writable;
   elements.templateUpdateAvailable.hidden = !updateAvailable;
   if (status?.updateAvailable) {
@@ -618,12 +706,15 @@ function renderAbout() {
     ? `${status.lastTemplateUpdate.commitShort} · ${status.lastTemplateUpdate.commitMessage}`
     : "未找到历史模板更新提交";
   if (runtime.mode === "local") {
-    elements.templateUpdateStatus.textContent =
-      "当前是本地管理模式，无法在这里拉取模板；本地开发请使用 Git 更新。";
+    setTemplateStatus(
+      "当前是本地管理模式，无法在这里拉取模板；本地开发请使用 Git 更新。",
+    );
     elements.templateUpdateBadge.textContent = "本地模式";
   } else if (!runtime.writable) {
     if (!status) {
-      elements.templateUpdateStatus.textContent = "当前为只读模式。填写有 Contents: Read and write 权限的 Token 后才可以更新。";
+      setTemplateStatus(
+        "当前为只读模式。填写有 Contents: Read and write 权限的 Token 后才可以更新。",
+      );
       elements.templateUpdateBadge.textContent = "需要 Token";
     }
   }
@@ -636,9 +727,18 @@ async function checkTemplate(showMessage = true) {
   }
   templateBusy = true;
   renderAbout();
-  elements.templateUpdateStatus.textContent = "正在读取模板仓库版本...";
+  if (showMessage || state.templateLogs.length === 0) {
+    clearTemplateLogs("正在检查模板更新");
+  } else {
+    appendTemplateLog("重新检查模板仓库版本");
+  }
+  setTemplateStatus("正在读取模板仓库版本...");
   try {
-    const status = await api("/api/template/status");
+    const status = await api("/api/template/status", {
+      onProgress(progress) {
+        appendTemplateLog(progress.message);
+      },
+    });
     state.templateStatus = status;
     elements.templateCommitLabel.textContent = status.commitShort;
     elements.templateCommitMessage.textContent = status.commitMessage || "无提交说明";
@@ -650,9 +750,27 @@ async function checkTemplate(showMessage = true) {
     elements.templateUpdateBadge.textContent = status.updateAvailable
       ? `有更新 · ${status.changedFileCount} 个文件`
       : "已是最新";
-    elements.templateUpdateStatus.textContent = status.updateAvailable
-      ? `模板最新提交为 ${status.commitShort}，当前仓库尚未包含最新模板文件。`
-      : `当前仓库的模板文件已与 ${status.commitShort} 同步，无需更新。`;
+    if (status.updateAvailable) {
+      setTemplateStatus(
+        `模板最新提交为 ${status.commitShort}，当前仓库有 ${status.changedFileCount} 个文件待更新。`,
+      );
+      appendTemplateLog(
+        `发现更新：${status.changedFileCount} 个非数据文件与模板不同`,
+        "warning",
+      );
+    } else {
+      setTemplateStatus(
+        `当前仓库的模板文件已与 ${status.commitShort} 同步，无需更新。`,
+        "success",
+      );
+      appendTemplateLog("检查完成：页面代码已经是模板最新版本", "success");
+    }
+    if (status.retryCount > 0) {
+      appendTemplateLog(
+        `网络波动后已自动重试 ${status.retryCount} 次并成功`,
+        "warning",
+      );
+    }
     if (showMessage) {
       showToast(
         status.updateAvailable
@@ -663,7 +781,9 @@ async function checkTemplate(showMessage = true) {
   } catch (error) {
     state.templateStatus = null;
     elements.templateUpdateBadge.textContent = "检查失败";
-    elements.templateUpdateStatus.textContent = error.message;
+    setTemplateStatus(`检查失败：${error.message}`, "error");
+    appendTemplateLog(`检查失败：${error.message}`, "error");
+    appendTemplateLog("请检查网络、Token 权限和仓库地址后重试", "warning");
     if (showMessage) {
       showToast(error.message, { error: true });
     }
@@ -685,11 +805,19 @@ async function updateTemplate() {
   }
   templateBusy = true;
   renderAbout();
-  elements.templateUpdateStatus.textContent = "正在拉取模板文件并创建提交，请不要关闭页面...";
+  clearTemplateLogs("正在更新管理页");
+  appendTemplateLog("已确认更新范围：保留 data/ 与 config/site.json", "warning");
+  setTemplateStatus("正在拉取模板文件并创建提交，请不要关闭页面...");
   try {
     const result = await api("/api/template/update", {
       method: "POST",
       body: JSON.stringify({}),
+      onProgress(progress) {
+        appendTemplateLog(
+          progress.message,
+          progress.stage === "update:complete" ? "success" : "info",
+        );
+      },
     });
     elements.templateCommitLabel.textContent = result.templateCommit.slice(0, 7);
     elements.templateCommitMessage.textContent = result.templateCommitMessage || "无提交说明";
@@ -703,7 +831,28 @@ async function updateTemplate() {
       result.retryCount > 0
         ? `期间网络波动已自动重试 ${result.retryCount} 次。`
         : "";
-    elements.templateUpdateStatus.textContent = `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。${retryNote}刷新页面后加载最新管理页。`;
+    setTemplateStatus(
+      `更新完成：保留 ${result.preservedDataFiles} 个数据文件和站点设置，更新 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件。${retryNote}刷新页面后加载最新管理页。`,
+      "success",
+    );
+    appendTemplateLog(
+      `数据保护完成：保留 ${result.preservedDataFiles} 个数据文件、${result.preservedConfigFiles} 个站点配置文件`,
+      "success",
+    );
+    appendTemplateLog(
+      `更新统计：写入 ${result.updatedFiles} 个文件，移除 ${result.removedFiles} 个旧文件`,
+      "success",
+    );
+    appendTemplateLog(
+      `Git 提交 ${result.commitShort} 已发布，刷新页面即可加载新代码`,
+      "success",
+    );
+    if (result.retryCount > 0) {
+      appendTemplateLog(
+        `网络波动后已自动重试 ${result.retryCount} 次并成功`,
+        "warning",
+      );
+    }
     state.templateStatus = {
       ...state.templateStatus,
       updateAvailable: false,
@@ -722,7 +871,12 @@ async function updateTemplate() {
       { duration: 7000 },
     );
   } catch (error) {
-    elements.templateUpdateStatus.textContent = error.message;
+    setTemplateStatus(`更新失败：${error.message}`, "error");
+    appendTemplateLog(`更新失败：${error.message}`, "error");
+    appendTemplateLog(
+      "本次操作未主动覆盖 data/ 或 config/site.json，可检查日志后重试",
+      "warning",
+    );
     showToast(error.message, { error: true, duration: 8000 });
   } finally {
     templateBusy = false;
@@ -751,7 +905,7 @@ function populateFacets(facets) {
     return;
   }
   if (!state.facetsLoaded) {
-    elements.catalogYearOptions.replaceChildren();
+    replaceChildrenSafe("年代筛选选项", elements.catalogYearOptions);
     for (const year of facets.years ?? []) {
       const label = document.createElement("label");
       label.className = "catalog-year-option";
@@ -765,7 +919,7 @@ function populateFacets(facets) {
       const count = document.createElement("small");
       count.textContent = `${year.count} 部`;
       label.append(input, value, count);
-      elements.catalogYearOptions.append(label);
+      elements.catalogYearOptions?.append(label);
     }
     for (const source of facets.sources ?? []) {
       const option = document.createElement("option");
@@ -1016,15 +1170,21 @@ function renderCatalogRows() {
     state.pageSize,
     state.page,
   );
-  elements.catalogTable.hidden = state.layout !== "list";
-  elements.catalogCards.hidden = state.layout !== "cards";
+  if (elements.catalogTable) {
+    elements.catalogTable.hidden = state.layout !== "list";
+  }
+  if (elements.catalogCards) {
+    elements.catalogCards.hidden = state.layout !== "cards";
+  }
   state.page = pageInfo.page;
-  elements.catalogRows.replaceChildren(
+  replaceChildrenSafe(
+    "索引表格",
+    elements.catalogRows,
     ...(state.layout === "list" ? state.items.map(createCatalogRow) : []),
   );
-  elements.catalogCards.replaceChildren();
+  replaceChildrenSafe("索引卡片", elements.catalogCards);
   if (state.layout === "cards") {
-    elements.catalogCards.append(...state.items.map(createCatalogCard));
+    elements.catalogCards?.append(...state.items.map(createCatalogCard));
   }
   elements.catalogCount.textContent = state.total
     ? state.total.toLocaleString("zh-CN")
@@ -1321,11 +1481,13 @@ function renderBatchEditor() {
   elements.catalogEditorEmpty.hidden = items.length > 0;
   elements.catalogBatchForm.hidden = items.length === 0;
   if (!items.length) {
-    elements.catalogSelectionList.replaceChildren();
+    replaceChildrenSafe("索引选择列表", elements.catalogSelectionList);
     renderSelectionSummary();
     return;
   }
-  elements.catalogSelectionList.replaceChildren(
+  replaceChildrenSafe(
+    "索引选择列表",
+    elements.catalogSelectionList,
     ...items.map(createDraftRow),
   );
   renderSelectionSummary();
@@ -1428,8 +1590,11 @@ for (const button of elements.switchButtons) {
   });
 }
 
-elements.templateCheckButton.addEventListener("click", () => checkTemplate(true));
-elements.templateUpdateButton.addEventListener("click", updateTemplate);
+elements.templateCheckButton?.addEventListener("click", () => checkTemplate(true));
+elements.templateUpdateButton?.addEventListener("click", updateTemplate);
+elements.templateUpdateLogClear?.addEventListener("click", () =>
+  clearTemplateLogs(),
+);
 elements.siteSettingsForm.addEventListener("submit", saveSiteSettings);
 elements.siteSettingsForm.addEventListener("change", (event) => {
   if (!event.target.closest("[data-local-appearance-control]")) {
@@ -1612,7 +1777,7 @@ window.addEventListener("anime-runtime:changed", () => {
   state.ownership = "";
   state.source = "";
   elements.catalogOwnership.value = "";
-  elements.catalogYearOptions.replaceChildren();
+  replaceChildrenSafe("年代筛选选项", elements.catalogYearOptions);
   renderYearFilterSummary();
   for (const select of [elements.catalogSource]) {
     while (select.options.length > 1) {
@@ -1642,6 +1807,10 @@ window.addEventListener("anime-catalog:changed", () => {
   if (state.view === "catalog") {
     loadCatalog();
   }
+});
+
+window.addEventListener("anime-admin:dom-warning", (event) => {
+  appendTemplateLog(event.detail?.message ?? "页面节点缺失，已跳过一次更新", "warning");
 });
 
 restorePendingAdditions();
