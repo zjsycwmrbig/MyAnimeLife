@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "sync:bangumi-public": "node scripts/sync-bangumi-public.mjs",
     "validate": "node scripts/validate.mjs",
     "dev": "npm run build && node scripts/serve.mjs",
     "admin": "node scripts/admin.mjs",

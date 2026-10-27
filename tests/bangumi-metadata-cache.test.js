@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyBangumiMetadata,
   filterAndSortByBangumiMetadata,
   hasUsableBangumiMetadata,
+  isCachedBangumiMetadata,
   normalizeBangumiMetadata,
+  normalizeBangumiSnapshotSubject,
+  summarizeBangumiMetadata,
 } from "../admin/bangumi-metadata-cache.js";
 
 test("normalizes Bangumi score, rank, tags, and cover", () => {
@@ -50,6 +54,94 @@ test("keeps successful metadata records without inventing public information", (
   assert.equal(metadata.score, null);
   assert.deepEqual(metadata.tags, []);
   assert.equal(hasUsableBangumiMetadata(metadata), false);
+});
+
+test("normalizes compact public snapshot records", () => {
+  const metadata = normalizeBangumiSnapshotSubject(
+    "525565",
+    [8.4, 3210, 118, [["恋爱", 920], ["漫画改", 450]]],
+    "2026-10-20T21:03:33Z",
+  );
+
+  assert.equal(metadata.subjectId, "525565");
+  assert.equal(metadata.score, 8.4);
+  assert.equal(metadata.ratingCount, 3210);
+  assert.equal(metadata.rank, 118);
+  assert.deepEqual(metadata.tags, [
+    { name: "恋爱", count: 920 },
+    { name: "漫画改", count: 450 },
+  ]);
+  assert.equal(metadata.fetchedAt, "2026-10-20T21:03:33Z");
+});
+
+test("marks cache hits without mislabeling fresh snapshot records", () => {
+  const items = [
+    {
+      id: "a",
+      sites: { bangumi: "101" },
+    },
+    {
+      id: "b",
+      sites: { bangumi: "102" },
+    },
+  ];
+  const metadata = new Map([
+    ["101", { score: 8.1, tags: [{ name: "科幻", count: 30 }] }],
+    ["102", { score: 7.6, tags: [{ name: "日常", count: 20 }] }],
+  ]);
+
+  applyBangumiMetadata(
+    items,
+    metadata,
+    new Map([
+      ["101", "cache"],
+      ["102", "snapshot"],
+    ]),
+  );
+
+  assert.equal(items[0].bangumiMetadataSource, "cache");
+  assert.equal(items[1].bangumiMetadataSource, "snapshot");
+  assert.equal(isCachedBangumiMetadata(items[0]), true);
+  assert.equal(isCachedBangumiMetadata(items[1]), false);
+});
+
+test("summarizes cache, score, tag, and missing counts", () => {
+  const summary = summarizeBangumiMetadata([
+    {
+      sites: { bangumi: "101" },
+      bangumiMetadataSource: "cache",
+      bangumiMetadata: {
+        score: 8.1,
+        tags: [{ name: "科幻", count: 30 }],
+      },
+    },
+    {
+      sites: { bangumi: "102" },
+      bangumiMetadataSource: "snapshot",
+      bangumiMetadata: {
+        score: null,
+        tags: [{ name: "日常", count: 20 }],
+      },
+    },
+    {
+      sites: { bangumi: "103" },
+      bangumiMetadata: null,
+    },
+    {
+      sites: {},
+    },
+  ]);
+
+  assert.deepEqual(summary, {
+    total: 4,
+    indexed: 3,
+    cached: 1,
+    cachedAvailable: 1,
+    scored: 1,
+    tagged: 2,
+    available: 2,
+    missing: 1,
+  });
 });
 
 test("filters and sorts only from cached public metadata", () => {

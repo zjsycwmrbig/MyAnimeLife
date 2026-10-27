@@ -1,0 +1,45 @@
+name: Update Bangumi public snapshot
+
+on:
+  schedule:
+    - cron: "17 22 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bangumi-public-data
+  cancel-in-progress: true
+
+jobs:
+  update:
+    if: github.repository == 'zjsycwmrbig/MyAnimeLife' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build compact Bangumi snapshot
+        run: node scripts/sync-bangumi-public.mjs
+
+      - name: Commit snapshot
+        run: |
+          if git diff --quiet -- admin/bangumi-public.json; then
+            echo "Bangumi snapshot is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add admin/bangumi-public.json
+          git commit -m "data(bangumi): update public ratings and tags snapshot"
+          git push

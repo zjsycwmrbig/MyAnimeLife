@@ -14,8 +14,11 @@ import {
   applyBangumiMetadata,
   filterAndSortByBangumiMetadata,
   hasUsableBangumiMetadata,
+  isCachedBangumiMetadata,
+  countBangumiMetadata,
   readBangumiMetadata,
   resolveBangumiMetadata,
+  summarizeBangumiMetadata,
 } from "./bangumi-metadata-cache.js";
 import {
   commitPendingDrafts,
@@ -58,6 +61,17 @@ const state = {
   metadataAvailability: "all",
   metadataSort: "default",
   metadataAvailableCount: 0,
+  metadataCacheTotal: 0,
+  metadataStats: {
+    total: 0,
+    indexed: 0,
+    cached: 0,
+    cachedAvailable: 0,
+    scored: 0,
+    tagged: 0,
+    available: 0,
+    missing: 0,
+  },
   facetsLoaded: false,
   selectedItems: new Map(),
   drafts: new Map(),
@@ -87,6 +101,27 @@ const elements = {
   catalogMetadataSort: document.querySelector("#catalogMetadataSort"),
   catalogMetadataRefresh: document.querySelector("#catalogMetadataRefresh"),
   catalogMetadataStatus: document.querySelector("#catalogMetadataStatus"),
+  catalogMetadataCacheBadge: document.querySelector(
+    "#catalogMetadataCacheBadge",
+  ),
+  catalogMetadataTotalCount: document.querySelector(
+    "#catalogMetadataTotalCount",
+  ),
+  catalogMetadataCacheCount: document.querySelector(
+    "#catalogMetadataCacheCount",
+  ),
+  catalogMetadataLocalCount: document.querySelector(
+    "#catalogMetadataLocalCount",
+  ),
+  catalogMetadataScoreCount: document.querySelector(
+    "#catalogMetadataScoreCount",
+  ),
+  catalogMetadataTagCount: document.querySelector(
+    "#catalogMetadataTagCount",
+  ),
+  catalogMetadataMissingCount: document.querySelector(
+    "#catalogMetadataMissingCount",
+  ),
   catalogTagFilter: document.querySelector("#catalogTagFilter"),
   catalogTagSummary: document.querySelector("#catalogTagSummary"),
   catalogTagOptions: document.querySelector("#catalogTagOptions"),
@@ -583,6 +618,13 @@ function createBangumiMetadata(item, maximumTags = 2) {
       .join(" · ");
     wrapper.append(score);
   }
+  if (isCachedBangumiMetadata(item)) {
+    const cached = document.createElement("span");
+    cached.className = "catalog-bangumi-cache";
+    cached.textContent = "缓存";
+    cached.title = "公共评分和标签来自当前浏览器的本地缓存";
+    wrapper.append(cached);
+  }
   for (const tag of (metadata.tags ?? []).slice(0, maximumTags)) {
     const chip = document.createElement("span");
     chip.className = "catalog-bangumi-tag";
@@ -638,7 +680,7 @@ function renderCatalogTagOptions() {
   if (!options.length) {
     const empty = document.createElement("span");
     empty.className = "catalog-filter-empty";
-    empty.textContent = "本页暂无已缓存的 Bangumi 标签";
+    empty.textContent = "本页暂无公共 Bangumi 标签";
     options.push(empty);
   }
   replaceChildrenSafe("Bangumi 标签选项", elements.catalogTagOptions, ...options);
@@ -653,26 +695,65 @@ function renderCatalogTagOptions() {
 
 function metadataStatusText() {
   if (state.metadataLoading) {
-    return "正在优先读取本页 Bangumi 公共信息...";
+    return "正在读取公共数据";
   }
   if (!state.pageItems.length) {
-    return "本页没有可读取的 Bangumi 条目";
+    return "等待本页索引";
   }
-  const resolved = state.pageItems.filter(
-    (item) => item.bangumiMetadataResolved,
-  ).length;
+  const stats = state.metadataStats;
+  if (!stats.indexed) {
+    return "本页没有 Bangumi 条目";
+  }
+  if (!stats.available) {
+    return stats.cached
+      ? "缓存中暂无评分或标签"
+      : "尚未读取公共信息";
+  }
   return [
-    `本页 ${state.pageItems.length} 条`,
-    `已缓存 ${resolved} 条`,
-    `有评分或标签 ${state.metadataAvailableCount} 条`,
-    "仅保存在当前浏览器",
-  ].join(" · ");
+    stats.scored ? `评分 ${stats.scored}` : "",
+    stats.tagged ? `标签 ${stats.tagged}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function renderCatalogMetadataStatus(message = "") {
+  state.metadataStats = summarizeBangumiMetadata(state.pageItems);
+  const stats = state.metadataStats;
   if (elements.catalogMetadataStatus) {
     elements.catalogMetadataStatus.textContent =
       message || metadataStatusText();
+  }
+  if (elements.catalogMetadataTotalCount) {
+    elements.catalogMetadataTotalCount.textContent =
+      stats.indexed.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataCacheCount) {
+    elements.catalogMetadataCacheCount.textContent =
+      stats.cachedAvailable.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataLocalCount) {
+    elements.catalogMetadataLocalCount.textContent =
+      state.metadataCacheTotal.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataScoreCount) {
+    elements.catalogMetadataScoreCount.textContent =
+      stats.scored.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataTagCount) {
+    elements.catalogMetadataTagCount.textContent =
+      stats.tagged.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataMissingCount) {
+    elements.catalogMetadataMissingCount.textContent =
+      stats.missing.toLocaleString("zh-CN");
+  }
+  if (elements.catalogMetadataCacheBadge) {
+    elements.catalogMetadataCacheBadge.hidden = stats.cachedAvailable === 0;
+    elements.catalogMetadataCacheBadge.textContent =
+      `缓存 ${stats.cachedAvailable}`;
+    elements.catalogMetadataCacheBadge.title =
+      `本页有 ${stats.cachedAvailable} 条评分或标签来自浏览器缓存`;
   }
   elements.catalogMetadataRefresh.disabled =
     state.loading || state.metadataLoading || state.pageItems.length === 0;
@@ -681,8 +762,8 @@ function renderCatalogMetadataStatus(message = "") {
     state.metadataLoading,
   );
   elements.catalogMetadataRefresh.textContent = state.metadataLoading
-    ? "正在读取 Bangumi"
-    : "刷新本页 Bangumi 信息";
+    ? "更新中"
+    : "更新本页";
 }
 
 function applyCatalogView(options = {}) {
@@ -1460,7 +1541,12 @@ async function applyCachedBangumiMetadata(items) {
     const metadata = await readBangumiMetadata(
       items.map((item) => item.sites?.bangumi).filter(Boolean),
     );
-    applyBangumiMetadata(items, metadata);
+    applyBangumiMetadata(
+      items,
+      metadata,
+      new Map([...metadata.keys()].map((subjectId) => [subjectId, "cache"])),
+    );
+    state.metadataCacheTotal = await countBangumiMetadata();
   } catch {
     // The catalog remains usable when IndexedDB is unavailable.
   }
@@ -1475,8 +1561,8 @@ async function hydrateVisibleMetadata(sequence, options = {}) {
   state.metadataLoading = true;
   renderCatalogMetadataStatus(
     options.refresh
-      ? "正在刷新本页 Bangumi 公共信息..."
-      : "正在读取本页 Bangumi 公共信息...",
+      ? "正在更新本页公共数据..."
+      : "正在读取本页公共数据...",
   );
   applyCatalogView({ render: true });
   try {
@@ -1486,8 +1572,10 @@ async function hydrateVisibleMetadata(sequence, options = {}) {
         if (sequence !== requestSequence || !progress.total) {
           return;
         }
+        const phaseText =
+          progress.phase === "network" ? "已载入公共快照" : "正在读取 Bangumi";
         renderCatalogMetadataStatus(
-          `正在读取 Bangumi：${progress.completed} / ${progress.total}` +
+          `${phaseText}：${progress.completed} / ${progress.total}` +
             (progress.failed ? ` · 失败 ${progress.failed}` : ""),
         );
       },
@@ -1495,26 +1583,29 @@ async function hydrateVisibleMetadata(sequence, options = {}) {
     if (sequence !== requestSequence) {
       return result;
     }
-    applyBangumiMetadata(items, result.metadata);
+    applyBangumiMetadata(items, result.metadata, result.sourceById);
     applyCatalogView({ render: false });
-    if (options.refresh || result.fetched) {
+    state.metadataCacheTotal = await countBangumiMetadata().catch(() => 0);
+    if (options.refresh || result.fetched || result.failed || result.snapshotError) {
       const message = [
-        result.fetched ? `更新 ${result.fetched} 条` : "",
+        result.snapshot ? `公共快照 ${result.snapshot} 条` : "",
+        result.api ? `在线补充 ${result.api} 条` : "",
+        result.snapshotError ? "公共快照不可用" : "",
         result.failed ? `失败 ${result.failed} 条` : "",
-        result.failed ? "失败条目保留原缓存" : "",
+        result.failed ? "原有缓存已保留" : "",
       ]
         .filter(Boolean)
         .join(" · ");
       showToast(
-        message || `本页 ${result.requested} 条 Bangumi 信息均为最新缓存`,
+        message || `本页 ${result.requested} 条公共信息均来自浏览器缓存`,
         { error: Boolean(result.failed) },
       );
     }
     return result;
   } catch (error) {
     if (sequence === requestSequence) {
-      renderCatalogMetadataStatus(`Bangumi 信息读取失败：${error.message}`);
-      showToast(`Bangumi 信息读取失败：${error.message}`, { error: true });
+      renderCatalogMetadataStatus(`公共信息读取失败：${error.message}`);
+      showToast(`公共信息读取失败：${error.message}`, { error: true });
     }
     return null;
   } finally {
@@ -2172,6 +2263,7 @@ window.addEventListener("anime-runtime:changed", () => {
   state.metadataAvailability = "all";
   state.metadataSort = "default";
   state.metadataAvailableCount = 0;
+  state.metadataCacheTotal = 0;
   state.facetsLoaded = false;
   state.years.clear();
   state.ownership = "";

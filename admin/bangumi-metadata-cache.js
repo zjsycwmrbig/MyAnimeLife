@@ -8,6 +8,11 @@ const STORE_NAME = "subjects";
 const DATABASE_VERSION = 1;
 const MAX_TAGS = 40;
 const FETCH_CONCURRENCY = 3;
+const PUBLIC_SNAPSHOT_URL = new URL("./bangumi-public.json", import.meta.url);
+const PUBLIC_SNAPSHOT_SCHEMA_VERSION = 1;
+
+let publicSnapshot = null;
+let publicSnapshotPromise = null;
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -85,6 +90,69 @@ export function normalizeBangumiMetadata(
   };
 }
 
+export function normalizeBangumiSnapshotSubject(
+  subjectId,
+  compactSubject,
+  fetchedAt,
+) {
+  const id = clean(subjectId);
+  if (!id || !Array.isArray(compactSubject)) {
+    return null;
+  }
+  const [score, ratingCount, rank, rawTags] = compactSubject;
+  return {
+    schemaVersion: 1,
+    subjectId: id,
+    score: normalizeScore(score),
+    ratingCount: normalizeCount(ratingCount),
+    rank: normalizeCount(rank) || null,
+    tags: normalizeTags(
+      (Array.isArray(rawTags) ? rawTags : []).map((tag) => ({
+        name: tag?.[0],
+        count: tag?.[1],
+      })),
+    ),
+    summary: "",
+    coverUrl: null,
+    fetchedAt: clean(fetchedAt) || new Date().toISOString(),
+  };
+}
+
+async function loadPublicSnapshot(options = {}) {
+  if (!options.refresh && publicSnapshot) {
+    return publicSnapshot;
+  }
+  if (!options.refresh && publicSnapshotPromise) {
+    return publicSnapshotPromise;
+  }
+  const request = fetch(PUBLIC_SNAPSHOT_URL, {
+    cache: options.refresh ? "no-store" : "default",
+    headers: { Accept: "application/json" },
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`公共快照读取失败 (HTTP ${response.status})`);
+      }
+      const payload = await response.json();
+      if (
+        payload?.schemaVersion !== PUBLIC_SNAPSHOT_SCHEMA_VERSION ||
+        !payload?.subjects ||
+        typeof payload.subjects !== "object"
+      ) {
+        throw new Error("公共快照格式无效");
+      }
+      publicSnapshot = payload;
+      return payload;
+    })
+    .finally(() => {
+      if (publicSnapshotPromise === request) {
+        publicSnapshotPromise = null;
+      }
+    });
+  publicSnapshotPromise = request;
+  return request;
+}
+
 function openDatabase() {
   if (typeof indexedDB === "undefined") {
     return Promise.resolve(null);
@@ -132,6 +200,25 @@ export async function readBangumiMetadata(subjectIds) {
       transaction.addEventListener("complete", () => resolve(values));
       transaction.addEventListener("error", () =>
         reject(transaction.error ?? new Error("读取 Bangumi 元数据缓存失败")),
+      );
+    });
+  } finally {
+    database.close();
+  }
+}
+
+export async function countBangumiMetadata() {
+  const database = await openDatabase();
+  if (!database) {
+    return 0;
+  }
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, "readonly");
+      const request = transaction.objectStore(STORE_NAME).count();
+      request.addEventListener("success", () => resolve(request.result));
+      request.addEventListener("error", () =>
+        reject(request.error ?? new Error("统计 Bangumi 元数据缓存失败")),
       );
     });
   } finally {
@@ -195,15 +282,54 @@ export async function resolveBangumiMetadata(items, options = {}) {
     }
   }
   const cached = await readBangumiMetadata([...candidates.keys()]);
+  const cachedIds = new Set(cached.keys());
   const pending = [...candidates.keys()].filter(
-    (subjectId) => options.refresh || !cached.has(subjectId),
+    (subjectId) =>
+      options.refresh ||
+      !hasUsableBangumiMetadata(cached.get(subjectId)),
   );
   const updates = new Map();
-  let completed = 0;
+  const sourceById = new Map(
+    [...cachedIds].map((subjectId) => [subjectId, "cache"]),
+  );
   let failed = 0;
+  let snapshotError = "";
+  let snapshotFetchedAt = "";
+  if (pending.length) {
+    try {
+      const snapshot = await loadPublicSnapshot({
+        refresh: Boolean(options.refresh),
+      });
+      snapshotFetchedAt =
+        clean(snapshot.source?.archiveUpdatedAt) ||
+        clean(snapshot.generatedAt);
+      for (const subjectId of pending) {
+        const metadata = normalizeBangumiSnapshotSubject(
+          subjectId,
+          snapshot.subjects[subjectId],
+          snapshotFetchedAt,
+        );
+        if (metadata) {
+          updates.set(subjectId, metadata);
+          sourceById.set(subjectId, "snapshot");
+        }
+      }
+      options.onProgress?.({
+        completed: updates.size,
+        total: pending.length,
+        failed,
+        phase: "network",
+      });
+    } catch (error) {
+      snapshotError = error.message || "公共快照不可用";
+    }
+  }
+  const remaining = pending.filter((subjectId) => !updates.has(subjectId));
+  let completed = pending.length - remaining.length;
+  let apiFetched = 0;
   const limiter = createLimiter(FETCH_CONCURRENCY);
   await Promise.all(
-    pending.map((subjectId) =>
+    remaining.map((subjectId) =>
       limiter(async () => {
         try {
           const payload = await fetchBangumiSubject(subjectId);
@@ -211,6 +337,8 @@ export async function resolveBangumiMetadata(items, options = {}) {
             subjectId,
             normalizeBangumiMetadata(payload, subjectId),
           );
+          sourceById.set(subjectId, "network");
+          apiFetched += 1;
         } catch {
           failed += 1;
         } finally {
@@ -219,6 +347,7 @@ export async function resolveBangumiMetadata(items, options = {}) {
             completed,
             total: pending.length,
             failed,
+            phase: "api",
           });
         }
       }),
@@ -229,16 +358,26 @@ export async function resolveBangumiMetadata(items, options = {}) {
     metadata: new Map([...cached, ...updates]),
     requested: candidates.size,
     fetched: updates.size,
+    cached: cachedIds.size,
+    snapshot: updates.size - apiFetched,
+    api: apiFetched,
     failed,
     pending: pending.length,
+    sourceById,
+    snapshotError,
+    snapshotFetchedAt,
   };
 }
 
-export function applyBangumiMetadata(items, metadata) {
+export function applyBangumiMetadata(items, metadata, sourceById = null) {
   for (const item of items ?? []) {
-    const metadataEntry = metadata.get(bangumiSubjectId(item)) ?? null;
+    const subjectId = bangumiSubjectId(item);
+    const metadataEntry = metadata.get(subjectId) ?? null;
     item.bangumiMetadata = metadataEntry;
     item.bangumiMetadataResolved = Boolean(metadataEntry);
+    item.bangumiMetadataSource = metadataEntry
+      ? sourceById?.get(subjectId) ?? item.bangumiMetadataSource ?? null
+      : null;
     if (!item.coverUrl && metadataEntry?.coverUrl) {
       item.coverUrl = metadataEntry.coverUrl;
     }
@@ -251,6 +390,51 @@ export function hasUsableBangumiMetadata(metadata) {
     metadata &&
       (Number.isFinite(metadata.score) || metadata.tags?.length),
   );
+}
+
+export function isCachedBangumiMetadata(item) {
+  return (
+    item?.bangumiMetadataSource === "cache" &&
+    hasUsableBangumiMetadata(item?.bangumiMetadata)
+  );
+}
+
+export function summarizeBangumiMetadata(items) {
+  const summary = {
+    total: Array.isArray(items) ? items.length : 0,
+    indexed: 0,
+    cached: 0,
+    cachedAvailable: 0,
+    scored: 0,
+    tagged: 0,
+    available: 0,
+    missing: 0,
+  };
+  for (const item of items ?? []) {
+    if (!bangumiSubjectId(item)) {
+      continue;
+    }
+    summary.indexed += 1;
+    const metadata = item.bangumiMetadata;
+    const available = hasUsableBangumiMetadata(metadata);
+    if (available) {
+      summary.available += 1;
+    }
+    if (item.bangumiMetadataSource === "cache") {
+      summary.cached += 1;
+      if (available) {
+        summary.cachedAvailable += 1;
+      }
+    }
+    if (Number.isFinite(metadata?.score)) {
+      summary.scored += 1;
+    }
+    if (metadata?.tags?.length) {
+      summary.tagged += 1;
+    }
+  }
+  summary.missing = Math.max(0, summary.indexed - summary.available);
+  return summary;
 }
 
 function normalizedTag(value) {

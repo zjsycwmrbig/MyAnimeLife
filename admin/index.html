@@ -423,14 +423,56 @@
 
           <details class="catalog-public-panel">
             <summary class="catalog-public-heading">
-              <div>
-                <span class="eyebrow">BANGUMI PUBLIC DATA</span>
-                <strong>公共评分与标签</strong>
-              </div>
-              <span id="catalogMetadataStatus" role="status" aria-live="polite">
-                打开本页后读取浏览器缓存
+              <span class="catalog-public-heading-main">
+                <span class="catalog-public-mark" aria-hidden="true">B</span>
+                <span class="catalog-public-title">
+                  <strong>公共评分与标签</strong>
+                  <small>Bangumi 社区数据</small>
+                </span>
+              </span>
+              <span class="catalog-public-heading-state">
+                <span id="catalogMetadataCacheBadge" class="catalog-public-cache-pill" hidden>
+                  缓存 0
+                </span>
+                <span id="catalogMetadataStatus" role="status" aria-live="polite">
+                  等待读取
+                </span>
               </span>
             </summary>
+            <div class="catalog-public-stats" aria-label="本页 Bangumi 公共信息统计">
+              <span>
+                <small>本页条目</small>
+                <strong id="catalogMetadataTotalCount">0</strong>
+              </span>
+              <span>
+                <small>缓存命中</small>
+                <strong id="catalogMetadataCacheCount">0</strong>
+              </span>
+              <span>
+                <small>浏览器缓存</small>
+                <strong id="catalogMetadataLocalCount">0</strong>
+              </span>
+              <span>
+                <small>公共评分</small>
+                <strong id="catalogMetadataScoreCount">0</strong>
+              </span>
+              <span>
+                <small>公共标签</small>
+                <strong id="catalogMetadataTagCount">0</strong>
+              </span>
+              <span>
+                <small>待补充</small>
+                <strong id="catalogMetadataMissingCount">0</strong>
+              </span>
+              <a
+                class="catalog-public-source"
+                href="https://github.com/bangumi/Archive"
+                target="_blank"
+                rel="noreferrer"
+              >
+                数据来自 Bangumi Archive
+              </a>
+            </div>
             <div class="catalog-public-controls">
               <div class="filter-range catalog-public-score" role="group" aria-label="Bangumi 公共评分范围">
                 <span class="filter-range-label">Bangumi 评分</span>
@@ -477,8 +519,13 @@
                   <option value="bangumi-score-asc">Bangumi 评分：低到高</option>
                 </select>
               </label>
-              <button id="catalogMetadataRefresh" class="button button-quiet" type="button">
-                刷新本页 Bangumi 信息
+              <button
+                id="catalogMetadataRefresh"
+                class="button button-quiet catalog-public-refresh"
+                type="button"
+                title="更新本页 Bangumi 公共数据"
+              >
+                更新本页
               </button>
             </div>
           </details>
