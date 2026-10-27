@@ -223,8 +223,35 @@ test("aborts stalled GitHub reads and reports a timeout", async () => {
     (error) =>
       error instanceof GitHubApiError &&
       error.status === 0 &&
-      /请求超时/u.test(error.message),
+      /无法连接 GitHub \(api\.github\.com\).*请求超时/u.test(error.message),
   );
+});
+
+test("reads template file content through the authenticated Git Blob API", async () => {
+  let request = null;
+  const client = new GitHubClient({
+    repository: "example/personal",
+    token: "github_pat_secret",
+    fetchImpl: async (url, init) => {
+      request = {
+        url: String(url),
+        headers: init.headers,
+      };
+      return response({
+        encoding: "base64",
+        content: "Y29udGVudA==\n",
+      });
+    },
+  });
+
+  const content = await client.getBlobBase64For("example/template", "blob-sha");
+
+  assert.equal(content, "Y29udGVudA==");
+  assert.equal(
+    request.url,
+    "https://api.github.com/repos/example/template/git/blobs/blob-sha",
+  );
+  assert.equal(request.headers.Authorization, "Bearer github_pat_secret");
 });
 
 test("publishes data, index, and rotated backups in one Git Data commit", async () => {

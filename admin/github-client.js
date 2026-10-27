@@ -110,17 +110,6 @@ function base64ToText(value) {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(offset, offset + chunkSize),
-    );
-  }
-  return btoa(binary);
-}
-
 function shortHash(value) {
   let hash = 0x811c9dc5;
   for (const character of value) {
@@ -351,25 +340,6 @@ export class GitHubClient {
     );
   }
 
-  async getRawBase64For(repository, path, ref) {
-    const bytes = await this.requestWithRetry(
-      `${RAW_ROOT}/${repository}/${encodeURIComponent(ref)}/${encodePath(path)}`,
-      {
-        method: "GET",
-        headers: { Accept: "application/octet-stream" },
-      },
-      {
-        method: "GET",
-        readResponse: async (response) =>
-          new Uint8Array(await response.arrayBuffer()),
-        describeHttpError(status, detail) {
-          return `GitHub 原始文件请求失败 (HTTP ${status})${detail ? `：${detail}` : ""}`;
-        },
-      },
-    );
-    return bytesToBase64(bytes);
-  }
-
   async requestWithRetry(url, init, options) {
     const method = String(options.method ?? init.method ?? "GET").toUpperCase();
     const maxAttempts = IDEMPOTENT_METHODS.has(method) ? this.maxAttempts : 1;
@@ -387,7 +357,7 @@ export class GitHubClient {
             signal: timeout.signal,
           });
         } catch (error) {
-          throw this.transportError(error, timeout);
+          throw this.transportError(error, timeout, url);
         }
 
         if (options.allowNotFound && response.status === 404) {
@@ -448,14 +418,23 @@ export class GitHubClient {
     };
   }
 
-  transportError(error, timeout) {
+  transportError(error, timeout, url = "") {
     const message =
       timeout.timedOut() ||
       error?.name === "AbortError" ||
       error?.name === "TimeoutError"
         ? "请求超时"
         : error?.message || "网络错误";
-    return new GitHubApiError(0, `无法连接 GitHub：${message}`);
+    let host = "";
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      // Keep the generic GitHub message for non-standard test URLs.
+    }
+    return new GitHubApiError(
+      0,
+      `无法连接 GitHub${host ? ` (${host})` : ""}：${message}`,
+    );
   }
 
   isRetryable(error) {
@@ -521,6 +500,14 @@ export class GitHubClient {
       `/git/blobs/${encodeURIComponent(blobSha)}`,
       { authenticate: Boolean(this.token) },
     );
+  }
+
+  async getBlobBase64For(repository, blobSha) {
+    const payload = await this.getBlobFor(repository, blobSha);
+    if (payload?.encoding !== "base64" || !cleanString(payload.content)) {
+      throw new Error(`无法读取模板文件内容：${blobSha}`);
+    }
+    return cleanString(payload.content).replace(/\s+/gu, "");
   }
 
   async getContentAtRef(filePath, ref, allowNotFound = false) {

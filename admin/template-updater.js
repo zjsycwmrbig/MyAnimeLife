@@ -328,10 +328,9 @@ export async function updateFromTemplate(client, options = {}) {
   await Promise.all(
     entriesToCopy.map((entry) =>
       limiter(async () => {
-        const content = await client.getRawBase64For(
+        const content = await client.getBlobBase64For(
           templateRepository,
-          entry.path,
-          templateBranch,
+          entry.sha,
         );
         copiedSha.set(entry.path, await client.createBlobBase64(content));
         copiedFiles += 1;

@@ -166,7 +166,7 @@ test("reports update availability and the last template update commit", async ()
 });
 
 test("copies only template files that differ from the target", async () => {
-  const rawRequests = [];
+  const templateBlobRequests = [];
   const blobRequests = [];
   const writeRequests = [];
   const progress = [];
@@ -244,11 +244,11 @@ test("copies only template files that differ from the target", async () => {
             ],
           };
     },
-    async getRawBase64For(repository, path, ref) {
+    async getBlobBase64For(repository, blobSha) {
       assert.equal(repository, "example/template");
-      assert.equal(ref, "main");
-      rawRequests.push(path);
-      return Buffer.from(`content:${path}`).toString("base64");
+      assert.equal(blobSha, "template-changed");
+      templateBlobRequests.push(blobSha);
+      return Buffer.from("content:admin/app.js").toString("base64");
     },
     async createBlobBase64(content) {
       const text = Buffer.from(content, "base64").toString("utf8");
@@ -278,7 +278,7 @@ test("copies only template files that differ from the target", async () => {
     },
   });
 
-  assert.deepEqual(rawRequests, ["admin/app.js"]);
+  assert.deepEqual(templateBlobRequests, ["template-changed"]);
   assert.deepEqual(blobRequests, ["content:admin/app.js"]);
   assert.equal(result.updatedFiles, 1);
 
