@@ -708,6 +708,34 @@
               </button>
             </div>
           </form>
+
+          <section
+            id="catalogOperationLogPanel"
+            class="template-update-log catalog-operation-log"
+            aria-labelledby="catalogOperationLogSummary"
+            hidden
+          >
+            <header class="template-update-log-heading">
+              <div>
+                <span>RECORD ACTIVITY</span>
+                <strong id="catalogOperationLogSummary">等待操作</strong>
+              </div>
+              <button
+                id="catalogOperationLogClear"
+                class="button button-quiet template-update-log-clear"
+                type="button"
+              >
+                清空日志
+              </button>
+            </header>
+            <ol
+              id="catalogOperationLogList"
+              class="template-update-log-list"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions"
+            ></ol>
+          </section>
         </aside>
       </main>
 

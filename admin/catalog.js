@@ -36,6 +36,7 @@ import { replaceChildrenSafe } from "./dom.js";
 
 const MAX_BATCH_SIZE = 100;
 const MAX_TEMPLATE_LOGS = 40;
+const MAX_OPERATION_LOGS = 60;
 const LOCAL_APPEARANCE_KEY = "myanimelife.appearance.preferences";
 
 const state = {
@@ -46,6 +47,7 @@ const state = {
   busy: false,
   settingsBusy: false,
   templateLogs: [],
+  operationLogs: [],
   remoteSettings: null,
   templateStatus: null,
   items: [],
@@ -216,6 +218,18 @@ const elements = {
   catalogSelectionList: document.querySelector("#catalogSelectionList"),
   catalogSaveButton: document.querySelector("#catalogSaveButton"),
   catalogSyncButton: document.querySelector("#catalogSyncButton"),
+  catalogOperationLogPanel: document.querySelector(
+    "#catalogOperationLogPanel",
+  ),
+  catalogOperationLogSummary: document.querySelector(
+    "#catalogOperationLogSummary",
+  ),
+  catalogOperationLogClear: document.querySelector(
+    "#catalogOperationLogClear",
+  ),
+  catalogOperationLogList: document.querySelector(
+    "#catalogOperationLogList",
+  ),
   toast: document.querySelector("#toast"),
   templateUpdateBadge: document.querySelector("#templateUpdateBadge"),
   templateRepositoryLink: document.querySelector("#templateRepositoryLink"),
@@ -392,6 +406,62 @@ function clearTemplateLogs(summary = "等待操作") {
     elements.templateUpdateLogSummary.textContent = summary;
   }
   renderTemplateLogs();
+}
+
+function renderOperationLogs() {
+  if (!elements.catalogOperationLogPanel) {
+    return;
+  }
+  elements.catalogOperationLogPanel.hidden = state.operationLogs.length === 0;
+  const rows = state.operationLogs.map((entry) => {
+    const item = document.createElement("li");
+    item.classList.toggle("is-success", entry.tone === "success");
+    item.classList.toggle("is-warning", entry.tone === "warning");
+    item.classList.toggle("is-error", entry.tone === "error");
+    const time = document.createElement("time");
+    time.dateTime = entry.at;
+    time.textContent = entry.time;
+    const message = document.createElement("span");
+    message.textContent = entry.message;
+    item.append(time, message);
+    return item;
+  });
+  replaceChildrenSafe(
+    "记录操作日志",
+    elements.catalogOperationLogList,
+    ...rows,
+  );
+  if (elements.catalogOperationLogList) {
+    elements.catalogOperationLogList.scrollTop =
+      elements.catalogOperationLogList.scrollHeight;
+  }
+}
+
+function appendOperationLog(message, tone = "info") {
+  const text = String(message ?? "").replace(/\s+/gu, " ").trim();
+  if (!text) {
+    return;
+  }
+  const now = new Date();
+  state.operationLogs.push({
+    at: now.toISOString(),
+    time: formatTemplateLogTime(now),
+    message: text,
+    tone,
+  });
+  state.operationLogs = state.operationLogs.slice(-MAX_OPERATION_LOGS);
+  if (elements.catalogOperationLogSummary) {
+    elements.catalogOperationLogSummary.textContent = text;
+  }
+  renderOperationLogs();
+}
+
+function clearOperationLogs(summary = "等待操作") {
+  state.operationLogs = [];
+  if (elements.catalogOperationLogSummary) {
+    elements.catalogOperationLogSummary.textContent = summary;
+  }
+  renderOperationLogs();
 }
 
 function setTemplateStatus(message, tone = "") {
@@ -1508,6 +1578,12 @@ function restorePendingAdditions() {
     });
   }
   return pending;
+}
+
+function refreshPendingCatalogDrafts() {
+  state.pendingDrafts = readPendingDrafts();
+  state.dirty = pendingCount(state.pendingDrafts) > 0;
+  return state.pendingDrafts;
 }
 
 function persistCatalogDrafts(options = {}) {
@@ -2638,16 +2714,33 @@ async function submitBatch(sync) {
   }
   persistCatalogDrafts();
   const selectedItems = [...state.selectedItems.values()];
+  const pendingBeforeSubmit = readPendingDrafts();
+  const editCount = pendingBeforeSubmit.edits.length;
+  const additionCount = pendingBeforeSubmit.additions.length;
   state.busy = true;
+  clearOperationLogs(
+    `准备${sync ? "保存并推送" : "保存"} ${editCount + additionCount} 条记录`,
+  );
+  appendOperationLog(
+    `开始处理：修改 ${editCount} 条，新增 ${additionCount} 条`,
+  );
   renderSelectionSummary();
   try {
     // Wait for lazy Bangumi covers so a successful lookup is persisted with the record.
+    if (selectedItems.some((item) => !item.coverUrl)) {
+      appendOperationLog(`正在检查 ${selectedItems.length} 部番剧的封面信息`);
+    }
     await hydrateCatalogCovers(selectedItems);
     persistCatalogDrafts();
+    appendOperationLog("封面检查完成，正在提交到数据仓库");
     const payload = await commitPendingDrafts({ sync });
     if (!payload.changed) {
-      refreshPendingDrafts();
+      refreshPendingCatalogDrafts();
       renderBatchEditor();
+      appendOperationLog(
+        "服务端未检测到有效变更，草稿仍保留在浏览器中",
+        "warning",
+      );
       showToast("没有可写入的修改或新增记录，草稿仍保留在浏览器中", {
         duration: 6000,
       });
@@ -2667,11 +2760,24 @@ async function submitBatch(sync) {
     state.selectedItems.clear();
     state.drafts.clear();
     state.dirty = false;
-    refreshPendingDrafts();
+    refreshPendingCatalogDrafts();
+    appendOperationLog(
+      `写入完成：修改 ${payload.updatedRecords?.length ?? 0} 条，新增 ${addedCount} 条`,
+      "success",
+    );
+    if (skippedText) {
+      appendOperationLog(`已跳过：${skippedText}`, "warning");
+    }
+    if (payload.sync?.commit) {
+      appendOperationLog(`远端同步完成：${payload.sync.commit}`, "success");
+    }
+    if (payload.syncError) {
+      appendOperationLog(`远端同步失败：${payload.syncError}`, "error");
+    }
     window.dispatchEvent(
       new CustomEvent("anime-library:changed", {
         detail: {
-          selectId: payload.addedRecords[0]?.id ?? null,
+          selectId: payload.addedRecords?.[0]?.id ?? null,
         },
       }),
     );
@@ -2683,6 +2789,11 @@ async function submitBatch(sync) {
       duration: payload.syncError ? 8000 : 5000,
     });
   } catch (error) {
+    appendOperationLog(`提交失败：${error.message}`, "error");
+    appendOperationLog(
+      "待提交草稿仍保留在浏览器中，可检查 Token 权限和网络后重试",
+      "warning",
+    );
     showToast(error.message, { error: true, duration: 7000 });
   } finally {
     state.busy = false;
@@ -2701,6 +2812,9 @@ elements.templateCheckButton?.addEventListener("click", () => checkTemplate(true
 elements.templateUpdateButton?.addEventListener("click", updateTemplate);
 elements.templateUpdateLogClear?.addEventListener("click", () =>
   clearTemplateLogs(),
+);
+elements.catalogOperationLogClear?.addEventListener("click", () =>
+  clearOperationLogs(),
 );
 elements.siteSettingsForm.addEventListener("submit", saveSiteSettings);
 elements.siteSettingsForm.addEventListener("change", (event) => {
@@ -3050,7 +3164,18 @@ window.addEventListener("anime-runtime:changed", () => {
 });
 
 window.addEventListener("anime-pending:changed", (event) => {
-  if (["catalog", "editor"].includes(event.detail?.source)) {
+  const source = event.detail?.source;
+  const drafts = event.detail?.drafts;
+  if (source === "clear" && pendingCount(drafts) === 0) {
+    state.pendingDrafts = drafts ?? { edits: [], additions: [] };
+    state.selectedItems.clear();
+    state.drafts.clear();
+    state.dirty = false;
+    renderCatalogRows();
+    renderBatchEditor();
+    return;
+  }
+  if (["catalog", "editor"].includes(source)) {
     return;
   }
   persistCatalogDrafts({ silent: true });

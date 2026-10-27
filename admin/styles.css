@@ -1650,6 +1650,14 @@ h2 {
   background: var(--surface);
 }
 
+.catalog-operation-log {
+  margin: 14px 0 18px;
+}
+
+.catalog-operation-log .template-update-log-list {
+  max-height: min(34vh, 280px);
+}
+
 .duplicate-workspace {
   display: block;
 }
