@@ -66,6 +66,7 @@ const state = {
   metadataSort: "default",
   metadataAvailableCount: 0,
   metadataPersonalLoaded: false,
+  metadataPersonalLoading: false,
   metadataPersonalCount: 0,
   metadataPersonalSize: 0,
   metadataPersonalUpdatedAt: null,
@@ -157,6 +158,7 @@ const elements = {
   catalogMetadataPersonalFile: document.querySelector(
     "#catalogMetadataPersonalFile",
   ),
+  catalogMetadataReload: document.querySelector("#catalogMetadataReload"),
   catalogMetadataSavePage: document.querySelector(
     "#catalogMetadataSavePage",
   ),
@@ -754,7 +756,11 @@ function renderCacheManager() {
   const busy = state.metadataCacheBusy;
   const pageEntries = bangumiEntriesForItems();
   const personalPageIds = currentPagePersonalBangumiIds();
-  const disabled = busy || state.loading || state.metadataLoading;
+  const disabled =
+    busy ||
+    state.loading ||
+    state.metadataLoading ||
+    state.metadataPersonalLoading;
   if (elements.catalogMetadataPersonalCount) {
     elements.catalogMetadataPersonalCount.textContent =
       `${state.metadataPersonalCount.toLocaleString("zh-CN")} 条`;
@@ -774,6 +780,17 @@ function renderCacheManager() {
     elements.catalogMetadataPersonalFile.textContent =
       state.metadataPersonalFile;
     elements.catalogMetadataPersonalFile.title = state.metadataPersonalFile;
+  }
+  if (elements.catalogMetadataReload) {
+    elements.catalogMetadataReload.disabled = disabled;
+    elements.catalogMetadataReload.textContent =
+      state.metadataCacheAction === "reload-personal"
+        ? "正在装填"
+        : "从仓库装填";
+    elements.catalogMetadataReload.classList.toggle(
+      "is-loading",
+      state.metadataCacheAction === "reload-personal",
+    );
   }
   if (elements.catalogMetadataSavePage) {
     elements.catalogMetadataSavePage.disabled =
@@ -885,6 +902,8 @@ async function loadPersonalBangumiCache(options = {}) {
   if (personalCachePromise) {
     return personalCachePromise;
   }
+  state.metadataPersonalLoading = true;
+  renderCacheManager();
   personalCachePromise = (async () => {
     setCacheManagerStatus("正在读取个人仓库中的 Bangumi 缓存...");
     try {
@@ -903,20 +922,45 @@ async function loadPersonalBangumiCache(options = {}) {
         "success",
       );
     } catch (error) {
+      // Avoid retrying the full cache download on every filter change. The
+      // explicit reload button still forces a fresh attempt.
       state.metadataPersonalLoaded = true;
       await refreshLocalBangumiCacheFacts();
       setCacheManagerStatus(
         `个人缓存读取失败：${error.message}。本机临时缓存仍可使用。`,
         "error",
       );
+      if (options.throwOnError) {
+        throw error;
+      }
     }
     renderCacheManager();
   })();
   try {
     await personalCachePromise;
   } finally {
+    state.metadataPersonalLoading = false;
     personalCachePromise = null;
+    renderCacheManager();
   }
+}
+
+async function reloadPersonalBangumiCache() {
+  await runBangumiCacheAction("reload-personal", async () => {
+    setCacheManagerStatus("正在从个人仓库重新装填 Bangumi 缓存...");
+    state.metadataPersonalLoaded = false;
+    await loadPersonalBangumiCache({
+      force: true,
+      throwOnError: true,
+    });
+    await refreshLocalBangumiCacheFacts();
+    applyCatalogView({ render: true });
+    const message =
+      `已从个人仓库装填 ${state.metadataPersonalCount.toLocaleString("zh-CN")} 条 Bangumi 缓存，` +
+      `本机临时缓存 ${state.metadataLocalCount.toLocaleString("zh-CN")} 条待同步。`;
+    setCacheManagerStatus(message, "success");
+    showToast(message, { duration: 5000 });
+  });
 }
 
 function bangumiCacheCommitMessage(action, entries) {
@@ -2766,6 +2810,10 @@ elements.catalogMetadataRefresh.addEventListener("click", () => {
   hydrateVisibleMetadata(requestSequence, { refresh: true });
 });
 
+elements.catalogMetadataReload?.addEventListener(
+  "click",
+  reloadPersonalBangumiCache,
+);
 elements.catalogMetadataSavePage?.addEventListener(
   "click",
   savePageBangumiCache,
@@ -2949,6 +2997,7 @@ window.addEventListener("anime-runtime:changed", () => {
   state.metadataPersonalSize = 0;
   state.metadataPersonalUpdatedAt = null;
   state.metadataPersonalLoaded = false;
+  state.metadataPersonalLoading = false;
   state.metadataEntries.clear();
   state.metadataBrowserCount = 0;
   state.metadataLocalCount = 0;

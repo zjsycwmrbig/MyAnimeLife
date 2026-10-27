@@ -489,7 +489,7 @@ export class GitHubClient {
       { authenticate: Boolean(this.token) },
     );
     if (payload?.truncated) {
-      throw new Error("模板仓库文件过多，GitHub 返回了不完整的文件树");
+      throw new Error("仓库文件过多，GitHub 返回了不完整的文件树");
     }
     return payload;
   }
@@ -505,9 +505,33 @@ export class GitHubClient {
   async getBlobBase64For(repository, blobSha) {
     const payload = await this.getBlobFor(repository, blobSha);
     if (payload?.encoding !== "base64" || !cleanString(payload.content)) {
-      throw new Error(`无法读取模板文件内容：${blobSha}`);
+      throw new Error(`无法读取 GitHub 文件内容：${blobSha}`);
     }
     return cleanString(payload.content).replace(/\s+/gu, "");
+  }
+
+  async getTextFromTree(
+    repository,
+    treePayload,
+    filePath,
+    allowNotFound = false,
+  ) {
+    const entry = (treePayload?.tree ?? []).find(
+      (item) => item?.type === "blob" && item.path === filePath,
+    );
+    if (!entry?.sha) {
+      if (allowNotFound) {
+        return null;
+      }
+      throw new Error(`Git 树中找不到文件：${filePath}`);
+    }
+    const content = await this.getBlobBase64For(repository, entry.sha);
+    return {
+      type: "file",
+      path: filePath,
+      sha: entry.sha,
+      text: base64ToText(content),
+    };
   }
 
   async getContentAtRef(filePath, ref, allowNotFound = false) {
@@ -589,10 +613,22 @@ export class GitHubClient {
     config = normalizeConfig(config);
     this.backupDirectory = config.backupDirectory;
 
+    // The Contents API has a 1 MB practical limit. Personal Bangumi caches
+    // routinely exceed it, so authenticated reads use the Git Blob API.
+    const repositoryTree = this.token
+      ? await this.getTreeFor(this.repository, commit.tree.sha)
+      : null;
     const [dataFile, indexFile, bangumiCacheFile, backups] = await Promise.all([
       this.getTextAtRef(config.dataFile, headSha),
       this.getTextAtRef(config.indexFile, headSha),
-      this.getTextAtRef(config.bangumiCacheFile, headSha, true),
+      repositoryTree
+        ? this.getTextFromTree(
+            this.repository,
+            repositoryTree,
+            config.bangumiCacheFile,
+            true,
+          )
+        : this.getTextAtRef(config.bangumiCacheFile, headSha, true),
       options.includeBackups ? this.listBackups(headSha) : [],
     ]);
     const records = sortRecordsById(parseJsonl(dataFile.text, config.dataFile));
