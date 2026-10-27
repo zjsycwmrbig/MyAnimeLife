@@ -421,6 +421,68 @@
             </label>
           </div>
 
+          <details class="catalog-public-panel">
+            <summary class="catalog-public-heading">
+              <div>
+                <span class="eyebrow">BANGUMI PUBLIC DATA</span>
+                <strong>公共评分与标签</strong>
+              </div>
+              <span id="catalogMetadataStatus" role="status" aria-live="polite">
+                打开本页后读取浏览器缓存
+              </span>
+            </summary>
+            <div class="catalog-public-controls">
+              <div class="filter-range catalog-public-score" role="group" aria-label="Bangumi 公共评分范围">
+                <span class="filter-range-label">Bangumi 评分</span>
+                <div class="filter-range-inputs">
+                  <label>
+                    <span class="visually-hidden">最低 Bangumi 评分</span>
+                    <input id="catalogMetadataScoreMin" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最低" />
+                  </label>
+                  <span aria-hidden="true">至</span>
+                  <label>
+                    <span class="visually-hidden">最高 Bangumi 评分</span>
+                    <input id="catalogMetadataScoreMax" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最高" />
+                  </label>
+                </div>
+              </div>
+              <details id="catalogTagFilter" class="catalog-multi-filter catalog-tag-filter">
+                <summary>
+                  <span class="catalog-multi-filter-label">标签</span>
+                  <strong id="catalogTagSummary">全部标签</strong>
+                </summary>
+                <div class="catalog-multi-filter-panel">
+                  <div class="catalog-multi-filter-heading">
+                    <span>可多选 · 匹配任一标签</span>
+                    <button id="catalogTagClear" class="text-button" type="button" disabled>
+                      清空
+                    </button>
+                  </div>
+                  <div id="catalogTagOptions" class="catalog-year-options"></div>
+                </div>
+              </details>
+              <label class="compact-field">
+                <span>公共信息</span>
+                <select id="catalogMetadataAvailability">
+                  <option value="all" selected>全部番剧</option>
+                  <option value="available">已有公共信息</option>
+                  <option value="unavailable">暂无公共信息</option>
+                </select>
+              </label>
+              <label class="compact-field">
+                <span>排序</span>
+                <select id="catalogMetadataSort">
+                  <option value="default" selected>索引默认：最新优先</option>
+                  <option value="bangumi-score-desc">Bangumi 评分：高到低</option>
+                  <option value="bangumi-score-asc">Bangumi 评分：低到高</option>
+                </select>
+              </label>
+              <button id="catalogMetadataRefresh" class="button button-quiet" type="button">
+                刷新本页 Bangumi 信息
+              </button>
+            </div>
+          </details>
+
           <div class="catalog-result-bar">
             <span id="catalogResultLabel">尚未加载</span>
             <div class="catalog-selection-tools">

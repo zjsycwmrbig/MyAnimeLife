@@ -1,8 +1,9 @@
+import { fetchBangumiSubject } from "./bangumi-subject.js";
+
 const DATABASE_NAME = "myanimelife-catalog-covers";
 const STORE_NAME = "covers";
 const COVER_TTL = 7 * 24 * 60 * 60 * 1000;
 const MISSING_COVER_TTL = 10 * 60 * 1000;
-const inFlight = new Map();
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -85,17 +86,8 @@ async function writeCache(values) {
 }
 
 async function fetchBangumiCover(subjectId) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(
-      `https://api.bgm.tv/v0/subjects/${encodeURIComponent(subjectId)}`,
-      { headers: { Accept: "application/json" }, signal: controller.signal },
-    );
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json();
+    const payload = await fetchBangumiSubject(subjectId);
     return normalizeUrl(
       payload?.images?.large ??
         payload?.images?.common ??
@@ -103,17 +95,11 @@ async function fetchBangumiCover(subjectId) {
     );
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
 function fetchCachedBangumiCover(subjectId) {
-  const key = clean(subjectId);
-  if (!inFlight.has(key)) {
-    inFlight.set(key, fetchBangumiCover(key).finally(() => inFlight.delete(key)));
-  }
-  return inFlight.get(key);
+  return fetchBangumiCover(subjectId);
 }
 
 function createLimiter(limit) {
