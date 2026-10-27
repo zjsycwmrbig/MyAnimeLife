@@ -71,20 +71,89 @@
             </div>
           </div>
 
-          <div class="toolbar">
-            <label class="search-field">
-              <span class="visually-hidden">搜索番剧</span>
-              <input
-                id="searchInput"
-                type="search"
-                placeholder="搜索标题、评价或站点 ID"
-                autocomplete="off"
-              />
-            </label>
-            <div class="segmented" role="group" aria-label="筛选">
-              <button class="is-active" data-filter="all" type="button">全部</button>
-              <button data-filter="rated" type="button">已评分</button>
-              <button data-filter="unrated" type="button">未评分</button>
+          <div class="library-filter-panel" aria-label="我的记录筛选与排序">
+            <div class="library-filter-primary">
+              <label class="search-field">
+                <span class="visually-hidden">搜索番剧</span>
+                <input
+                  id="searchInput"
+                  type="search"
+                  placeholder="搜索标题、短评、备注、年代或站点 ID"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="compact-field library-sort-field">
+                <span>排序</span>
+                <select id="librarySort">
+                  <option value="created-desc" selected>添加时间：最新优先</option>
+                  <option value="created-asc">添加时间：最早优先</option>
+                  <option value="rating-desc">评分：高到低</option>
+                  <option value="rating-asc">评分：低到高</option>
+                  <option value="updated-desc">修改时间：最新优先</option>
+                  <option value="updated-asc">修改时间：最早优先</option>
+                  <option value="year-desc">作品年份：新到旧</option>
+                  <option value="year-asc">作品年份：旧到新</option>
+                  <option value="title-asc">标题：升序</option>
+                  <option value="title-desc">标题：降序</option>
+                </select>
+              </label>
+            </div>
+            <div class="library-filter-grid">
+              <label class="compact-field">
+                <span>内容状态</span>
+                <select id="libraryStatusFilter">
+                  <option value="all" selected>全部记录</option>
+                  <option value="rated">已有评分</option>
+                  <option value="unrated">未评分</option>
+                  <option value="reviewed">已有短评</option>
+                  <option value="noted">已有备注</option>
+                </select>
+              </label>
+              <div class="filter-range" role="group" aria-label="评分范围">
+                <span class="filter-range-label">评分范围</span>
+                <div class="filter-range-inputs">
+                  <label>
+                    <span class="visually-hidden">最低评分</span>
+                    <input id="libraryRatingMin" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最低" />
+                  </label>
+                  <span aria-hidden="true">至</span>
+                  <label>
+                    <span class="visually-hidden">最高评分</span>
+                    <input id="libraryRatingMax" type="number" min="0" max="10" step="0.1" inputmode="decimal" placeholder="最高" />
+                  </label>
+                </div>
+              </div>
+              <div class="filter-range" role="group" aria-label="作品年份范围">
+                <span class="filter-range-label">作品年份</span>
+                <div class="filter-range-inputs">
+                  <label>
+                    <span class="visually-hidden">最早年份</span>
+                    <input id="libraryYearMin" type="number" min="1900" max="2200" step="1" inputmode="numeric" placeholder="起始" />
+                  </label>
+                  <span aria-hidden="true">至</span>
+                  <label>
+                    <span class="visually-hidden">最晚年份</span>
+                    <input id="libraryYearMax" type="number" min="1900" max="2200" step="1" inputmode="numeric" placeholder="结束" />
+                  </label>
+                </div>
+              </div>
+              <div class="filter-range filter-range-wide" role="group" aria-label="收录日期范围">
+                <span class="filter-range-label">收录日期</span>
+                <div class="filter-range-inputs">
+                  <label>
+                    <span class="visually-hidden">收录起始日期</span>
+                    <input id="libraryCreatedFrom" type="date" />
+                  </label>
+                  <span aria-hidden="true">至</span>
+                  <label>
+                    <span class="visually-hidden">收录结束日期</span>
+                    <input id="libraryCreatedTo" type="date" />
+                  </label>
+                </div>
+              </div>
+              <button id="libraryFilterReset" class="text-button library-filter-reset" type="button">
+                重置筛选
+              </button>
             </div>
           </div>
 
@@ -95,6 +164,7 @@
                 <span>全选本页</span>
               </label>
               <span id="selectionLabel">未选择</span>
+              <span id="libraryResultLabel" class="library-result-label"></span>
             </div>
             <button id="deleteButton" class="button button-danger" type="button" disabled>
               删除所选

@@ -7,6 +7,7 @@ import {
   getPaginationState,
   renderPagination,
 } from "./pagination.js";
+import { queryLibraryRecords } from "./library-query.js";
 import { createRatingControl } from "./rating-control.js";
 import {
   clearPendingDrafts,
@@ -22,7 +23,14 @@ const state = {
   selectedId: null,
   selectedIds: new Set(),
   query: "",
-  filter: "all",
+  status: "all",
+  ratingMin: "",
+  ratingMax: "",
+  yearMin: "",
+  yearMax: "",
+  createdFrom: "",
+  createdTo: "",
+  sort: "created-desc",
   page: 1,
   pageSize: 30,
   layout: "list",
@@ -39,7 +47,16 @@ const elements = {
   syncButton: document.querySelector("#syncButton"),
   recordCount: document.querySelector("#recordCount"),
   searchInput: document.querySelector("#searchInput"),
-  filterButtons: [...document.querySelectorAll("[data-filter]")],
+  librarySort: document.querySelector("#librarySort"),
+  libraryStatusFilter: document.querySelector("#libraryStatusFilter"),
+  libraryRatingMin: document.querySelector("#libraryRatingMin"),
+  libraryRatingMax: document.querySelector("#libraryRatingMax"),
+  libraryYearMin: document.querySelector("#libraryYearMin"),
+  libraryYearMax: document.querySelector("#libraryYearMax"),
+  libraryCreatedFrom: document.querySelector("#libraryCreatedFrom"),
+  libraryCreatedTo: document.querySelector("#libraryCreatedTo"),
+  libraryFilterReset: document.querySelector("#libraryFilterReset"),
+  libraryResultLabel: document.querySelector("#libraryResultLabel"),
   selectAll: document.querySelector("#selectAll"),
   selectionLabel: document.querySelector("#selectionLabel"),
   deleteButton: document.querySelector("#deleteButton"),
@@ -74,6 +91,11 @@ const elements = {
 };
 
 let toastTimer = null;
+const recordDateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 const ratingControl = createRatingControl({
   disabled: !getRuntime().writable,
   onChange: () => scheduleCurrentDraft(),
@@ -150,37 +172,16 @@ function excerpt(value) {
   return String(value ?? "").replace(/\s+/gu, " ").trim();
 }
 
-function recordMatches(record) {
-  if (state.filter === "rated" && record.rating === null) {
-    return false;
+function recordDateText(record) {
+  const date = new Date(record?.createdAt);
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
-  if (state.filter === "unrated" && record.rating !== null) {
-    return false;
-  }
-  const query = state.query.trim().toLocaleLowerCase();
-  if (!query) {
-    return true;
-  }
-  const haystack = [
-    record.id,
-    record.title,
-    record.review,
-    record.note,
-    seasonText(record),
-    sourceText(record),
-    record.match?.matchedTitle,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLocaleLowerCase();
-  return haystack.includes(query);
+  return `收录 ${recordDateFormatter.format(date)}`;
 }
 
 function filteredRecords() {
-  return state.records
-    .map(effectiveRecord)
-    .filter(recordMatches)
-    .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
+  return queryLibraryRecords(state.records.map(effectiveRecord), state);
 }
 
 function currentPageRecords(records = filteredRecords()) {
@@ -456,7 +457,11 @@ function createRecordCard(record) {
   body.append(title);
   const meta = document.createElement("span");
   meta.className = "record-card-meta";
-  meta.textContent = [animeDateText(record), sourceText(record)]
+  meta.textContent = [
+    recordDateText(record),
+    animeDateText(record),
+    sourceText(record),
+  ]
     .filter(Boolean)
     .join(" · ");
   body.append(meta);
@@ -493,6 +498,10 @@ function renderRows() {
   elements.recordRows.replaceChildren();
   elements.recordCards.replaceChildren();
   elements.recordCount.textContent = String(state.records.length);
+  elements.libraryResultLabel.textContent =
+    records.length === state.records.length
+      ? `当前显示全部 ${records.length.toLocaleString("zh-CN")} 条`
+      : `筛选出 ${records.length.toLocaleString("zh-CN")} / ${state.records.length.toLocaleString("zh-CN")} 条`;
   elements.emptyState.hidden = records.length > 0;
 
   for (const record of state.layout === "list" ? pageRecords : []) {
@@ -538,7 +547,11 @@ function renderRows() {
     }
     const subtitle = document.createElement("span");
     subtitle.className = "record-subtitle";
-    subtitle.textContent = [animeDateText(record), sourceText(record)]
+    subtitle.textContent = [
+      recordDateText(record),
+      animeDateText(record),
+      sourceText(record),
+    ]
       .filter(Boolean)
       .join(" · ");
     titleCell.append(title, subtitle);
@@ -885,16 +898,47 @@ elements.searchInput.addEventListener("input", () => {
   renderRows();
 });
 
-for (const button of elements.filterButtons) {
-  button.addEventListener("click", () => {
-    state.filter = button.dataset.filter;
+for (const [element, key] of [
+  [elements.libraryStatusFilter, "status"],
+  [elements.libraryRatingMin, "ratingMin"],
+  [elements.libraryRatingMax, "ratingMax"],
+  [elements.libraryYearMin, "yearMin"],
+  [elements.libraryYearMax, "yearMax"],
+  [elements.libraryCreatedFrom, "createdFrom"],
+  [elements.libraryCreatedTo, "createdTo"],
+  [elements.librarySort, "sort"],
+]) {
+  element.addEventListener("input", () => {
+    state[key] = element.value;
     state.page = 1;
-    for (const candidate of elements.filterButtons) {
-      candidate.classList.toggle("is-active", candidate === button);
-    }
     renderRows();
   });
 }
+
+elements.libraryFilterReset.addEventListener("click", () => {
+  const defaults = {
+    query: "",
+    status: "all",
+    ratingMin: "",
+    ratingMax: "",
+    yearMin: "",
+    yearMax: "",
+    createdFrom: "",
+    createdTo: "",
+    sort: "created-desc",
+  };
+  Object.assign(state, defaults, { page: 1 });
+  elements.searchInput.value = defaults.query;
+  elements.libraryStatusFilter.value = defaults.status;
+  elements.libraryRatingMin.value = defaults.ratingMin;
+  elements.libraryRatingMax.value = defaults.ratingMax;
+  elements.libraryYearMin.value = defaults.yearMin;
+  elements.libraryYearMax.value = defaults.yearMax;
+  elements.libraryCreatedFrom.value = defaults.createdFrom;
+  elements.libraryCreatedTo.value = defaults.createdTo;
+  elements.librarySort.value = defaults.sort;
+  renderRows();
+});
 
 elements.selectAll.addEventListener("change", () => {
   const visible = currentPageRecords();
