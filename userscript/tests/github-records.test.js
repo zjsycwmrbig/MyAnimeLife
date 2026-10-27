@@ -40,11 +40,15 @@ const selectedResult = {
 function createGithubMock({
   records = null,
   files = {},
-  onPut = null,
+  onRefUpdate = null,
 } = {}) {
   const state = new Map();
   const calls = [];
+  const blobs = new Map();
+  const trees = new Map();
+  const commits = new Map();
   let revision = 1;
+  let headSha = null;
 
   function fileMetadata(repoPath, text, sha) {
     return {
@@ -63,7 +67,16 @@ function createGithubMock({
     return `sha-${revision}`;
   }
 
-  function setFile(repoPath, text, sha = nextSha()) {
+  function cloneFiles(source = state) {
+    return new Map(
+      [...source.entries()].map(([repoPath, file]) => [
+        repoPath,
+        { ...file },
+      ]),
+    );
+  }
+
+  function stageFile(repoPath, text, sha = nextSha()) {
     const file = {
       text: String(text ?? ""),
       sha,
@@ -72,29 +85,96 @@ function createGithubMock({
         `https://github.com/example/anime-records/blob/main/${repoPath}`,
     };
     state.set(repoPath, file);
+    blobs.set(sha, file.text);
+    return file;
+  }
+
+  function stageLibrary(nextRecords) {
+    return [
+      stageFile(ANIME_JSONL_PATH, serializeJsonl(nextRecords)),
+      stageFile(
+      ANIME_INDEX_JSONL_PATH,
+      serializeJsonl(buildAnimeIndex(nextRecords)),
+      ),
+    ];
+  }
+
+  function commitFiles(files, message, parent = headSha) {
+    const treeSha = nextSha();
+    const treeEntries = [...files.entries()].map(([repoPath, file]) => ({
+      path: repoPath,
+      mode: "100644",
+      type: "blob",
+      sha: file.sha,
+    }));
+    const tree = {
+      sha: treeSha,
+      tree: treeEntries,
+      files: cloneFiles(files),
+    };
+    trees.set(treeSha, tree);
+    const commitSha = nextSha();
+    const commit = {
+      sha: commitSha,
+      message,
+      tree: { sha: treeSha },
+      parents: parent ? [{ sha: parent }] : [],
+      files: cloneFiles(files),
+    };
+    commits.set(commitSha, commit);
+    headSha = commitSha;
+    return commit;
+  }
+
+  function commitCurrent(message) {
+    return commitFiles(state, message);
+  }
+
+  function setFile(repoPath, text, sha) {
+    const file = stageFile(repoPath, text, sha);
+    commitCurrent(`External file update: ${repoPath}`);
     return file;
   }
 
   function setLibrary(nextRecords) {
-    setFile(ANIME_JSONL_PATH, serializeJsonl(nextRecords));
-    setFile(
-      ANIME_INDEX_JSONL_PATH,
-      serializeJsonl(buildAnimeIndex(nextRecords)),
-    );
+    stageLibrary(nextRecords);
+    commitCurrent("External library update");
   }
 
   for (const [repoPath, file] of Object.entries(files)) {
-    setFile(repoPath, file.text ?? file, file.sha);
+    stageFile(repoPath, file.text ?? file, file.sha);
   }
   if (records) {
-    setLibrary(records);
+    stageLibrary(records);
   }
+  commitCurrent("Initial repository state");
 
   const api = {
     state,
     calls,
+    blobs,
+    trees,
+    commits,
     setFile,
     setLibrary,
+    get headSha() {
+      return headSha;
+    },
+    latestTreeEntry(repoPath) {
+      const treeCall = [...calls]
+        .reverse()
+        .find(
+          (call) =>
+            call.method === "POST" &&
+            new URL(call.url).pathname.endsWith("/git/trees"),
+        );
+      if (!treeCall) {
+        return null;
+      }
+      return JSON.parse(treeCall.options.body).tree.find(
+        (entry) => entry.path === repoPath,
+      ) ?? null;
+    },
     requestJson: async (url, options = {}) => {
       const request = {
         url,
@@ -103,18 +183,40 @@ function createGithubMock({
       };
       calls.push(request);
       const pathname = new URL(url).pathname;
-      const marker = "/contents/";
-      const markerIndex = pathname.indexOf(marker);
-      if (markerIndex < 0) {
-        throw new Error(`Unexpected GitHub API URL: ${url}`);
-      }
-      const repoPath = decodeURIComponent(
-        pathname.slice(markerIndex + marker.length),
+      const endpoint = pathname.slice(
+        pathname.indexOf("/repos/example/anime-records") +
+          "/repos/example/anime-records".length,
       );
+      const contentsPrefix = "/contents/";
+      const gitPrefix = "/git/";
+      const jsonBody = () =>
+        options.body ? JSON.parse(options.body) : {};
+      const notFound = () => {
+        const error = new Error("HTTP 404 Not Found");
+        error.status = 404;
+        throw error;
+      };
+      const snapshotForRef = (ref) => {
+        if (!ref || ref === "main") {
+          return state;
+        }
+        return commits.get(ref)?.files ?? null;
+      };
 
-      if (request.method === "GET") {
+      if (endpoint.startsWith(contentsPrefix)) {
+        const repoPath = decodeURIComponent(
+          endpoint.slice(contentsPrefix.length),
+        );
+        if (request.method !== "GET") {
+          throw new Error(`Unsupported Contents API method: ${request.method}`);
+        }
+        const ref = new URL(url).searchParams.get("ref");
+        const snapshot = snapshotForRef(ref);
+        if (!snapshot) {
+          return notFound();
+        }
         if (repoPath === BACKUP_DIRECTORY) {
-          return [...state.values()]
+          return [...snapshot.values()]
             .filter((file) => file.path.startsWith(`${BACKUP_DIRECTORY}/`))
             .map((file) => ({
               type: "file",
@@ -123,60 +225,136 @@ function createGithubMock({
               sha: file.sha,
             }));
         }
-        const file = state.get(repoPath);
+        const file = snapshot.get(repoPath);
         if (!file) {
-          const error = new Error("HTTP 404 Not Found");
-          error.status = 404;
-          throw error;
+          return notFound();
         }
         return fileMetadata(repoPath, file.text, file.sha);
       }
 
-      if (request.method === "PUT") {
-        const body = JSON.parse(options.body);
-        if (onPut) {
-          await onPut({
-            api,
-            repoPath,
-            body,
-          });
+      if (!endpoint.startsWith(gitPrefix)) {
+        throw new Error(`Unexpected GitHub API URL: ${url}`);
+      }
+      const gitEndpoint = endpoint.slice(gitPrefix.length);
+      if (
+        request.method === "GET" &&
+        gitEndpoint === "ref/heads/main"
+      ) {
+        return { ref: "refs/heads/main", object: { sha: headSha } };
+      }
+      if (
+        request.method === "GET" &&
+        gitEndpoint.startsWith("commits/")
+      ) {
+        const sha = decodeURIComponent(gitEndpoint.slice("commits/".length));
+        const commit = commits.get(sha);
+        if (!commit) {
+          return notFound();
         }
-        const current = state.get(repoPath);
-        if (
-          (current && body.sha !== current.sha) ||
-          (!current && body.sha)
-        ) {
-          const error = new Error("HTTP 422 conflict");
-          error.status = 422;
-          throw error;
-        }
-        const text = Buffer.from(body.content, "base64").toString("utf8");
-        const saved = setFile(repoPath, text);
-        const uploaded = fileMetadata(repoPath, text, saved.sha);
         return {
-          content: {
-            name: repoPath.split("/").at(-1),
-            path: repoPath,
-            sha: saved.sha,
-            html_url: uploaded.html_url,
-          },
-          commit: { sha: `commit-${saved.sha}` },
+          sha: commit.sha,
+          message: commit.message,
+          tree: commit.tree,
+          parents: commit.parents,
         };
       }
-
-      if (request.method === "DELETE") {
-        const body = JSON.parse(options.body);
-        const current = state.get(repoPath);
-        if (!current || current.sha !== body.sha) {
+      if (request.method === "POST" && gitEndpoint === "blobs") {
+        const body = jsonBody();
+        const text =
+          body.encoding === "base64"
+            ? Buffer.from(body.content, "base64").toString("utf8")
+            : String(body.content ?? "");
+        const sha = nextSha();
+        blobs.set(sha, text);
+        return { sha };
+      }
+      if (request.method === "POST" && gitEndpoint === "trees") {
+        const body = jsonBody();
+        const baseTree = trees.get(body.base_tree);
+        if (!baseTree) {
+          return notFound();
+        }
+        const nextFiles = cloneFiles(baseTree.files);
+        for (const entry of body.tree ?? []) {
+          if (entry.sha === null) {
+            nextFiles.delete(entry.path);
+            continue;
+          }
+          const text = blobs.get(entry.sha);
+          if (text === undefined) {
+            throw new Error(`Unknown blob SHA: ${entry.sha}`);
+          }
+          nextFiles.set(entry.path, {
+            text,
+            sha: entry.sha,
+            path: entry.path,
+            html_url:
+              `https://github.com/example/anime-records/blob/main/${entry.path}`,
+          });
+        }
+        const sha = nextSha();
+        const tree = {
+          sha,
+          tree: [...nextFiles.values()].map((file) => ({
+            path: file.path,
+            mode: "100644",
+            type: "blob",
+            sha: file.sha,
+          })),
+          files: nextFiles,
+        };
+        trees.set(sha, tree);
+        return { sha, tree: tree.tree };
+      }
+      if (request.method === "POST" && gitEndpoint === "commits") {
+        const body = jsonBody();
+        const tree = trees.get(body.tree);
+        if (!tree) {
+          return notFound();
+        }
+        const sha = nextSha();
+        const parents = (body.parents ?? []).map((parent) => ({
+          sha: parent,
+        }));
+        const commit = {
+          sha,
+          message: body.message,
+          tree: { sha: tree.sha },
+          parents,
+          files: cloneFiles(tree.files),
+        };
+        commits.set(sha, commit);
+        return { sha, tree: commit.tree, parents };
+      }
+      if (
+        request.method === "PATCH" &&
+        gitEndpoint === "refs/heads/main"
+      ) {
+        if (onRefUpdate) {
+          await onRefUpdate({ api, body: jsonBody() });
+        }
+        const body = jsonBody();
+        const commit = commits.get(body.sha);
+        if (!commit) {
+          return notFound();
+        }
+        const expectedParent = commit.parents[0]?.sha ?? null;
+        if (!body.force && expectedParent !== headSha) {
           const error = new Error("HTTP 409 conflict");
           error.status = 409;
           throw error;
         }
-        state.delete(repoPath);
-        return { commit: { sha: `commit-delete-${current.sha}` } };
+        headSha = commit.sha;
+        state.clear();
+        for (const [repoPath, file] of commit.files) {
+          state.set(repoPath, { ...file });
+        }
+        return { ref: "refs/heads/main", object: { sha: headSha } };
       }
 
-      throw new Error(`Unsupported GitHub API method: ${request.method}`);
+      throw new Error(
+        `Unsupported GitHub Git API request: ${request.method} ${endpoint}`,
+      );
     },
   };
 
@@ -366,7 +544,8 @@ test("confirms existing records before appending a separate JSONL record", async
       error.duplicates[0]?.kind === "existing",
   );
   assert.equal(
-    api.calls.filter((call) => call.method === "PUT").length,
+    api.calls.filter((call) => ["PUT", "PATCH"].includes(call.method))
+      .length,
     0,
   );
 
@@ -383,26 +562,44 @@ test("confirms existing records before appending a separate JSONL record", async
   assert.equal(saved.record.rating, 9);
   assert.equal(saved.record.note, "");
   assert.equal(saved.path, ANIME_JSONL_PATH);
-  const dataReads = api.calls.filter(
-    (call) =>
-      call.method === "GET" &&
-      [ANIME_JSONL_PATH, ANIME_INDEX_JSONL_PATH].some((repoPath) =>
-        call.url.includes(`/contents/${repoPath}`),
-      ),
+  assert.equal(
+    api.calls.filter((call) => call.method === "PUT").length,
+    0,
   );
-  assert.equal(dataReads.length, 2);
+  const publishCalls = api.calls.filter((call) =>
+    ["POST", "PATCH"].includes(call.method),
+  );
+  assert.equal(
+    publishCalls.filter(
+      (call) => new URL(call.url).pathname.endsWith("/git/blobs"),
+    ).length,
+    3,
+  );
+  assert.equal(
+    publishCalls.filter(
+      (call) => new URL(call.url).pathname.endsWith("/git/trees"),
+    ).length,
+    1,
+  );
+  assert.equal(
+    publishCalls.filter(
+      (call) => new URL(call.url).pathname.endsWith("/git/commits"),
+    ).length,
+    1,
+  );
+  assert.equal(
+    publishCalls.filter((call) => call.method === "PATCH").length,
+    1,
+  );
+  assert.ok(
+    publishCalls.every(
+      (call) =>
+        call.options.headers.Authorization === "Bearer secret-token",
+    ),
+  );
 
-  const animePut = api.calls.find(
-    (call) =>
-      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
-  );
-  assert.ok(animePut);
-  assert.equal(animePut.options.headers.Authorization, "Bearer secret-token");
-  const animeBody = JSON.parse(animePut.options.body);
-  assert.equal(animeBody.branch, "main");
-  assert.ok(animeBody.sha);
   const uploadedRecords = parseJsonl(
-    Buffer.from(animeBody.content, "base64").toString("utf8"),
+    api.state.get(ANIME_JSONL_PATH).text,
     ANIME_JSONL_PATH,
   );
   assert.equal(uploadedRecords.length, 2);
@@ -415,31 +612,17 @@ test("confirms existing records before appending a separate JSONL record", async
   assert.equal(appended.review, "新评价");
   assert.deepEqual(appended.externalIds, existing.externalIds);
 
-  const indexPut = api.calls.find(
-    (call) =>
-      call.method === "PUT" &&
-      call.url.endsWith(`/${ANIME_INDEX_JSONL_PATH}`),
-  );
-  assert.ok(indexPut);
-  const indexBody = JSON.parse(indexPut.options.body);
   const uploadedIndex = parseJsonl(
-    Buffer.from(indexBody.content, "base64").toString("utf8"),
+    api.state.get(ANIME_INDEX_JSONL_PATH).text,
     ANIME_INDEX_JSONL_PATH,
   );
   assert.deepEqual(uploadedIndex, buildAnimeIndex(uploadedRecords));
 
-  const backupPut = api.calls.find(
-    (call) =>
-      call.method === "PUT" &&
-      call.url.includes(`/${BACKUP_DIRECTORY}/library-`),
-  );
-  assert.ok(backupPut);
-  const backup = JSON.parse(
-    Buffer.from(
-      JSON.parse(backupPut.options.body).content,
-      "base64",
-    ).toString("utf8"),
-  );
+  const backupFile = [...api.state.entries()].find(([repoPath]) =>
+    repoPath.startsWith(`${BACKUP_DIRECTORY}/library-`),
+  )?.[1];
+  assert.ok(backupFile);
+  const backup = JSON.parse(backupFile.text);
   assert.equal(backup.kind, "anime-library-backup");
   assert.equal(backup.animeText, originalAnimeText);
   assert.equal(backup.indexText, originalIndexText);
@@ -491,26 +674,20 @@ test("batch imports new anime once and preserves existing ratings and reviews", 
   assert.equal(result.skippedCount, 1);
   assert.equal(result.scannedCount, 2);
 
-  const dataReads = api.calls.filter(
-    (call) =>
-      call.method === "GET" &&
-      [ANIME_JSONL_PATH, ANIME_INDEX_JSONL_PATH].some((repoPath) =>
-        call.url.includes(`/contents/${repoPath}`),
-      ),
+  assert.equal(
+    api.calls.filter((call) => call.method === "PUT").length,
+    0,
   );
-  assert.equal(dataReads.length, 2);
-
-  const animePuts = api.calls.filter(
-    (call) =>
-      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
+  assert.equal(
+    api.calls.filter((call) => call.method === "PATCH").length,
+    1,
   );
-  const indexPuts = api.calls.filter(
-    (call) =>
-      call.method === "PUT" &&
-      call.url.endsWith(`/${ANIME_INDEX_JSONL_PATH}`),
+  assert.equal(
+    api.calls.filter(
+      (call) => new URL(call.url).pathname.endsWith("/git/blobs"),
+    ).length,
+    3,
   );
-  assert.equal(animePuts.length, 1);
-  assert.equal(indexPuts.length, 1);
 
   const records = parseJsonl(
     api.state.get(ANIME_JSONL_PATH).text,
@@ -586,15 +763,15 @@ test("refetches both JSONL files and retries once after a conflict", async () =>
     note: "冲突期间的新备注",
     updatedAt: "2026-10-25T08:30:00.000Z",
   };
-  let failFirstAnimePut = true;
+  let failFirstRefUpdate = true;
   const api = createGithubMock({
     records: [first],
-    onPut: async ({ api: currentApi, repoPath }) => {
-      if (repoPath === ANIME_JSONL_PATH && failFirstAnimePut) {
-        failFirstAnimePut = false;
+    onRefUpdate: async ({ api: currentApi }) => {
+      if (failFirstRefUpdate) {
+        failFirstRefUpdate = false;
         currentApi.setLibrary([remoteChange]);
-        const error = new Error("HTTP 422 conflict");
-        error.status = 422;
+        const error = new Error("HTTP 409 conflict");
+        error.status = 409;
         throw error;
       }
     },
@@ -610,14 +787,16 @@ test("refetches both JSONL files and retries once after a conflict", async () =>
   });
 
   assert.equal(saved.appendedDuplicate, true);
-  const animePuts = api.calls.filter(
+  const refUpdates = api.calls.filter(
     (call) =>
-      call.method === "PUT" && call.url.endsWith(`/${ANIME_JSONL_PATH}`),
+      call.method === "PATCH" &&
+      new URL(call.url).pathname.endsWith("/git/refs/heads/main"),
   );
-  assert.equal(animePuts.length, 2);
-  const firstBody = JSON.parse(animePuts[0].options.body);
-  const secondBody = JSON.parse(animePuts[1].options.body);
-  assert.notEqual(firstBody.sha, secondBody.sha);
+  assert.equal(refUpdates.length, 2);
+  assert.equal(
+    api.calls.filter((call) => call.method === "PUT").length,
+    0,
+  );
 
   const finalRecords = parseJsonl(
     api.state.get(ANIME_JSONL_PATH).text,

@@ -618,17 +618,59 @@
           resolve(response);
         },
         onerror(error) {
-          reject(new Error(error?.error ?? "Network request failed"));
+          const requestError = new Error(
+            error?.error ?? "Network request failed"
+          );
+          requestError.status = 0;
+          reject(requestError);
         },
         ontimeout() {
-          reject(new Error("Network request timed out"));
+          const timeoutError = new Error("Network request timed out");
+          timeoutError.status = 0;
+          reject(timeoutError);
         }
       });
     });
   }
+  var RETRYABLE_STATUS_CODES = /* @__PURE__ */ new Set([
+    408,
+    425,
+    429,
+    500,
+    502,
+    503,
+    504
+  ]);
+  var IDEMPOTENT_METHODS = /* @__PURE__ */ new Set(["GET", "HEAD"]);
+  var DEFAULT_MAX_ATTEMPTS = 3;
+  var DEFAULT_RETRY_BASE_DELAY_MS = 600;
+  var DEFAULT_RETRY_MAX_DELAY_MS = 6e3;
   function responseSnippet(text, maxLength = 280) {
     const normalized = String(text ?? "").replace(/\s+/gu, " ").trim();
     return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+  }
+  function parseResponseHeaders(value) {
+    const headers = /* @__PURE__ */ new Map();
+    for (const line of String(value ?? "").split(/\r?\n/u)) {
+      const separator = line.indexOf(":");
+      if (separator <= 0) {
+        continue;
+      }
+      headers.set(
+        line.slice(0, separator).trim().toLocaleLowerCase(),
+        line.slice(separator + 1).trim()
+      );
+    }
+    return headers;
+  }
+  function retryAfterMs(responseHeaders, maxDelayMs) {
+    const raw = responseHeaders instanceof Headers ? responseHeaders.get("retry-after") : parseResponseHeaders(responseHeaders).get("retry-after");
+    if (!raw) {
+      return null;
+    }
+    const seconds = Number(raw);
+    const delay = Number.isFinite(seconds) ? seconds * 1e3 : Date.parse(raw) - Date.now();
+    return Number.isFinite(delay) && delay > 0 ? Math.min(delay, maxDelayMs) : null;
   }
   function httpError(response, url, body) {
     const host = new URL(url).host;
@@ -641,11 +683,74 @@
     error.body = String(body ?? "");
     error.url = url;
     error.responseHeaders = response.responseHeaders ?? "";
+    error.retryAfterMs = retryAfterMs(
+      response.headers ?? response.responseHeaders,
+      DEFAULT_RETRY_MAX_DELAY_MS
+    );
     return error;
   }
+  function isRetryableError(error) {
+    if (!error) {
+      return false;
+    }
+    if (error.status === 0 || RETRYABLE_STATUS_CODES.has(Number(error.status))) {
+      return true;
+    }
+    return Number(error.status) === 403 && (Number(error.retryAfterMs) > 0 || /rate limit|secondary rate|abuse detection/iu.test(
+      String(error.body ?? error.message ?? "")
+    ));
+  }
+  function positiveInteger(value, fallback) {
+    const number = Number(value);
+    return Number.isInteger(number) && number > 0 ? number : fallback;
+  }
+  function nonNegativeNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : fallback;
+  }
+  async function requestTextOnce(url, details, options = {}) {
+    const fetchImpl = options.fetchImpl ?? fetch;
+    if (typeof GM_xmlhttpRequest === "function" && !options.fetchImpl) {
+      const response = await gmRequest(details);
+      if (response.status < 200 || response.status >= 300) {
+        throw httpError(response, url, response.responseText);
+      }
+      return response.responseText;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), details.timeout);
+    try {
+      const response = await fetchImpl(url, {
+        method: details.method,
+        headers: details.headers,
+        body: options.body,
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        const body = await response.text();
+        throw httpError(response, url, body);
+      }
+      return response.text();
+    } catch (error) {
+      if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+        const timeoutError = new Error("Network request timed out");
+        timeoutError.status = 0;
+        throw timeoutError;
+      }
+      if (Number.isFinite(Number(error?.status))) {
+        throw error;
+      }
+      const networkError = new Error(error?.message || "Network request failed");
+      networkError.status = 0;
+      throw networkError;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function requestText(url, options = {}) {
+    const method = String(options.method ?? "GET").toUpperCase();
     const details = {
-      method: options.method ?? "GET",
+      method,
       url,
       headers: options.headers ?? {},
       timeout: options.timeout ?? 2e4
@@ -653,23 +758,47 @@
     if (options.body !== void 0) {
       details.data = options.body;
     }
-    if (typeof GM_xmlhttpRequest === "function") {
-      const response2 = await gmRequest(details);
-      if (response2.status < 200 || response2.status >= 300) {
-        throw httpError(response2, url, response2.responseText);
+    const canRetry = IDEMPOTENT_METHODS.has(method) || options.retryUnsafe;
+    const maxAttempts = canRetry ? positiveInteger(options.maxAttempts, DEFAULT_MAX_ATTEMPTS) : 1;
+    const retryBaseDelayMs = nonNegativeNumber(
+      options.retryBaseDelayMs,
+      DEFAULT_RETRY_BASE_DELAY_MS
+    );
+    const retryMaxDelayMs = nonNegativeNumber(
+      options.retryMaxDelayMs,
+      DEFAULT_RETRY_MAX_DELAY_MS
+    );
+    const sleep = options.sleepImpl ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)));
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await requestTextOnce(url, details, options);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isRetryableError(error)) {
+          break;
+        }
+        const exponentialDelay = Math.min(
+          retryMaxDelayMs,
+          retryBaseDelayMs * 2 ** (attempt - 1)
+        );
+        const delayMs = Number(error.retryAfterMs) > 0 ? Math.min(Number(error.retryAfterMs), retryMaxDelayMs) : exponentialDelay;
+        try {
+          options.onRetry?.({
+            attempt,
+            nextAttempt: attempt + 1,
+            maxAttempts,
+            delayMs,
+            status: Number(error.status) || 0,
+            method,
+            url
+          });
+        } catch {
+        }
+        await sleep(delayMs);
       }
-      return response2.responseText;
     }
-    const response = await fetch(url, {
-      method: details.method,
-      headers: details.headers,
-      body: options.body
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      throw httpError(response, url, body);
-    }
-    return response.text();
+    throw lastError;
   }
   async function requestJson(url, options = {}) {
     const text = await requestText(url, options);
@@ -1207,6 +1336,16 @@
   var MAX_REVIEW_LENGTH = 2e4;
   var LIBRARY_CACHE_MS = 5 * 60 * 1e3;
   var DUPLICATE_SCORE_THRESHOLD = 0.72;
+  var MAX_PUBLISH_ATTEMPTS = 3;
+  var RETRYABLE_GITHUB_STATUS_CODES = /* @__PURE__ */ new Set([
+    408,
+    425,
+    429,
+    500,
+    502,
+    503,
+    504
+  ]);
   var DuplicateRecordError = class extends Error {
     constructor(duplicates, scannedCount = 0) {
       super(`发现 ${duplicates.length} 条疑似重复记录，请确认是否仍然添加`);
@@ -1703,6 +1842,49 @@
   function isConflict(error) {
     return [409, 422].includes(Number(error?.status));
   }
+  function isRetryableGithubError(error) {
+    if (!error) {
+      return false;
+    }
+    if (Number(error.status) === 0 || RETRYABLE_GITHUB_STATUS_CODES.has(Number(error.status))) {
+      return true;
+    }
+    return Number(error.status) === 403 && (Number(error.retryAfterMs) > 0 || /rate limit|secondary rate|abuse detection/iu.test(
+      String(error.body ?? error.message ?? "")
+    ));
+  }
+  function encodePath(value) {
+    return String(value).split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
+  function reportProgress(options, phase, message, detail = {}) {
+    try {
+      options?.onProgress?.({
+        phase,
+        message,
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        ...detail
+      });
+    } catch {
+    }
+  }
+  function progressRetryHandler(options, phase, label) {
+    return (retry) => {
+      const seconds = Math.max(1, Math.ceil(Number(retry.delayMs) / 1e3));
+      reportProgress(
+        options,
+        "retry",
+        `${label}遇到临时网络问题，${seconds} 秒后自动重试（${retry.nextAttempt}/${retry.maxAttempts}）`,
+        {
+          attempt: retry.attempt,
+          nextAttempt: retry.nextAttempt,
+          maxAttempts: retry.maxAttempts,
+          delayMs: retry.delayMs,
+          status: retry.status,
+          networkRetry: true
+        }
+      );
+    };
+  }
   function parseContentResponse(payload, path) {
     if (!payload || typeof payload !== "object") {
       throw new Error("GitHub 返回了无效的文件内容");
@@ -1730,11 +1912,15 @@
     constructor({
       settingsStore = null,
       requestJsonImpl = requestJson,
-      now = () => (/* @__PURE__ */ new Date()).toISOString()
+      now = () => (/* @__PURE__ */ new Date()).toISOString(),
+      sleepImpl = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
+      retryBaseDelayMs = 700
     } = {}) {
       this.settingsStore = settingsStore;
       this.requestJson = requestJsonImpl;
       this.now = now;
+      this.sleep = sleepImpl;
+      this.retryBaseDelayMs = Math.max(0, Number(retryBaseDelayMs) || 0);
       this.fileCache = /* @__PURE__ */ new Map();
     }
     getConfig(override = null) {
@@ -1771,13 +1957,19 @@
       if (!options.force && cached && Date.now() - cached.cachedAt < LIBRARY_CACHE_MS) {
         return cached.file;
       }
+      const ref = cleanString2(options.ref) || config.branch;
       const url = `${this.contentUrl(config, filePath)}?ref=${encodeURIComponent(
-        config.branch
+        ref
       )}`;
       try {
         const payload = await this.requestJson(url, {
           headers: githubHeaders(config.token),
-          timeout: 2e4
+          timeout: 2e4,
+          onRetry: progressRetryHandler(
+            options,
+            "load",
+            `读取 ${filePath}`
+          )
         });
         const file = parseContentResponse(payload, filePath);
         this.fileCache.set(key, { file, cachedAt: Date.now() });
@@ -1824,14 +2016,20 @@
       };
     }
     async listDirectoryFiles(config, directory, options = {}) {
+      const ref = cleanString2(options.ref) || config.branch;
       const url = `${this.contentUrl(config, directory)}?ref=${encodeURIComponent(
-        config.branch
+        ref
       )}`;
       let payload;
       try {
         payload = await this.requestJson(url, {
           headers: githubHeaders(config.token),
-          timeout: 2e4
+          timeout: 2e4,
+          onRetry: progressRetryHandler(
+            options,
+            "load",
+            `读取目录 ${directory}`
+          )
         });
       } catch (error) {
         if (isNotFound(error)) {
@@ -1923,111 +2121,489 @@
         throw error;
       }
     }
+    async requestGit(config, path, options = {}) {
+      const { onProgress, progressLabel, retryUnsafe = false } = options;
+      const requestOptions = {
+        method: options.method ?? "GET",
+        headers: githubHeaders(
+          config.token,
+          options.body !== void 0
+        ),
+        timeout: options.timeout ?? 3e4,
+        retryUnsafe,
+        maxAttempts: options.maxAttempts ?? 3,
+        onRetry: progressRetryHandler(
+          { onProgress },
+          options.phase ?? "request",
+          progressLabel ?? "GitHub 请求"
+        )
+      };
+      if (options.body !== void 0) {
+        requestOptions.body = JSON.stringify(options.body);
+      }
+      return this.requestJson(`${config.urls.apiUrl}${path}`, requestOptions);
+    }
+    async getBranchHead(config, options = {}) {
+      const payload = await this.requestGit(
+        config,
+        `/git/ref/heads/${encodePath(config.branch)}`,
+        {
+          ...options,
+          progressLabel: "读取远端分支"
+        }
+      );
+      const sha = cleanString2(payload?.object?.sha);
+      if (!sha) {
+        throw new Error(`找不到 GitHub 分支 ${config.branch}`);
+      }
+      return sha;
+    }
+    async loadPublishSnapshot(config, options = {}) {
+      reportProgress(
+        options,
+        "load",
+        `正在读取个人仓库最新版本（第 ${options.attempt ?? 1} 次尝试）`,
+        {
+          attempt: options.attempt ?? 1,
+          maxAttempts: MAX_PUBLISH_ATTEMPTS,
+          percent: 6
+        }
+      );
+      const headSha = await this.getBranchHead(config, options);
+      const commit = await this.requestGit(
+        config,
+        `/git/commits/${encodeURIComponent(headSha)}`,
+        {
+          ...options,
+          progressLabel: "读取远端提交"
+        }
+      );
+      const baseTreeSha = cleanString2(commit?.tree?.sha);
+      if (!baseTreeSha) {
+        throw new Error("无法读取远端分支的 Git Tree");
+      }
+      const library = await this.loadLibrary(config, {
+        force: true,
+        ref: headSha,
+        onProgress: options.onProgress
+      });
+      reportProgress(
+        options,
+        "loaded",
+        `已读取 ${library.records.length} 条个人记录，正在准备提交`,
+        {
+          attempt: options.attempt ?? 1,
+          maxAttempts: MAX_PUBLISH_ATTEMPTS,
+          percent: 18,
+          recordCount: library.records.length
+        }
+      );
+      return {
+        ...library,
+        headSha,
+        baseTreeSha
+      };
+    }
+    async createGitBlob(config, text, options = {}) {
+      const payload = await this.requestGit(config, "/git/blobs", {
+        method: "POST",
+        body: {
+          content: encodeBase64Utf8(text),
+          encoding: "base64"
+        },
+        phase: options.phase ?? "data",
+        progressLabel: options.progressLabel ?? "上传 Git Blob",
+        retryUnsafe: true,
+        onProgress: options.onProgress
+      });
+      const sha = cleanString2(payload?.sha);
+      if (!sha) {
+        throw new Error("GitHub 没有返回 Git Blob SHA");
+      }
+      return sha;
+    }
+    async publishLibrary(config, {
+      library,
+      records,
+      index,
+      message,
+      onProgress = null
+    }) {
+      const animeText = serializeJsonl(records);
+      const indexText = serializeJsonl(index);
+      const hasPreviousData = Boolean(
+        (library.animeFile.text ?? "") || (library.indexFile.text ?? "")
+      );
+      let backupPath = null;
+      let backupText = null;
+      let staleBackups = [];
+      if (hasPreviousData) {
+        const createdAt = this.now();
+        const safeTime = cleanString2(createdAt).replace(/[:.]/gu, "-").replace(/[^0-9A-Za-z_-]/gu, "");
+        const suffix = fnv1a(
+          `${library.animeFile.text ?? ""}
+${library.indexFile.text ?? ""}`
+        );
+        backupPath = `${BACKUP_DIRECTORY}/library-${safeTime}-${suffix}.json`;
+        backupText = `${JSON.stringify(
+          createBackupSnapshot({
+            animeText: library.animeFile.text ?? "",
+            indexText: library.indexFile.text ?? "",
+            createdAt
+          }),
+          null,
+          2
+        )}
+`;
+        reportProgress(
+          { onProgress },
+          "backup",
+          "正在把当前远端数据加入同一个提交的备份",
+          { percent: 24 }
+        );
+        const backups = (await this.listDirectoryFiles(config, BACKUP_DIRECTORY, {
+          extension: ".json",
+          ref: library.headSha,
+          onProgress
+        })).sort(
+          (left, right) => right.name.localeCompare(left.name, "en")
+        );
+        const backupName = backupPath.split("/").at(-1);
+        staleBackups = [
+          backupName,
+          ...backups.map((backup) => backup.name).filter((name) => name !== backupName)
+        ].sort((left, right) => right.localeCompare(left, "en")).slice(MAX_BACKUP_SNAPSHOTS);
+        staleBackups = staleBackups.filter((name) => name !== backupName).map((name) => `${BACKUP_DIRECTORY}/${name}`);
+      }
+      reportProgress(
+        { onProgress },
+        "data",
+        "正在生成并上传完整数据文件",
+        { percent: 32 }
+      );
+      const animeBlob = await this.createGitBlob(config, animeText, {
+        onProgress,
+        phase: "data",
+        progressLabel: "上传 anime.jsonl"
+      });
+      reportProgress(
+        { onProgress },
+        "index",
+        "正在生成并上传轻量索引",
+        { percent: 46 }
+      );
+      const indexBlob = await this.createGitBlob(config, indexText, {
+        onProgress,
+        phase: "index",
+        progressLabel: "上传 anime-index.jsonl"
+      });
+      const backupBlob = backupText ? await this.createGitBlob(config, backupText, {
+        onProgress,
+        phase: "backup",
+        progressLabel: "上传备份快照"
+      }) : null;
+      const treeEntries = [
+        {
+          path: ANIME_JSONL_PATH,
+          mode: "100644",
+          type: "blob",
+          sha: animeBlob
+        },
+        {
+          path: ANIME_INDEX_JSONL_PATH,
+          mode: "100644",
+          type: "blob",
+          sha: indexBlob
+        }
+      ];
+      if (backupPath && backupBlob) {
+        treeEntries.push({
+          path: backupPath,
+          mode: "100644",
+          type: "blob",
+          sha: backupBlob
+        });
+      }
+      for (const stalePath of staleBackups) {
+        treeEntries.push({
+          path: stalePath,
+          mode: "100644",
+          type: "blob",
+          sha: null
+        });
+      }
+      reportProgress(
+        { onProgress },
+        "tree",
+        "正在构建数据、索引与备份的原子文件树",
+        { percent: 64 }
+      );
+      const tree = await this.requestGit(config, "/git/trees", {
+        method: "POST",
+        body: {
+          base_tree: library.baseTreeSha,
+          tree: treeEntries
+        },
+        phase: "tree",
+        progressLabel: "创建 Git Tree",
+        retryUnsafe: true,
+        onProgress
+      });
+      const treeSha = cleanString2(tree?.sha);
+      if (!treeSha) {
+        throw new Error("GitHub 没有返回新的 Git Tree SHA");
+      }
+      reportProgress(
+        { onProgress },
+        "commit",
+        "正在创建包含数据、索引和备份的单一提交",
+        { percent: 76 }
+      );
+      const commit = await this.requestGit(config, "/git/commits", {
+        method: "POST",
+        body: {
+          message,
+          tree: treeSha,
+          parents: [library.headSha]
+        },
+        phase: "commit",
+        progressLabel: "创建 Git Commit",
+        retryUnsafe: true,
+        onProgress
+      });
+      const commitSha = cleanString2(commit?.sha);
+      if (!commitSha) {
+        throw new Error("GitHub 没有返回新的提交 SHA");
+      }
+      reportProgress(
+        { onProgress },
+        "publish",
+        `正在发布提交 ${commitSha.slice(0, 7)} 到 ${config.branch}`,
+        {
+          percent: 90,
+          commit: commitSha,
+          branch: config.branch
+        }
+      );
+      try {
+        await this.requestGit(
+          config,
+          `/git/refs/heads/${encodePath(config.branch)}`,
+          {
+            method: "PATCH",
+            body: { sha: commitSha, force: false },
+            phase: "publish",
+            progressLabel: "发布远端分支",
+            retryUnsafe: false,
+            maxAttempts: 1,
+            onProgress
+          }
+        );
+      } catch (error) {
+        if (isRetryableGithubError(error)) {
+          reportProgress(
+            { onProgress },
+            "verify",
+            "发布响应中断，正在核对远端分支是否已经更新",
+            { percent: 94 }
+          );
+          try {
+            const currentHead = await this.getBranchHead(config, {
+              onProgress
+            });
+            if (currentHead === commitSha) {
+              return {
+                commitSha,
+                animeText,
+                indexText,
+                animeBlob,
+                indexBlob,
+                backupPath,
+                backupBlob
+              };
+            }
+          } catch {
+          }
+        }
+        throw error;
+      }
+      return {
+        commitSha,
+        animeText,
+        indexText,
+        animeBlob,
+        indexBlob,
+        backupPath,
+        backupBlob
+      };
+    }
+    cachePublishedLibrary(config, published) {
+      const htmlBase = `${config.urls.webUrl}/blob/${config.branch}`;
+      this.cacheWrittenFile(
+        config,
+        ANIME_JSONL_PATH,
+        published.animeText,
+        {
+          content: {
+            sha: published.animeBlob,
+            path: ANIME_JSONL_PATH,
+            html_url: `${htmlBase}/${ANIME_JSONL_PATH}`
+          }
+        }
+      );
+      this.cacheWrittenFile(
+        config,
+        ANIME_INDEX_JSONL_PATH,
+        published.indexText,
+        {
+          content: {
+            sha: published.indexBlob,
+            path: ANIME_INDEX_JSONL_PATH,
+            html_url: `${htmlBase}/${ANIME_INDEX_JSONL_PATH}`
+          }
+        }
+      );
+    }
+    async waitBeforePublishRetry(options, attempt, error) {
+      const delayMs = Math.min(
+        6e3,
+        Math.max(1, this.retryBaseDelayMs) * 2 ** (attempt - 1)
+      );
+      const reason = isConflict(error) ? "远端在保存期间出现了新提交" : "GitHub 暂时不可用";
+      reportProgress(
+        options,
+        "retry",
+        `${reason}，${Math.max(1, Math.ceil(delayMs / 1e3))} 秒后自动重新读取并重试（${attempt + 1}/${MAX_PUBLISH_ATTEMPTS}）`,
+        {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_PUBLISH_ATTEMPTS,
+          delayMs,
+          status: Number(error?.status) || 0,
+          percent: 8
+        }
+      );
+      await this.sleep(delayMs);
+    }
     async saveRecord({
       item,
       selectedResult = null,
       aiResult = null,
       rating,
       review,
-      allowDuplicates = false
+      allowDuplicates = false,
+      onProgress = null
     }) {
       const config = this.assertConfigured();
       const ids = recordIdsForItem(item, selectedResult);
       const requestedAt = this.now();
-      let backupWritten = false;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const library = await this.loadLibrary(config, {
-          force: attempt > 0
-        });
-        const idSet = new Set(ids);
-        const existing = library.records.find((record) => idSet.has(cleanString2(record.id))) ?? null;
-        const existingId = cleanString2(existing?.id) || null;
-        if (!allowDuplicates) {
-          const inspection = this.inspectDuplicateRecords(library.index, {
+      const progressOptions = { onProgress };
+      for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
+        try {
+          const library = await this.loadPublishSnapshot(config, {
+            ...progressOptions,
+            attempt
+          });
+          const idSet = new Set(ids);
+          const existing = library.records.find(
+            (record) => idSet.has(cleanString2(record.id))
+          ) ?? null;
+          const existingId = cleanString2(existing?.id) || null;
+          if (!allowDuplicates) {
+            reportProgress(
+              progressOptions,
+              "duplicates",
+              `正在检查 ${library.index.length} 条索引中的重复项`,
+              { percent: 22 }
+            );
+            const inspection = this.inspectDuplicateRecords(library.index, {
+              item,
+              selectedResult,
+              aiResult
+            });
+            if (inspection.duplicates.length) {
+              throw new DuplicateRecordError(
+                inspection.duplicates,
+                inspection.scannedCount
+              );
+            }
+          }
+          const appendedDuplicate = Boolean(allowDuplicates && existing);
+          const id = appendedDuplicate ? createDuplicateRecordId(
+            existingId ?? ids[0],
+            library.records,
+            requestedAt
+          ) : existingId ?? ids[0];
+          const merged = appendedDuplicate ? createAnimeRecord({
             item,
             selectedResult,
-            aiResult
+            aiResult,
+            id,
+            rating,
+            review,
+            now: requestedAt
+          }) : mergeAnimeRecord(existing, {
+            item,
+            selectedResult,
+            aiResult,
+            id,
+            rating,
+            review,
+            now: requestedAt
           });
-          if (inspection.duplicates.length) {
-            throw new DuplicateRecordError(
-              inspection.duplicates,
-              inspection.scannedCount
-            );
-          }
-        }
-        const appendedDuplicate = Boolean(allowDuplicates && existing);
-        const id = appendedDuplicate ? createDuplicateRecordId(
-          existingId ?? ids[0],
-          library.records,
-          requestedAt
-        ) : existingId ?? ids[0];
-        const merged = appendedDuplicate ? createAnimeRecord({
-          item,
-          selectedResult,
-          aiResult,
-          id,
-          rating,
-          review,
-          now: requestedAt
-        }) : mergeAnimeRecord(existing, {
-          item,
-          selectedResult,
-          aiResult,
-          id,
-          rating,
-          review,
-          now: requestedAt
-        });
-        const nextRecords = upsertRecord(library.records, merged);
-        const nextIndex = buildAnimeIndex(nextRecords);
-        const animeText = serializeJsonl(nextRecords);
-        const indexText = serializeJsonl(nextIndex);
-        try {
-          if (!backupWritten && (library.animeFile.exists || library.indexFile.exists)) {
-            await this.writeBackupSnapshot(config, library, requestedAt);
-            backupWritten = true;
-          }
-          const animeWrite = await this.putContentFile(
-            config,
-            ANIME_JSONL_PATH,
-            animeText,
-            library.animeFile.sha,
-            `chore(data): ${appendedDuplicate ? "add duplicate" : "save"} ${commitTitle(merged.title)} (${id})`
-          );
-          const indexWrite = await this.putContentFile(
-            config,
-            ANIME_INDEX_JSONL_PATH,
-            indexText,
-            library.indexFile.sha,
-            `chore(index): refresh after ${commitTitle(merged.title)}`
-          );
-          this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
-          this.cacheWrittenFile(
-            config,
-            ANIME_INDEX_JSONL_PATH,
-            indexText,
-            indexWrite
+          const nextRecords = upsertRecord(library.records, merged);
+          const nextIndex = buildAnimeIndex(nextRecords);
+          const published = await this.publishLibrary(config, {
+            library,
+            records: nextRecords,
+            index: nextIndex,
+            message: `chore(data): ${appendedDuplicate ? "append duplicate" : "save"} ${commitTitle(merged.title)} (${id})
+
+Anime: ${commitTitle(merged.title)}
+Record-Id: ${id}
+Rating: ${merged.rating ?? "unrated"}
+Source: Tampermonkey userscript`,
+            onProgress
+          });
+          this.cachePublishedLibrary(config, published);
+          reportProgress(
+            progressOptions,
+            "complete",
+            `同步完成：提交 ${published.commitSha.slice(0, 7)} 已发布`,
+            {
+              percent: 100,
+              commit: published.commitSha
+            }
           );
           return {
             id,
             record: merged,
             appendedDuplicate,
-            sha: animeWrite.sha,
-            htmlUrl: animeWrite.htmlUrl,
+            commit: published.commitSha,
+            sha: published.animeBlob,
+            htmlUrl: `${config.urls.webUrl}/blob/${config.branch}/${ANIME_JSONL_PATH}`,
             path: ANIME_JSONL_PATH
           };
         } catch (error) {
-          if (attempt > 0 || !isConflict(error)) {
+          if (attempt >= MAX_PUBLISH_ATTEMPTS || !isConflict(error) && !isRetryableGithubError(error)) {
             throw error;
           }
-          this.fileCache.delete(this.fileCacheKey(config, ANIME_JSONL_PATH));
-          this.fileCache.delete(this.fileCacheKey(config, ANIME_INDEX_JSONL_PATH));
+          await this.waitBeforePublishRetry(
+            progressOptions,
+            attempt,
+            error
+          );
         }
       }
-      throw new Error("GitHub 记录写入冲突，请稍后重试");
+      throw new Error("GitHub 记录写入失败，请稍后重试");
     }
-    async saveRecordsBatch({ entries = [], now = this.now() } = {}) {
+    async saveRecordsBatch({
+      entries = [],
+      now = this.now(),
+      onProgress = null
+    } = {}) {
       const config = this.assertConfigured();
+      const progressOptions = { onProgress };
       const queued = [];
       const queuedIds = /* @__PURE__ */ new Set();
       let inputDuplicateCount = 0;
@@ -2058,101 +2634,115 @@
           scannedCount: 0
         };
       }
-      const importedById = /* @__PURE__ */ new Map();
-      let backupWritten = false;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const library = await this.loadLibrary(config, {
-          force: attempt > 0
-        });
-        const existingTokens = new Set(
-          library.records.flatMap((record) => recordIdentityTokens(record))
-        );
-        const added = [];
-        let nextRecords = library.records;
-        for (const entry of queued) {
-          if (entry.ids.some((id) => existingTokens.has(id))) {
-            continue;
-          }
-          const record = createAnimeRecord({
-            item: entry.item,
-            selectedResult: entry.selectedResult,
-            id: entry.id,
-            rating: null,
-            review: "",
-            now
-          });
-          nextRecords = upsertRecord(nextRecords, record);
-          entry.ids.forEach((id) => existingTokens.add(id));
-          added.push(record);
-        }
-        const nextIndex = buildAnimeIndex(nextRecords);
-        const animeText = serializeJsonl(nextRecords);
-        const indexText = serializeJsonl(nextIndex);
-        const changed = animeText !== (library.animeFile.text ?? "") || indexText !== (library.indexFile.text ?? "");
-        if (!changed) {
-          const imported = [...importedById.values()];
-          return {
-            imported,
-            skippedCount: queued.length - imported.length + inputDuplicateCount,
-            scannedCount: library.records.length,
-            records: nextRecords,
-            path: ANIME_JSONL_PATH,
-            htmlUrl: library.animeFile.htmlUrl,
-            sha: library.animeFile.sha
-          };
-        }
+      for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt += 1) {
         try {
-          if (!backupWritten && (library.animeFile.exists || library.indexFile.exists)) {
-            await this.writeBackupSnapshot(config, library, now);
-            backupWritten = true;
-          }
-          const animeWrite = await this.putContentFile(
-            config,
-            ANIME_JSONL_PATH,
-            animeText,
-            library.animeFile.sha,
-            `chore(data): import ${added.length || queued.length} Bilibili anime: ${commitTitleSummary(added) || "待处理番剧"}`
+          const library = await this.loadPublishSnapshot(config, {
+            ...progressOptions,
+            attempt
+          });
+          const existingTokens = new Set(
+            library.records.flatMap((record) => recordIdentityTokens(record))
           );
-          for (const record of added) {
-            importedById.set(record.id, {
-              id: record.id,
-              title: record.title,
-              mediaId: cleanString2(record.externalIds?.bilibiliMedia)
+          const added = [];
+          let nextRecords = library.records;
+          for (const entry of queued) {
+            if (entry.ids.some((id) => existingTokens.has(id))) {
+              continue;
+            }
+            const record = createAnimeRecord({
+              item: entry.item,
+              selectedResult: entry.selectedResult,
+              id: entry.id,
+              rating: null,
+              review: "",
+              now
             });
+            nextRecords = upsertRecord(nextRecords, record);
+            entry.ids.forEach((id) => existingTokens.add(id));
+            added.push(record);
           }
-          const indexWrite = await this.putContentFile(
-            config,
-            ANIME_INDEX_JSONL_PATH,
-            indexText,
-            library.indexFile.sha,
-            `chore(index): refresh after Bilibili import: ${commitTitleSummary(added) || "批量导入"}`
+          const nextIndex = buildAnimeIndex(nextRecords);
+          const animeText = serializeJsonl(nextRecords);
+          const indexText = serializeJsonl(nextIndex);
+          const changed = animeText !== (library.animeFile.text ?? "") || indexText !== (library.indexFile.text ?? "");
+          if (!changed) {
+            reportProgress(
+              progressOptions,
+              "complete",
+              "检查完成：选中记录均已存在，没有需要写入的数据",
+              { percent: 100 }
+            );
+            return {
+              imported: [],
+              skippedCount: queued.length + inputDuplicateCount,
+              scannedCount: library.records.length,
+              records: nextRecords,
+              path: ANIME_JSONL_PATH,
+              htmlUrl: library.animeFile.htmlUrl,
+              sha: library.animeFile.sha
+            };
+          }
+          const summary = commitTitleSummary(added) || "待处理番剧";
+          reportProgress(
+            progressOptions,
+            "prepare",
+            `已识别 ${added.length} 条新增记录，正在准备原子提交`,
+            {
+              percent: 22,
+              addedCount: added.length,
+              skippedCount: queued.length - added.length
+            }
           );
-          this.cacheWrittenFile(config, ANIME_JSONL_PATH, animeText, animeWrite);
-          this.cacheWrittenFile(
-            config,
-            ANIME_INDEX_JSONL_PATH,
-            indexText,
-            indexWrite
+          const published = await this.publishLibrary(config, {
+            library,
+            records: nextRecords,
+            index: nextIndex,
+            message: `chore(data): import ${added.length || queued.length} Bilibili anime
+
+Anime: ${summary}
+Added-Count: ${added.length}
+Source: Bilibili follow page in Tampermonkey`,
+            onProgress
+          });
+          this.cachePublishedLibrary(config, published);
+          const imported = added.map((record) => ({
+            id: record.id,
+            title: record.title,
+            mediaId: cleanString2(record.externalIds?.bilibiliMedia)
+          }));
+          reportProgress(
+            progressOptions,
+            "complete",
+            `同步完成：新增 ${imported.length} 条，跳过 ${queued.length - imported.length} 条`,
+            {
+              percent: 100,
+              commit: published.commitSha,
+              importedCount: imported.length,
+              skippedCount: queued.length - imported.length
+            }
           );
-          const imported = [...importedById.values()];
           return {
             imported,
             skippedCount: queued.length - imported.length + inputDuplicateCount,
             scannedCount: nextRecords.length,
             records: nextRecords,
             path: ANIME_JSONL_PATH,
-            htmlUrl: animeWrite.htmlUrl,
-            sha: animeWrite.sha
+            htmlUrl: `${config.urls.webUrl}/blob/${config.branch}/${ANIME_JSONL_PATH}`,
+            sha: published.animeBlob,
+            commit: published.commitSha
           };
         } catch (error) {
-          if (attempt > 0 || !isConflict(error)) {
+          if (attempt >= MAX_PUBLISH_ATTEMPTS || !isConflict(error) && !isRetryableGithubError(error)) {
             throw error;
           }
-          this.fileCache.delete(this.fileCacheKey(config, ANIME_JSONL_PATH));
-          this.fileCache.delete(this.fileCacheKey(config, ANIME_INDEX_JSONL_PATH));
+          await this.waitBeforePublishRetry(
+            progressOptions,
+            attempt,
+            error
+          );
         }
       }
-      throw new Error("GitHub 批量记录写入冲突，请稍后重试");
+      throw new Error("GitHub 批量记录写入失败，请稍后重试");
     }
     cacheWrittenFile(config, filePath, text, payload) {
       const parsed = parseContentResponse(payload, filePath);
@@ -2164,72 +2754,6 @@
         },
         cachedAt: Date.now()
       });
-    }
-    async putContentFile(config, filePath, text, sha, message) {
-      const body = {
-        message,
-        content: encodeBase64Utf8(text),
-        branch: config.branch
-      };
-      if (sha) {
-        body.sha = sha;
-      }
-      return this.requestJson(
-        this.contentUrl(config, filePath),
-        {
-          method: "PUT",
-          headers: githubHeaders(config.token, true),
-          body: JSON.stringify(body),
-          timeout: 3e4
-        }
-      );
-    }
-    async deleteContentFile(config, filePath, sha, message) {
-      return this.requestJson(this.contentUrl(config, filePath), {
-        method: "DELETE",
-        headers: githubHeaders(config.token, true),
-        body: JSON.stringify({
-          message,
-          sha,
-          branch: config.branch
-        }),
-        timeout: 3e4
-      });
-    }
-    async writeBackupSnapshot(config, library, createdAt) {
-      const animeText = library.animeFile.text ?? "";
-      const indexText = library.indexFile.text ?? "";
-      if (!animeText && !indexText) {
-        return;
-      }
-      const safeTime = cleanString2(createdAt).replace(/[:.]/gu, "-").replace(/[^0-9A-Za-z_-]/gu, "");
-      const suffix = fnv1a(`${animeText}
-${indexText}`);
-      const backupPath = `${BACKUP_DIRECTORY}/library-${safeTime}-${suffix}.json`;
-      const snapshot = createBackupSnapshot({
-        animeText,
-        indexText,
-        createdAt
-      });
-      await this.putContentFile(
-        config,
-        backupPath,
-        `${JSON.stringify(snapshot, null, 2)}
-`,
-        null,
-        `chore(backup): snapshot anime library ${safeTime}`
-      );
-      const backups = (await this.listDirectoryFiles(config, BACKUP_DIRECTORY, {
-        extension: ".json"
-      })).sort((left, right) => right.name.localeCompare(left.name, "en"));
-      for (const stale of backups.slice(MAX_BACKUP_SNAPSHOTS)) {
-        await this.deleteContentFile(
-          config,
-          stale.path,
-          stale.sha,
-          `chore(backup): prune ${stale.name}`
-        );
-      }
     }
     async checkConnection(override = null) {
       const config = this.getConfig(override);
@@ -5433,7 +5957,7 @@ ${indexText}`);
       const domCards = collectBilibiliCards(limit);
       const followUid = extractBilibiliFollowUid(location.href);
       let apiResult = null;
-      const reportProgress = (progress) => {
+      const reportProgress2 = (progress) => {
         try {
           options.onProgress?.(progress);
         } catch {
@@ -5444,7 +5968,7 @@ ${indexText}`);
           apiResult = await fetchBilibiliFollowList(followUid, {
             maxItems: limit,
             requestJsonImpl: options.requestJsonImpl,
-            onProgress: (progress) => reportProgress({
+            onProgress: (progress) => reportProgress2({
               ...progress,
               phase: "fetch"
             })
@@ -5476,7 +6000,7 @@ ${indexText}`);
       const sourceCards = [...cards.values()].slice(0, limit);
       const processedCards = [];
       let matchedCount = 0;
-      reportProgress({
+      reportProgress2({
         phase: "matching",
         processed: 0,
         totalItems: sourceCards.length,
@@ -5552,7 +6076,7 @@ ${indexText}`);
         }
         const processed = index + 1;
         if (processed % BATCH_MATCH_CHUNK_SIZE === 0 || processed === sourceCards.length) {
-          reportProgress({
+          reportProgress2({
             phase: "matching",
             processed,
             totalItems: sourceCards.length,
@@ -8480,6 +9004,27 @@ ${toErrorMessage(error)}`,
       if (!saveRequest || !this.githubRecords) {
         return;
       }
+      let latestProgress = null;
+      const reportProgress2 = (progress) => {
+        latestProgress = progress;
+        const message = String(progress?.message ?? "").trim();
+        const percent = Number(progress?.percent);
+        const percentLabel = Number.isFinite(percent) ? ` · ${percent}%` : "";
+        const retrying = progress?.phase === "retry";
+        this.saveRecordButtonTextNode.textContent = retrying ? "自动重试" : "正在同步";
+        this.setRecordStatus(
+          `本地草稿已保存 · ${message || "正在同步到 GitHub"}${percentLabel}`,
+          retrying ? "warning" : "progress"
+        );
+        this.showToast(
+          `${message || "正在同步到 GitHub"}${percentLabel}`,
+          {
+            tone: retrying ? "warning" : "progress",
+            title: retrying ? "正在自动重试" : "正在同步到 GitHub",
+            duration: 0
+          }
+        );
+      };
       this.recordSaving = true;
       this.syncRecordGithubState();
       this.saveRecordButton.classList.add("is-loading");
@@ -8491,7 +9036,8 @@ ${toErrorMessage(error)}`,
       try {
         const remote = await this.githubRecords.saveRecord({
           ...saveRequest,
-          allowDuplicates: Boolean(options.allowDuplicates)
+          allowDuplicates: Boolean(options.allowDuplicates),
+          onProgress: reportProgress2
         });
         this.recordRemoteRecord = remote;
         this.setRecordRemoteLink(remote);
@@ -8546,15 +9092,17 @@ ${toErrorMessage(error)}`,
         }
         this.pendingGithubSave = null;
         this.clearDuplicateWarning();
+        const lastProgress = String(latestProgress?.message ?? "").trim();
         this.setRecordStatus(
-          "本地草稿已保存 · GitHub 同步失败",
+          `本地草稿已保存 · GitHub 同步失败${lastProgress ? `（${lastProgress}）` : ""}`,
           "error"
         );
         this.showToast(
           `评分与短评仍保留在本机，修正问题后可再次点击同步。
 ${toErrorMessage(
             error
-          )}`,
+          )}${lastProgress ? `
+最后阶段：${lastProgress}` : ""}`,
           {
             tone: "error",
             title: "GitHub 同步失败",
@@ -8660,14 +9208,15 @@ ${toErrorMessage(
       if (!visible) {
         return;
       }
-      let label = "正在同步到 GitHub";
+      let label = String(progress?.message ?? "").trim() || "正在同步到 GitHub";
       let value = "请稍候";
-      let percent = null;
+      let percent = Number.isFinite(Number(progress?.percent)) ? Math.max(0, Math.min(100, Number(progress.percent))) : null;
       if (!this.batchImporting && progress?.phase === "fetch") {
         const fetched = Number(progress.itemCount) || 0;
         const total = Number(progress.total) || 0;
         label = `正在读取追番列表 · 已读取 ${Number(progress.fetchedPages) || 0} 页`;
         value = total > 0 ? `${fetched}/${total}` : `${fetched} 部`;
+        percent = null;
       } else if (!this.batchImporting && progress?.phase === "matching") {
         const processed = Number(progress.processed) || 0;
         const totalItems = Number(progress.totalItems) || 0;
@@ -8675,6 +9224,12 @@ ${toErrorMessage(
         label = `正在匹配本地索引 · 已命中 ${matched}`;
         value = totalItems > 0 ? `${processed}/${totalItems}` : "准备中";
         percent = totalItems > 0 ? Math.round(processed / totalItems * 100) : null;
+      } else if (progress?.phase === "retry") {
+        const attempt = Number(progress.nextAttempt) || 0;
+        const maxAttempts = Number(progress.maxAttempts) || 0;
+        value = attempt > 0 && maxAttempts > 0 ? `第 ${attempt}/${maxAttempts} 次尝试` : "等待自动重试";
+      } else if (progress?.phase === "complete") {
+        value = "已完成";
       }
       this.batchProgressPanel.setAttribute("aria-label", label);
       this.batchProgressLabel.textContent = label;
@@ -8894,6 +9449,11 @@ ${toErrorMessage(
       this.batchImporting = true;
       this.batchMessageTone = "progress";
       this.batchMessage = `正在获取封面并写入 ${selectedCards.length} 项`;
+      this.batchProgress = {
+        phase: "cover",
+        message: `正在补齐 ${selectedCards.length} 部番剧的封面`,
+        percent: 4
+      };
       this.renderBatchCards();
       this.showToast(
         `正在处理 ${selectedCards.length} 部追番，请勿关闭面板。完成后会显示写入结果。`,
@@ -8911,7 +9471,19 @@ ${toErrorMessage(
           entries: selectedCards.map((card) => ({
             item: card.selectedResult.item,
             selectedResult: card.selectedResult
-          }))
+          })),
+          onProgress: (progress) => {
+            this.batchProgress = progress;
+            this.batchMessage = String(progress?.message ?? "").trim();
+            this.batchMessageTone = progress?.phase === "retry" ? "warning" : "progress";
+            clearTimeout(this.batchProgressRenderTimer);
+            this.batchProgressRenderTimer = setTimeout(() => {
+              this.batchProgressRenderTimer = null;
+              if (this.batchImporting) {
+                this.renderBatchCards();
+              }
+            }, 80);
+          }
         });
         const syncedAt = (/* @__PURE__ */ new Date()).toISOString();
         const settings = this.settingsStore.get();
@@ -8938,11 +9510,13 @@ ${toErrorMessage(
         this.updateGithubSetupChecklist();
       } catch (error) {
         const detail = toErrorMessage(error);
+        const lastProgress = String(this.batchProgress?.message ?? "").trim();
         this.batchMessageTone = "error";
-        this.batchMessage = "批量同步失败 · 请检查仓库权限、Token 与网络后重试";
+        this.batchMessage = `批量同步失败${lastProgress ? ` · ${lastProgress}` : ""} · 请检查仓库权限、Token 与网络后重试`;
         this.showToast(
           `本次没有在远端写入新增记录。请检查仓库权限、Token 与网络后重试。
-${detail}`,
+${detail}${lastProgress ? `
+最后阶段：${lastProgress}` : ""}`,
           {
             tone: "error",
             title: "批量同步失败",

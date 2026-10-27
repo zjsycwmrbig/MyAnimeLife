@@ -2849,6 +2849,29 @@ export class ScoutPanel {
     if (!saveRequest || !this.githubRecords) {
       return;
     }
+    let latestProgress = null;
+    const reportProgress = (progress) => {
+      latestProgress = progress;
+      const message = String(progress?.message ?? "").trim();
+      const percent = Number(progress?.percent);
+      const percentLabel = Number.isFinite(percent) ? ` · ${percent}%` : "";
+      const retrying = progress?.phase === "retry";
+      this.saveRecordButtonTextNode.textContent = retrying
+        ? "自动重试"
+        : "正在同步";
+      this.setRecordStatus(
+        `本地草稿已保存 · ${message || "正在同步到 GitHub"}${percentLabel}`,
+        retrying ? "warning" : "progress",
+      );
+      this.showToast(
+        `${message || "正在同步到 GitHub"}${percentLabel}`,
+        {
+          tone: retrying ? "warning" : "progress",
+          title: retrying ? "正在自动重试" : "正在同步到 GitHub",
+          duration: 0,
+        },
+      );
+    };
     this.recordSaving = true;
     this.syncRecordGithubState();
     this.saveRecordButton.classList.add("is-loading");
@@ -2863,6 +2886,7 @@ export class ScoutPanel {
       const remote = await this.githubRecords.saveRecord({
         ...saveRequest,
         allowDuplicates: Boolean(options.allowDuplicates),
+        onProgress: reportProgress,
       });
       this.recordRemoteRecord = remote;
       this.setRecordRemoteLink(remote);
@@ -2924,14 +2948,17 @@ export class ScoutPanel {
       }
       this.pendingGithubSave = null;
       this.clearDuplicateWarning();
+      const lastProgress = String(latestProgress?.message ?? "").trim();
       this.setRecordStatus(
-        "本地草稿已保存 · GitHub 同步失败",
+        `本地草稿已保存 · GitHub 同步失败${
+          lastProgress ? `（${lastProgress}）` : ""
+        }`,
         "error",
       );
       this.showToast(
         `评分与短评仍保留在本机，修正问题后可再次点击同步。\n${toErrorMessage(
           error,
-        )}`,
+        )}${lastProgress ? `\n最后阶段：${lastProgress}` : ""}`,
         {
           tone: "error",
           title: "GitHub 同步失败",
@@ -3059,14 +3086,17 @@ export class ScoutPanel {
       return;
     }
 
-    let label = "正在同步到 GitHub";
+    let label = String(progress?.message ?? "").trim() || "正在同步到 GitHub";
     let value = "请稍候";
-    let percent = null;
+    let percent = Number.isFinite(Number(progress?.percent))
+      ? Math.max(0, Math.min(100, Number(progress.percent)))
+      : null;
     if (!this.batchImporting && progress?.phase === "fetch") {
       const fetched = Number(progress.itemCount) || 0;
       const total = Number(progress.total) || 0;
       label = `正在读取追番列表 · 已读取 ${Number(progress.fetchedPages) || 0} 页`;
       value = total > 0 ? `${fetched}/${total}` : `${fetched} 部`;
+      percent = null;
     } else if (!this.batchImporting && progress?.phase === "matching") {
       const processed = Number(progress.processed) || 0;
       const totalItems = Number(progress.totalItems) || 0;
@@ -3075,6 +3105,15 @@ export class ScoutPanel {
       value = totalItems > 0 ? `${processed}/${totalItems}` : "准备中";
       percent =
         totalItems > 0 ? Math.round((processed / totalItems) * 100) : null;
+    } else if (progress?.phase === "retry") {
+      const attempt = Number(progress.nextAttempt) || 0;
+      const maxAttempts = Number(progress.maxAttempts) || 0;
+      value =
+        attempt > 0 && maxAttempts > 0
+          ? `第 ${attempt}/${maxAttempts} 次尝试`
+          : "等待自动重试";
+    } else if (progress?.phase === "complete") {
+      value = "已完成";
     }
 
     this.batchProgressPanel.setAttribute("aria-label", label);
@@ -3346,6 +3385,11 @@ export class ScoutPanel {
     this.batchImporting = true;
     this.batchMessageTone = "progress";
     this.batchMessage = `正在获取封面并写入 ${selectedCards.length} 项`;
+    this.batchProgress = {
+      phase: "cover",
+      message: `正在补齐 ${selectedCards.length} 部番剧的封面`,
+      percent: 4,
+    };
     this.renderBatchCards();
     this.showToast(
       `正在处理 ${selectedCards.length} 部追番，请勿关闭面板。完成后会显示写入结果。`,
@@ -3364,6 +3408,19 @@ export class ScoutPanel {
           item: card.selectedResult.item,
           selectedResult: card.selectedResult,
         })),
+        onProgress: (progress) => {
+          this.batchProgress = progress;
+          this.batchMessage = String(progress?.message ?? "").trim();
+          this.batchMessageTone =
+            progress?.phase === "retry" ? "warning" : "progress";
+          clearTimeout(this.batchProgressRenderTimer);
+          this.batchProgressRenderTimer = setTimeout(() => {
+            this.batchProgressRenderTimer = null;
+            if (this.batchImporting) {
+              this.renderBatchCards();
+            }
+          }, 80);
+        },
       });
       const syncedAt = new Date().toISOString();
       const settings = this.settingsStore.get();
@@ -3395,11 +3452,16 @@ export class ScoutPanel {
       this.updateGithubSetupChecklist();
     } catch (error) {
       const detail = toErrorMessage(error);
+      const lastProgress = String(this.batchProgress?.message ?? "").trim();
       this.batchMessageTone = "error";
       this.batchMessage =
-        "批量同步失败 · 请检查仓库权限、Token 与网络后重试";
+        `批量同步失败${
+          lastProgress ? ` · ${lastProgress}` : ""
+        } · 请检查仓库权限、Token 与网络后重试`;
       this.showToast(
-        `本次没有在远端写入新增记录。请检查仓库权限、Token 与网络后重试。\n${detail}`,
+        `本次没有在远端写入新增记录。请检查仓库权限、Token 与网络后重试。\n${detail}${
+          lastProgress ? `\n最后阶段：${lastProgress}` : ""
+        }`,
         {
           tone: "error",
           title: "批量同步失败",

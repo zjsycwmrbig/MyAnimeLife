@@ -498,41 +498,71 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
     host.locator('[data-view="settings"] .scout-setup-summary'),
   ).toHaveText("配置进度 4/4");
 
-  const putRequests = await page.evaluate(() =>
+  const gitWrites = await page.evaluate(() =>
     window.__previewRequests.filter(
       (request) =>
-        request.method === "PUT" &&
+        ["POST", "PATCH"].includes(request.method) &&
         request.url.startsWith(
-          "https://api.github.com/repos/preview-user/anime-records/contents/",
+          "https://api.github.com/repos/preview-user/anime-records/git/",
         ),
     ),
   );
   expect(
-    putRequests.filter((request) =>
-      request.url.endsWith("/data/anime.jsonl"),
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/blobs"),
+    ),
+  ).toHaveLength(3);
+  expect(
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/trees"),
     ),
   ).toHaveLength(1);
   expect(
-    putRequests.filter((request) =>
-      request.url.endsWith("/data/anime-index.jsonl"),
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/commits"),
     ),
   ).toHaveLength(1);
+  expect(
+    gitWrites.filter(
+      (request) =>
+        request.method === "PATCH" &&
+        request.url.endsWith("/git/refs/heads/main"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests.filter(
+          (request) =>
+            request.method === "PUT" &&
+            request.url.includes("/contents/"),
+        ).length,
+    ),
+  ).toBe(0);
 
-  const animePut = putRequests.find((request) =>
-    request.url.endsWith("/data/anime.jsonl"),
-  );
-  const body = JSON.parse(animePut.data);
-  const records = await page.evaluate((content) => {
-    const binary = atob(content.replace(/\s+/gu, ""));
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
+  const blobTexts = gitWrites
+    .filter((request) => request.url.endsWith("/git/blobs"))
+    .map((request) =>
+      Buffer.from(
+        JSON.parse(request.data).content,
+        "base64",
+      ).toString("utf8"),
+    )
+    .filter((text) => !text.includes('"anime-library-backup"'));
+  const records = blobTexts
+    .map((text) =>
+      text
+        .trim()
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
+    )
+    .find(
+      (entries) =>
+        entries.length === 2 &&
+        entries.every((entry) => entry?.id && "rating" in entry),
     );
-    return new TextDecoder()
-      .decode(bytes)
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-  }, body.content);
+  expect(records).toBeDefined();
   expect(records).toHaveLength(2);
   expect(
     records.find((record) => record.id === "bili-292073015"),
@@ -711,9 +741,9 @@ test("loads and saves a rating through the configured GitHub repository", async 
       () =>
         window.__previewRequests.filter(
           (request) =>
-            request.method === "PUT" &&
+            ["POST", "PATCH"].includes(request.method) &&
             request.url.startsWith(
-              "https://api.github.com/repos/preview-user/anime-records/contents/",
+              "https://api.github.com/repos/preview-user/anime-records/git/",
             ),
         ).length,
     ),
@@ -734,54 +764,93 @@ test("loads and saves a rating through the configured GitHub repository", async 
   );
   await expect(host.getByRole("link", { name: "查看 GitHub 记录" })).toBeVisible();
 
-  const putRequests = await page.evaluate(() =>
+  const gitWrites = await page.evaluate(() =>
     window.__previewRequests.filter(
       (request) =>
-        request.method === "PUT" &&
+        ["POST", "PATCH"].includes(request.method) &&
         request.url.startsWith(
-          "https://api.github.com/repos/preview-user/anime-records/contents/",
+          "https://api.github.com/repos/preview-user/anime-records/git/",
         ),
     ),
   );
-  const animePut = putRequests.find((request) =>
-    request.url.endsWith("/data/anime.jsonl"),
-  );
-  const indexPut = putRequests.find((request) =>
-    request.url.endsWith("/data/anime-index.jsonl"),
-  );
-  const backupPut = putRequests.find((request) =>
-    request.url.includes("/data/backups/library-"),
-  );
-  expect(animePut?.headers.Authorization).toBe("Bearer preview-token");
-  expect(indexPut?.headers.Authorization).toBe("Bearer preview-token");
-  expect(backupPut?.headers.Authorization).toBe("Bearer preview-token");
+  expect(
+    gitWrites.every(
+      (request) =>
+        request.headers.Authorization === "Bearer preview-token",
+    ),
+  ).toBe(true);
+  expect(
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/blobs"),
+    ),
+  ).toHaveLength(3);
+  expect(
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/trees"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    gitWrites.filter((request) =>
+      request.url.endsWith("/git/commits"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    gitWrites.filter(
+      (request) =>
+        request.method === "PATCH" &&
+        request.url.endsWith("/git/refs/heads/main"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests.filter(
+          (request) =>
+            request.method === "PUT" &&
+            request.url.includes("/contents/"),
+        ).length,
+    ),
+  ).toBe(0);
 
-  const animeBody = JSON.parse(animePut.data);
-  const indexBody = JSON.parse(indexPut.data);
-  expect(animeBody.sha).toBe("sha-preview-1");
-  expect(indexBody.sha).toBe("sha-preview-index-1");
-  const savedRecords = await page.evaluate((content) => {
-    const binary = atob(content.replace(/\s+/gu, ""));
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
-    return new TextDecoder()
-      .decode(bytes)
+  const blobTextBySha = new Map(
+    gitWrites
+      .filter((request) => request.url.endsWith("/git/blobs"))
+      .map((request) => {
+        const body = JSON.parse(request.data);
+        return [
+          request.responseSha,
+          Buffer.from(body.content, "base64").toString("utf8"),
+        ];
+      })
+      .filter(([sha]) => sha),
+  );
+  const treeBody = JSON.parse(
+    gitWrites.find((request) =>
+      request.url.endsWith("/git/trees"),
+    ).data,
+  );
+  const treeEntries = new Map(
+    treeBody.tree.map((entry) => [entry.path, entry.sha]),
+  );
+  expect(treeEntries.has("data/anime.jsonl")).toBe(true);
+  expect(treeEntries.has("data/anime-index.jsonl")).toBe(true);
+  expect(
+    [...treeEntries.keys()].some((path) =>
+      path.startsWith("data/backups/library-"),
+    ),
+  ).toBe(true);
+  const savedRecords = JSON.parse(
+    `[${blobTextBySha
+      .get(treeEntries.get("data/anime.jsonl"))
       .trim()
-      .split(/\r?\n/u)
-      .map((line) => JSON.parse(line));
-  }, animeBody.content);
-  const savedIndexes = await page.evaluate((content) => {
-    const binary = atob(content.replace(/\s+/gu, ""));
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
-    return new TextDecoder()
-      .decode(bytes)
+      .replace(/\r?\n/gu, ",")}]`,
+  );
+  const savedIndexes = JSON.parse(
+    `[${blobTextBySha
+      .get(treeEntries.get("data/anime-index.jsonl"))
       .trim()
-      .split(/\r?\n/u)
-      .map((line) => JSON.parse(line));
-  }, indexBody.content);
+      .replace(/\r?\n/gu, ",")}]`,
+  );
   expect(savedRecords).toHaveLength(2);
   const originalRecord = savedRecords.find(
     (record) => record.id === "bili-292073015",

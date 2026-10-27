@@ -59,23 +59,54 @@
     updatedAt: record.updatedAt ?? null,
     deletedAt: record.deletedAt ?? null,
   });
+  const initialAnimeText = `${JSON.stringify(githubRecord)}\n`;
+  const initialIndexText = `${JSON.stringify(buildIndexRecord(githubRecord))}\n`;
   const githubFiles = new Map([
     [
       animePath,
       {
         sha: "sha-preview-1",
-        text: `${JSON.stringify(githubRecord)}\n`,
+        text: initialAnimeText,
       },
     ],
     [
       indexPath,
       {
         sha: "sha-preview-index-1",
-        text: `${JSON.stringify(buildIndexRecord(githubRecord))}\n`,
+        text: initialIndexText,
       },
     ],
   ]);
-  let githubRevision = 1;
+  let githubRevision = 2;
+  let githubHead = "commit-preview-initial";
+  const githubBlobs = new Map(
+    [...githubFiles.values()].map((file) => [file.sha, file.text]),
+  );
+  const githubTrees = new Map([
+    [
+      "tree-preview-initial",
+      {
+        sha: "tree-preview-initial",
+        files: new Map(
+          [...githubFiles.entries()].map(([path, file]) => [
+            path,
+            { ...file },
+          ]),
+        ),
+      },
+    ],
+  ]);
+  const githubCommits = new Map([
+    [
+      githubHead,
+      {
+        sha: githubHead,
+        message: "Initial preview repository",
+        tree: { sha: "tree-preview-initial" },
+        parents: [],
+      },
+    ],
+  ]);
 
   function encodeBase64(text) {
     const bytes = new TextEncoder().encode(text);
@@ -105,9 +136,23 @@
     };
   }
 
-  function nextGithubSha(path) {
+  function nextGithubSha(kind) {
     githubRevision += 1;
-    return `sha-preview-${path.includes("index") ? "index-" : ""}${githubRevision}`;
+    return `${kind}-preview-${githubRevision}`;
+  }
+
+  function cloneGithubFiles(source = githubFiles) {
+    return new Map(
+      [...source.entries()].map(([path, file]) => [path, { ...file }]),
+    );
+  }
+
+  function githubSnapshot(ref) {
+    if (!ref || ref === "main" || ref === githubHead) {
+      return githubFiles;
+    }
+    const commit = githubCommits.get(ref);
+    return commit ? githubTrees.get(commit.tree.sha)?.files ?? null : null;
   }
 
   const fixtureIndex = {
@@ -257,6 +302,23 @@
         } else if (url.hostname === "api.github.com") {
           const repositoryPath = "/repos/preview-user/anime-records";
           const contentsPrefix = `${repositoryPath}/contents/`;
+          const gitPrefix = `${repositoryPath}/git/`;
+          const authorization =
+            details.headers?.Authorization ??
+            details.headers?.authorization ??
+            "";
+          const rejectWrite = () => {
+            if (authorization !== "Bearer write-fail-token") {
+              return false;
+            }
+            status = 401;
+            responseText = JSON.stringify({
+              message: "Preview write failure",
+            });
+            return true;
+          };
+          const requestBody = () =>
+            details.data ? JSON.parse(details.data) : {};
           if (url.pathname === repositoryPath) {
             responseText = JSON.stringify({
               full_name: "preview-user/anime-records",
@@ -268,53 +330,26 @@
             const path = decodeURIComponent(
               url.pathname.slice(contentsPrefix.length),
             );
-            if (details.method === "PUT") {
-              const authorization =
-                details.headers?.Authorization ??
-                details.headers?.authorization ??
-                "";
-              if (authorization === "Bearer write-fail-token") {
-                status = 500;
-                responseText = JSON.stringify({
-                  message: "Preview write failure",
-                });
-              } else {
-                const body = JSON.parse(details.data);
-                const current = githubFiles.get(path);
-                if (
-                  (current && body.sha !== current.sha) ||
-                  (!current && body.sha)
-                ) {
-                  status = 422;
-                  responseText = JSON.stringify({
-                    message: "Preview SHA conflict",
-                  });
-                  details.onload({
-                    status,
-                    responseText,
-                    responseHeaders: "",
-                    finalUrl: details.url,
-                  });
-                  return;
-                }
-                const file = {
-                  sha: nextGithubSha(path),
-                  text: decodeBase64(body.content),
-                };
-                githubFiles.set(path, file);
-                responseText = JSON.stringify({
-                  content: {
-                    name: path.split("/").at(-1),
-                    path,
-                    sha: file.sha,
-                    html_url: `https://github.com/preview-user/anime-records/blob/main/${path}`,
-                  },
-                  commit: { sha: "commit-preview" },
-                });
-              }
+            if (details.method !== "GET") {
+              status = 405;
+              responseText = JSON.stringify({
+                message: "Contents API is read-only in preview",
+              });
             } else if (path === backupDirectory) {
+              const snapshot = githubSnapshot(url.searchParams.get("ref"));
+              if (!snapshot) {
+                status = 404;
+                responseText = JSON.stringify({ message: "Not Found" });
+                details.onload({
+                  status,
+                  responseText,
+                  responseHeaders: "",
+                  finalUrl: details.url,
+                });
+                return;
+              }
               responseText = JSON.stringify(
-                [...githubFiles.entries()]
+                [...snapshot.entries()]
                   .filter(([filePath]) =>
                     filePath.startsWith(`${backupDirectory}/`),
                   )
@@ -326,13 +361,154 @@
                   })),
               );
             } else {
-              const file = githubFiles.get(path);
+              const snapshot = githubSnapshot(url.searchParams.get("ref"));
+              const file = snapshot?.get(path);
               if (!file) {
                 status = 404;
                 responseText = JSON.stringify({ message: "Not Found" });
               } else {
                 responseText = JSON.stringify(githubFileResponse(path, file));
               }
+            }
+          } else if (url.pathname.startsWith(gitPrefix)) {
+            const gitEndpoint = url.pathname.slice(gitPrefix.length);
+            if (
+              details.method === "GET" &&
+              gitEndpoint === "ref/heads/main"
+            ) {
+              responseText = JSON.stringify({
+                ref: "refs/heads/main",
+                object: { sha: githubHead },
+              });
+            } else if (
+              details.method === "GET" &&
+              gitEndpoint.startsWith("commits/")
+            ) {
+              const commit = githubCommits.get(
+                decodeURIComponent(gitEndpoint.slice("commits/".length)),
+              );
+              if (!commit) {
+                status = 404;
+                responseText = JSON.stringify({ message: "Not Found" });
+              } else {
+                responseText = JSON.stringify(commit);
+              }
+            } else if (
+              details.method === "POST" &&
+              gitEndpoint === "blobs"
+            ) {
+              if (!rejectWrite()) {
+                const body = requestBody();
+                const text = decodeBase64(body.content);
+                const sha = nextGithubSha("blob");
+                githubBlobs.set(sha, text);
+                window.__previewRequests.at(-1).responseSha = sha;
+                responseText = JSON.stringify({ sha });
+              }
+            } else if (
+              details.method === "POST" &&
+              gitEndpoint === "trees"
+            ) {
+              if (!rejectWrite()) {
+                const body = requestBody();
+                const baseTree = githubTrees.get(body.base_tree);
+                if (!baseTree) {
+                  status = 404;
+                  responseText = JSON.stringify({ message: "Not Found" });
+                } else {
+                  const files = cloneGithubFiles(baseTree.files);
+                  for (const entry of body.tree ?? []) {
+                    if (entry.sha === null) {
+                      files.delete(entry.path);
+                      continue;
+                    }
+                    const text = githubBlobs.get(entry.sha);
+                    if (text === undefined) {
+                      status = 422;
+                      responseText = JSON.stringify({
+                        message: `Unknown blob: ${entry.sha}`,
+                      });
+                      break;
+                    }
+                    files.set(entry.path, {
+                      sha: entry.sha,
+                      text,
+                    });
+                  }
+                  if (status === 200) {
+                    const sha = nextGithubSha("tree");
+                    const tree = { sha, files };
+                    githubTrees.set(sha, tree);
+                    responseText = JSON.stringify({
+                      sha,
+                      tree: [...files.entries()].map(
+                        ([path, file]) => ({
+                          path,
+                          mode: "100644",
+                          type: "blob",
+                          sha: file.sha,
+                        }),
+                      ),
+                    });
+                  }
+                }
+              }
+            } else if (
+              details.method === "POST" &&
+              gitEndpoint === "commits"
+            ) {
+              if (!rejectWrite()) {
+                const body = requestBody();
+                const tree = githubTrees.get(body.tree);
+                if (!tree) {
+                  status = 404;
+                  responseText = JSON.stringify({ message: "Not Found" });
+                } else {
+                  const sha = nextGithubSha("commit");
+                  const commit = {
+                    sha,
+                    message: body.message,
+                    tree: { sha: tree.sha },
+                    parents: (body.parents ?? []).map((parent) => ({
+                      sha: parent,
+                    })),
+                  };
+                  githubCommits.set(sha, commit);
+                  responseText = JSON.stringify(commit);
+                }
+              }
+            } else if (
+              details.method === "PATCH" &&
+              gitEndpoint === "refs/heads/main"
+            ) {
+              if (!rejectWrite()) {
+                const body = requestBody();
+                const commit = githubCommits.get(body.sha);
+                const expectedParent = commit?.parents?.[0]?.sha ?? null;
+                if (!commit) {
+                  status = 404;
+                  responseText = JSON.stringify({ message: "Not Found" });
+                } else if (!body.force && expectedParent !== githubHead) {
+                  status = 409;
+                  responseText = JSON.stringify({
+                    message: "Preview ref conflict",
+                  });
+                } else {
+                  githubHead = commit.sha;
+                  githubFiles.clear();
+                  const files = githubTrees.get(commit.tree.sha)?.files;
+                  for (const [path, file] of files ?? []) {
+                    githubFiles.set(path, { ...file });
+                  }
+                  responseText = JSON.stringify({
+                    ref: "refs/heads/main",
+                    object: { sha: githubHead },
+                  });
+                }
+              }
+            } else {
+              status = 404;
+              responseText = JSON.stringify({ message: "Not Found" });
             }
           } else {
             status = 404;

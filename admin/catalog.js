@@ -110,6 +110,7 @@ const elements = {
   catalogYearSummary: document.querySelector("#catalogYearSummary"),
   catalogYearOptions: document.querySelector("#catalogYearOptions"),
   catalogYearClear: document.querySelector("#catalogYearClear"),
+  catalogYearClose: document.querySelector("#catalogYearClose"),
   catalogOwnership: document.querySelector("#catalogOwnership"),
   catalogSource: document.querySelector("#catalogSource"),
   catalogRefresh: document.querySelector("#catalogRefresh"),
@@ -182,6 +183,7 @@ const elements = {
   catalogTagSummary: document.querySelector("#catalogTagSummary"),
   catalogTagOptions: document.querySelector("#catalogTagOptions"),
   catalogTagClear: document.querySelector("#catalogTagClear"),
+  catalogTagClose: document.querySelector("#catalogTagClose"),
   catalogRows: document.querySelector("#catalogRows"),
   catalogTable: document.querySelector("#catalogTable"),
   catalogCards: document.querySelector("#catalogCards"),
@@ -258,6 +260,35 @@ let toastTimer = null;
 let requestSequence = 0;
 let templateBusy = false;
 let personalCachePromise = null;
+
+function positionCatalogFilterDrawer(filter) {
+  if (!filter?.open) {
+    return;
+  }
+  const panel = filter.querySelector(".catalog-multi-filter-panel");
+  const host = filter.closest(".library-pane");
+  if (!panel || !host) {
+    return;
+  }
+  const hostRect = host.getBoundingClientRect();
+  const hostStyles = getComputedStyle(host);
+  const left =
+    hostRect.left + Number.parseFloat(hostStyles.paddingLeft || "0");
+  const right =
+    hostRect.right - Number.parseFloat(hostStyles.paddingRight || "0");
+  const viewportWidth = document.documentElement.clientWidth;
+  const width = Math.max(0, Math.min(right - left, viewportWidth - 24));
+  panel.style.width = `${width}px`;
+  panel.style.left = `${Math.max(12, Math.min(left, viewportWidth - width - 12))}px`;
+}
+
+function closeCatalogFilter(filter) {
+  if (!filter?.open) {
+    return;
+  }
+  filter.open = false;
+  filter.querySelector("summary")?.focus();
+}
 
 function showToast(message, options = {}) {
   if (!elements.toast) {
@@ -2568,6 +2599,10 @@ elements.catalogYearClear.addEventListener("click", () => {
   loadCatalog();
 });
 
+elements.catalogYearClose?.addEventListener("click", () =>
+  closeCatalogFilter(elements.catalogYearFilter),
+);
+
 elements.catalogTagOptions.addEventListener("change", (event) => {
   const input = event.target.closest("input[data-catalog-tag]");
   if (!input) {
@@ -2580,6 +2615,10 @@ elements.catalogTagOptions.addEventListener("change", (event) => {
   }
   applyCatalogView();
 });
+
+elements.catalogTagClose?.addEventListener("click", () =>
+  closeCatalogFilter(elements.catalogTagFilter),
+);
 
 elements.catalogTagClear.addEventListener("click", () => {
   if (!state.metadataTags.size) {
@@ -2685,6 +2724,26 @@ document.addEventListener("click", (event) => {
   }
 });
 
+for (const filter of [
+  elements.catalogYearFilter,
+  elements.catalogTagFilter,
+]) {
+  filter.addEventListener("toggle", () => {
+    if (filter.open) {
+      requestAnimationFrame(() => positionCatalogFilterDrawer(filter));
+    }
+  });
+}
+
+window.addEventListener("resize", () => {
+  for (const filter of [
+    elements.catalogYearFilter,
+    elements.catalogTagFilter,
+  ]) {
+    positionCatalogFilterDrawer(filter);
+  }
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") {
     return;
@@ -2694,8 +2753,7 @@ document.addEventListener("keydown", (event) => {
     elements.catalogTagFilter,
   ]) {
     if (filter.open) {
-      filter.open = false;
-      filter.querySelector("summary")?.focus();
+      closeCatalogFilter(filter);
     }
   }
 });
