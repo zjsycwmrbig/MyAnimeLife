@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import {
   ADMIN_ACCENTS,
+  SITE_THEME_COLORS,
+  SITE_TEMPLATES,
   resolveAdminAppearance,
 } from "../admin/appearance.js";
 
@@ -21,6 +23,8 @@ test("applies the configured display template and share accent to the admin", ()
   assert.deepEqual(appearance.palette, ADMIN_ACCENTS.teal);
   assert.equal(appearance.siteTitle, "我的番剧档案");
   assert.equal(appearance.siteBrand, "MyAnimeLife");
+  assert.deepEqual(SITE_TEMPLATES, ["default", "compact", "spotlight"]);
+  assert.equal(SITE_THEME_COLORS.spotlight, "#10171b");
 });
 
 test("uses local share color overrides and safe fallbacks", () => {
@@ -40,6 +44,60 @@ test("uses local share color overrides and safe fallbacks", () => {
   });
   assert.equal(fallback.template, "default");
   assert.equal(fallback.accent, "coral");
+});
+
+test("keeps the share accent separate from the shared site template", async () => {
+  const source = await fs.readFile(
+    new URL("../admin/appearance.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /--share-accent/u);
+  assert.doesNotMatch(source, /setProperty\("--accent"/u);
+});
+
+test("defines coordinated admin surfaces for every display template", async () => {
+  const [css, ...templateStyles] = await Promise.all([
+    fs.readFile(new URL("../admin/styles.css", import.meta.url), "utf8"),
+    ...SITE_TEMPLATES.map((template) =>
+      fs.readFile(
+        new URL(`../templates/${template}/assets/styles.css`, import.meta.url),
+        "utf8",
+      ),
+    ),
+  ]);
+
+  for (const [index, template] of SITE_TEMPLATES.entries()) {
+    assert.match(
+      css,
+      new RegExp(
+        `html\\[data-site-template="${template}"\\][\\s\\S]*?--canvas:`,
+        "u",
+      ),
+    );
+    assert.match(
+      css,
+      new RegExp(
+        `html\\[data-site-template="${template}"\\][\\s\\S]*?--canvas:\\s*${SITE_THEME_COLORS[template]};`,
+        "u",
+      ),
+    );
+    assert.match(
+      templateStyles[index],
+      new RegExp(`--paper:\\s*${SITE_THEME_COLORS[template]};`, "u"),
+    );
+  }
+  assert.match(css, /html\[data-site-template="spotlight"\][\s\S]*?--topbar-bg:/u);
+  assert.match(css, /--font-sans:[\s\S]*?font-family:\s*var\(--font-sans\)/u);
+  assert.match(css, /\.settings-section-intro\s*\{/u);
+  assert.match(
+    css,
+    /\.settings-workspace\s*\{[^}]*min-height:\s*calc\(100vh - var\(--topbar-height\)\)/u,
+  );
+  assert.match(
+    css,
+    /\.about-workspace\s*\{[^}]*min-height:\s*calc\(100vh - var\(--topbar-height\)\)/u,
+  );
+  assert.match(css, /\.topbar \.button-primary:hover\s*\{/u);
 });
 
 test("places the reading link first and hides connection details from the topbar", async () => {

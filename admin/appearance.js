@@ -21,13 +21,23 @@ export const ADMIN_ACCENTS = Object.freeze({
   },
 });
 
+export const SITE_TEMPLATES = Object.freeze([
+  "default",
+  "compact",
+  "spotlight",
+]);
+
+export const SITE_THEME_COLORS = Object.freeze({
+  default: "#eef1eb",
+  compact: "#f4f7f7",
+  spotlight: "#10171b",
+});
+
 export function resolveAdminAppearance(
   settings = {},
   localAppearance = null,
 ) {
-  const template = ["default", "compact", "spotlight"].includes(
-    settings.template,
-  )
+  const template = SITE_TEMPLATES.includes(settings.template)
     ? settings.template
     : "default";
   const requestedAccent =
@@ -49,10 +59,9 @@ export function applyAdminAppearance(settings, localAppearance = null) {
   const root = document.documentElement;
   root.dataset.siteTemplate = appearance.template;
   root.dataset.shareAccent = appearance.accent;
-  root.style.setProperty("--accent", appearance.palette.accent);
-  root.style.setProperty("--accent-dark", appearance.palette.accentDark);
-  root.style.setProperty("--accent-soft", appearance.palette.accentSoft);
-  root.style.setProperty("--focus", appearance.palette.accent);
+  root.style.setProperty("--share-accent", appearance.palette.accent);
+  root.style.setProperty("--share-accent-dark", appearance.palette.accentDark);
+  root.style.setProperty("--share-accent-soft", appearance.palette.accentSoft);
 
   const brandMark = document.querySelector("#adminBrandMark");
   const brandTitle = document.querySelector("#adminBrandTitle");
@@ -66,5 +75,10 @@ export function applyAdminAppearance(settings, localAppearance = null) {
   if (appearance.siteTitle) {
     document.title = `${appearance.siteTitle} · 管理`;
   }
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  themeColor?.setAttribute(
+    "content",
+    SITE_THEME_COLORS[appearance.template],
+  );
   return appearance;
 }
