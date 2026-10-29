@@ -1348,7 +1348,7 @@
   ]);
   var DuplicateRecordError = class extends Error {
     constructor(duplicates, scannedCount = 0) {
-      super(`发现 ${duplicates.length} 条疑似重复记录，请确认是否仍然添加`);
+      super(`发现 ${duplicates.length} 条疑似重复记录，请确认如何处理`);
       this.name = "DuplicateRecordError";
       this.code = "DUPLICATE_RECORDS";
       this.duplicates = duplicates;
@@ -2492,6 +2492,7 @@ ${library.indexFile.text ?? ""}`
       rating,
       review,
       allowDuplicates = false,
+      replaceExisting = false,
       onProgress = null
     }) {
       const config = this.assertConfigured();
@@ -2505,11 +2506,11 @@ ${library.indexFile.text ?? ""}`
             attempt
           });
           const idSet = new Set(ids);
-          const existing = library.records.find(
+          let existing = library.records.find(
             (record) => idSet.has(cleanString2(record.id))
           ) ?? null;
-          const existingId = cleanString2(existing?.id) || null;
-          if (!allowDuplicates) {
+          let existingId = cleanString2(existing?.id) || null;
+          if (!allowDuplicates || replaceExisting) {
             reportProgress(
               progressOptions,
               "duplicates",
@@ -2521,14 +2522,35 @@ ${library.indexFile.text ?? ""}`
               selectedResult,
               aiResult
             });
-            if (inspection.duplicates.length) {
+            if (replaceExisting) {
+              const exactDuplicate = inspection.duplicates.find(
+                (duplicate) => duplicate.kind === "existing"
+              );
+              if (!exactDuplicate?.id) {
+                throw new Error(
+                  "未找到可替换的精确番剧记录，请重新识别后再试"
+                );
+              }
+              existing = library.records.find(
+                (record) => cleanString2(record.id) === exactDuplicate.id
+              ) ?? null;
+              existingId = cleanString2(existing?.id) || null;
+              if (!existing) {
+                throw new Error(
+                  "要替换的番剧记录已发生变化，请重新识别后再试"
+                );
+              }
+            } else if (inspection.duplicates.length) {
               throw new DuplicateRecordError(
                 inspection.duplicates,
                 inspection.scannedCount
               );
             }
           }
-          const appendedDuplicate = Boolean(allowDuplicates && existing);
+          const appendedDuplicate = Boolean(
+            allowDuplicates && !replaceExisting && existing
+          );
+          const replacedExisting = Boolean(replaceExisting && existing);
           const id = appendedDuplicate ? createDuplicateRecordId(
             existingId ?? ids[0],
             library.records,
@@ -2557,7 +2579,7 @@ ${library.indexFile.text ?? ""}`
             library,
             records: nextRecords,
             index: nextIndex,
-            message: `chore(data): ${appendedDuplicate ? "append duplicate" : "save"} ${commitTitle(merged.title)} (${id})
+            message: `chore(data): ${replacedExisting ? "replace review" : appendedDuplicate ? "append duplicate" : "save"} ${commitTitle(merged.title)} (${id})
 
 Anime: ${commitTitle(merged.title)}
 Record-Id: ${id}
@@ -2579,6 +2601,7 @@ Source: Tampermonkey userscript`,
             id,
             record: merged,
             appendedDuplicate,
+            replacedExisting,
             commit: published.commitSha,
             sha: published.animeBlob,
             htmlUrl: `${config.urls.webUrl}/blob/${config.branch}/${ANIME_JSONL_PATH}`,
@@ -7365,7 +7388,12 @@ Source: Bilibili follow page in Tampermonkey`,
       this.confirmDuplicateButton = button(
         "仍然添加",
         CloudDownload,
-        () => this.confirmDuplicateSync(),
+        () => this.confirmDuplicateSync()
+      );
+      this.replaceDuplicateButton = button(
+        "替换评价",
+        RefreshCw,
+        () => this.replaceDuplicateSync(),
         { variant: "primary" }
       );
       this.duplicateWarning = element(
@@ -7383,7 +7411,8 @@ Source: Bilibili follow page in Tampermonkey`,
           this.duplicateWarningList,
           element("div", { className: "scout-duplicate-actions" }, [
             this.cancelDuplicateButton,
-            this.confirmDuplicateButton
+            this.confirmDuplicateButton,
+            this.replaceDuplicateButton
           ])
         ]
       );
@@ -9030,13 +9059,14 @@ ${toErrorMessage(error)}`,
       this.saveRecordButton.classList.add("is-loading");
       this.saveRecordButtonTextNode.textContent = "正在同步";
       this.setRecordStatus(
-        options.allowDuplicates ? "本地草稿已保存 · 已确认仍要添加，正在同步" : "本地草稿已保存 · 正在同步到 GitHub",
+        options.replaceExisting ? "本地草稿已保存 · 正在替换仓库中的评分与短评" : options.allowDuplicates ? "本地草稿已保存 · 已确认仍要添加，正在同步" : "本地草稿已保存 · 正在同步到 GitHub",
         "progress"
       );
       try {
         const remote = await this.githubRecords.saveRecord({
           ...saveRequest,
           allowDuplicates: Boolean(options.allowDuplicates),
+          replaceExisting: Boolean(options.replaceExisting),
           onProgress: reportProgress2
         });
         this.recordRemoteRecord = remote;
@@ -9063,7 +9093,7 @@ ${toErrorMessage(error)}`,
           "success"
         );
         this.showToast(
-          `《${itemDisplayTitle2(saveRequest.item)}》的评分与短评${remote.appendedDuplicate ? "已作为新记录追加" : "已写入"}到个人数据仓库。` + (syncedAtLabel ? `
+          `《${itemDisplayTitle2(saveRequest.item)}》的评分与短评${remote.replacedExisting ? "已替换原记录" : remote.appendedDuplicate ? "已作为新记录追加" : "已写入"}到个人数据仓库。` + (syncedAtLabel ? `
 同步时间：${syncedAtLabel}` : ""),
           {
             tone: "success",
@@ -9078,11 +9108,11 @@ ${toErrorMessage(error)}`,
           this.pendingGithubSave = saveRequest;
           this.renderDuplicateWarning(error);
           this.setRecordStatus(
-            hasExistingRecord ? "本地草稿已保存 · 等待确认仍然添加" : "本地草稿已保存 · 等待确认疑似重复",
+            hasExistingRecord ? "本地草稿已保存 · 请选择替换评价或仍然添加" : "本地草稿已保存 · 等待确认疑似重复",
             "warning"
           );
           this.showToast(
-            hasExistingRecord ? "个人仓库中已有这部番剧。继续会新增一条独立记录，原评分与短评不会被修改。" : `${error.message}。请检查下方候选，确认不是同一季度后再同步。`,
+            hasExistingRecord ? "个人仓库中已有这部番剧。默认替换原记录的评分与短评；也可以仍然添加为独立记录。" : `${error.message}。请检查下方候选，确认不是同一季度后再同步。`,
             {
               tone: "warning",
               title: hasExistingRecord ? "仓库中已有该番剧" : "需要确认重复项"
@@ -9113,6 +9143,15 @@ ${toErrorMessage(
         this.recordSaving = false;
         this.saveRecordButton.classList.remove("is-loading");
         this.syncRecordGithubState();
+        if (!this.duplicateWarning.hidden) {
+          const hasExistingRecord = this.duplicateWarning.dataset.kind === "existing";
+          this.cancelDuplicateButton.disabled = false;
+          this.confirmDuplicateButton.disabled = false;
+          this.replaceDuplicateButton.disabled = !hasExistingRecord;
+          if (hasExistingRecord) {
+            this.replaceDuplicateButton.focus({ preventScroll: true });
+          }
+        }
       }
     }
     renderDuplicateWarning(error) {
@@ -9121,8 +9160,10 @@ ${toErrorMessage(
       );
       this.duplicateWarningTitle.textContent = hasExistingRecord ? "这部番剧已在个人仓库中" : "发现疑似重复番剧";
       this.duplicateWarning.dataset.kind = hasExistingRecord ? "existing" : "similar";
-      this.duplicateWarningSummary.textContent = hasExistingRecord ? `扫描 ${error.scannedCount} 条记录后发现已有记录。继续会新增一条独立记录，不会修改原记录。` : `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。不同季度属于不同番剧，继续会新增一条独立记录。`;
+      this.duplicateWarningSummary.textContent = hasExistingRecord ? `扫描 ${error.scannedCount} 条记录后发现已有记录。“替换评价”会更新原记录的评分与短评，并保留备注等资料；“仍然添加”会新增一条独立记录。` : `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。不同季度属于不同番剧，继续会新增一条独立记录。`;
       this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
+      this.replaceDuplicateButton.lastChild.textContent = "替换评价";
+      this.replaceDuplicateButton.hidden = !hasExistingRecord;
       this.duplicateWarningList.replaceChildren();
       for (const duplicate of error.duplicates) {
         const season = duplicate.season?.label ? ` · ${duplicate.season.label}` : "";
@@ -9145,10 +9186,14 @@ ${toErrorMessage(
       this.duplicateWarning.hidden = false;
       this.cancelDuplicateButton.disabled = this.recordSaving;
       this.confirmDuplicateButton.disabled = this.recordSaving;
+      this.replaceDuplicateButton.disabled = this.recordSaving || !hasExistingRecord;
       this.duplicateWarning.scrollIntoView({
         behavior: "smooth",
         block: "center"
       });
+      if (hasExistingRecord) {
+        this.replaceDuplicateButton.focus({ preventScroll: true });
+      }
     }
     clearDuplicateWarning() {
       if (!this.duplicateWarning) {
@@ -9159,6 +9204,9 @@ ${toErrorMessage(
       delete this.duplicateWarning.dataset.kind;
       this.duplicateWarningList.replaceChildren();
       this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
+      this.replaceDuplicateButton.lastChild.textContent = "替换评价";
+      this.replaceDuplicateButton.hidden = true;
+      this.replaceDuplicateButton.disabled = false;
     }
     cancelDuplicateSync() {
       this.pendingGithubSave = null;
@@ -9178,6 +9226,13 @@ ${toErrorMessage(
         return;
       }
       this.syncGithubRecord(pending, { allowDuplicates: true });
+    }
+    replaceDuplicateSync() {
+      const pending = this.pendingGithubSave;
+      if (!pending || this.recordSaving) {
+        return;
+      }
+      this.syncGithubRecord(pending, { replaceExisting: true });
     }
     renderDiagnostics(diagnostics) {
       this.diagnosticsList.replaceChildren();

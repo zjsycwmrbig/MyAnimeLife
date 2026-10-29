@@ -972,6 +972,11 @@ export class ScoutPanel {
       "仍然添加",
       CloudDownload,
       () => this.confirmDuplicateSync(),
+    );
+    this.replaceDuplicateButton = button(
+      "替换评价",
+      RefreshCw,
+      () => this.replaceDuplicateSync(),
       { variant: "primary" },
     );
     this.duplicateWarning = element(
@@ -990,6 +995,7 @@ export class ScoutPanel {
         element("div", { className: "scout-duplicate-actions" }, [
           this.cancelDuplicateButton,
           this.confirmDuplicateButton,
+          this.replaceDuplicateButton,
         ]),
       ],
     );
@@ -2877,15 +2883,18 @@ export class ScoutPanel {
     this.saveRecordButton.classList.add("is-loading");
     this.saveRecordButtonTextNode.textContent = "正在同步";
     this.setRecordStatus(
-      options.allowDuplicates
-        ? "本地草稿已保存 · 已确认仍要添加，正在同步"
-        : "本地草稿已保存 · 正在同步到 GitHub",
+      options.replaceExisting
+        ? "本地草稿已保存 · 正在替换仓库中的评分与短评"
+        : options.allowDuplicates
+          ? "本地草稿已保存 · 已确认仍要添加，正在同步"
+          : "本地草稿已保存 · 正在同步到 GitHub",
       "progress",
     );
     try {
       const remote = await this.githubRecords.saveRecord({
         ...saveRequest,
         allowDuplicates: Boolean(options.allowDuplicates),
+        replaceExisting: Boolean(options.replaceExisting),
         onProgress: reportProgress,
       });
       this.recordRemoteRecord = remote;
@@ -2914,7 +2923,11 @@ export class ScoutPanel {
       );
       this.showToast(
         `《${itemDisplayTitle(saveRequest.item)}》的评分与短评${
-          remote.appendedDuplicate ? "已作为新记录追加" : "已写入"
+          remote.replacedExisting
+            ? "已替换原记录"
+            : remote.appendedDuplicate
+              ? "已作为新记录追加"
+              : "已写入"
         }到个人数据仓库。` +
           (syncedAtLabel ? `\n同步时间：${syncedAtLabel}` : ""),
         {
@@ -2931,13 +2944,13 @@ export class ScoutPanel {
         this.renderDuplicateWarning(error);
         this.setRecordStatus(
           hasExistingRecord
-            ? "本地草稿已保存 · 等待确认仍然添加"
+            ? "本地草稿已保存 · 请选择替换评价或仍然添加"
             : "本地草稿已保存 · 等待确认疑似重复",
           "warning",
         );
         this.showToast(
           hasExistingRecord
-            ? "个人仓库中已有这部番剧。继续会新增一条独立记录，原评分与短评不会被修改。"
+            ? "个人仓库中已有这部番剧。默认替换原记录的评分与短评；也可以仍然添加为独立记录。"
             : `${error.message}。请检查下方候选，确认不是同一季度后再同步。`,
           {
             tone: "warning",
@@ -2969,6 +2982,16 @@ export class ScoutPanel {
       this.recordSaving = false;
       this.saveRecordButton.classList.remove("is-loading");
       this.syncRecordGithubState();
+      if (!this.duplicateWarning.hidden) {
+        const hasExistingRecord =
+          this.duplicateWarning.dataset.kind === "existing";
+        this.cancelDuplicateButton.disabled = false;
+        this.confirmDuplicateButton.disabled = false;
+        this.replaceDuplicateButton.disabled = !hasExistingRecord;
+        if (hasExistingRecord) {
+          this.replaceDuplicateButton.focus({ preventScroll: true });
+        }
+      }
     }
   }
 
@@ -2984,10 +3007,12 @@ export class ScoutPanel {
       : "similar";
     this.duplicateWarningSummary.textContent =
       hasExistingRecord
-        ? `扫描 ${error.scannedCount} 条记录后发现已有记录。继续会新增一条独立记录，不会修改原记录。`
+        ? `扫描 ${error.scannedCount} 条记录后发现已有记录。“替换评价”会更新原记录的评分与短评，并保留备注等资料；“仍然添加”会新增一条独立记录。`
         : `扫描 ${error.scannedCount} 条记录后发现 ${error.duplicates.length} 条可能重复。` +
           "不同季度属于不同番剧，继续会新增一条独立记录。";
     this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
+    this.replaceDuplicateButton.lastChild.textContent = "替换评价";
+    this.replaceDuplicateButton.hidden = !hasExistingRecord;
     this.duplicateWarningList.replaceChildren();
     for (const duplicate of error.duplicates) {
       const season = duplicate.season?.label
@@ -3012,10 +3037,15 @@ export class ScoutPanel {
     this.duplicateWarning.hidden = false;
     this.cancelDuplicateButton.disabled = this.recordSaving;
     this.confirmDuplicateButton.disabled = this.recordSaving;
+    this.replaceDuplicateButton.disabled =
+      this.recordSaving || !hasExistingRecord;
     this.duplicateWarning.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
+    if (hasExistingRecord) {
+      this.replaceDuplicateButton.focus({ preventScroll: true });
+    }
   }
 
   clearDuplicateWarning() {
@@ -3027,6 +3057,9 @@ export class ScoutPanel {
     delete this.duplicateWarning.dataset.kind;
     this.duplicateWarningList.replaceChildren();
     this.confirmDuplicateButton.lastChild.textContent = "仍然添加";
+    this.replaceDuplicateButton.lastChild.textContent = "替换评价";
+    this.replaceDuplicateButton.hidden = true;
+    this.replaceDuplicateButton.disabled = false;
   }
 
   cancelDuplicateSync() {
@@ -3048,6 +3081,14 @@ export class ScoutPanel {
       return;
     }
     this.syncGithubRecord(pending, { allowDuplicates: true });
+  }
+
+  replaceDuplicateSync() {
+    const pending = this.pendingGithubSave;
+    if (!pending || this.recordSaving) {
+      return;
+    }
+    this.syncGithubRecord(pending, { replaceExisting: true });
   }
 
   renderDiagnostics(diagnostics) {

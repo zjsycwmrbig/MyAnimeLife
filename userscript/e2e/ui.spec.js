@@ -732,10 +732,17 @@ test("loads and saves a rating through the configured GitHub repository", async 
   await expect(duplicateWarning).toHaveAttribute("data-kind", "existing");
   await expect(duplicateWarning).toContainText("这部番剧已在个人仓库中");
   await expect(duplicateWarning).toContainText("个人仓库中已存在同一番剧");
-  await expect(duplicateWarning).toContainText("新增一条独立记录");
+  await expect(duplicateWarning).toContainText("替换评价");
+  await expect(duplicateWarning).toContainText("仍然添加");
   await expect(
     host.getByRole("button", { name: "仍然添加" }),
   ).toBeVisible();
+  const replaceDuplicateButton = host.getByRole("button", {
+    name: "替换评价",
+  });
+  await expect(replaceDuplicateButton).toBeVisible();
+  await expect(replaceDuplicateButton).toBeFocused();
+  await expect(replaceDuplicateButton).toHaveAttribute("data-variant", "primary");
   expect(
     await page.evaluate(
       () =>
@@ -751,7 +758,7 @@ test("loads and saves a rating through the configured GitHub repository", async 
   await page.screenshot({
     path: "test-results/duplicate-record-confirmation.png",
   });
-  await host.getByRole("button", { name: "仍然添加" }).click();
+  await replaceDuplicateButton.click();
 
   await expect(host.locator(".scout-record .scout-footer-status")).toContainText(
     "已保存到 GitHub",
@@ -851,21 +858,15 @@ test("loads and saves a rating through the configured GitHub repository", async 
       .trim()
       .replace(/\r?\n/gu, ",")}]`,
   );
-  expect(savedRecords).toHaveLength(2);
+  expect(savedRecords).toHaveLength(1);
   const originalRecord = savedRecords.find(
     (record) => record.id === "bili-292073015",
   );
-  const savedRecord = savedRecords.find(
-    (record) => record.id !== "bili-292073015",
-  );
-  expect(originalRecord.rating).toBe(8);
-  expect(originalRecord.review).toBe("这条评价来自预览 GitHub 仓库。");
-  expect(savedRecord.id).toMatch(/^bili-292073015-copy-/u);
-  expect(savedRecord.rating).toBe(9);
-  expect(savedRecord.review).toBe("更新后的 GitHub 评价。");
-  expect(savedIndexes).toHaveLength(2);
+  expect(originalRecord.rating).toBe(9);
+  expect(originalRecord.review).toBe("更新后的 GitHub 评价。");
+  expect(savedIndexes).toHaveLength(1);
   const savedIndex = savedIndexes.find(
-    (record) => record.id === savedRecord.id,
+    (record) => record.id === originalRecord.id,
   );
   expect(savedIndex.rating).toBe(9);
   expect(savedIndex.reviewExcerpt).toBe("更新后的 GitHub 评价。");

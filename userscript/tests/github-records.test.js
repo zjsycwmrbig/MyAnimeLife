@@ -514,7 +514,7 @@ test("uses the Bilibili season id as the preferred record identity", () => {
   ]);
 });
 
-test("confirms existing records before appending a separate JSONL record", async () => {
+test("confirms existing records before replacing or appending a JSONL record", async () => {
   const existing = {
     ...createAnimeRecord({
       item,
@@ -549,17 +549,51 @@ test("confirms existing records before appending a separate JSONL record", async
     0,
   );
 
-  const saved = await service.saveRecord({
+  const replaced = await service.saveRecord({
     item,
     selectedResult,
     rating: 9,
-    review: "新评价",
+    review: "替换后的评价",
+    replaceExisting: true,
+  });
+
+  assert.equal(replaced.replacedExisting, true);
+  assert.equal(replaced.appendedDuplicate, false);
+  assert.equal(replaced.id, existing.id);
+  assert.equal(replaced.record.rating, 9);
+  assert.equal(replaced.record.review, "替换后的评价");
+  assert.equal(replaced.record.note, "不能丢失");
+  assert.equal(replaced.record.createdAt, existing.createdAt);
+
+  const replacedRecords = parseJsonl(
+    api.state.get(ANIME_JSONL_PATH).text,
+    ANIME_JSONL_PATH,
+  );
+  assert.equal(replacedRecords.length, 1);
+  assert.equal(replacedRecords[0].id, existing.id);
+  assert.equal(replacedRecords[0].rating, 9);
+  assert.equal(replacedRecords[0].review, "替换后的评价");
+  assert.equal(replacedRecords[0].note, "不能丢失");
+  assert.deepEqual(
+    parseJsonl(
+      api.state.get(ANIME_INDEX_JSONL_PATH).text,
+      ANIME_INDEX_JSONL_PATH,
+    ),
+    buildAnimeIndex(replacedRecords),
+  );
+
+  const saved = await service.saveRecord({
+    item,
+    selectedResult,
+    rating: 10,
+    review: "另外追加的新评价",
     allowDuplicates: true,
   });
 
   assert.equal(saved.appendedDuplicate, true);
+  assert.equal(saved.replacedExisting, false);
   assert.notEqual(saved.id, existing.id);
-  assert.equal(saved.record.rating, 9);
+  assert.equal(saved.record.rating, 10);
   assert.equal(saved.record.note, "");
   assert.equal(saved.path, ANIME_JSONL_PATH);
   assert.equal(
@@ -573,23 +607,23 @@ test("confirms existing records before appending a separate JSONL record", async
     publishCalls.filter(
       (call) => new URL(call.url).pathname.endsWith("/git/blobs"),
     ).length,
-    3,
+    6,
   );
   assert.equal(
     publishCalls.filter(
       (call) => new URL(call.url).pathname.endsWith("/git/trees"),
     ).length,
-    1,
+    2,
   );
   assert.equal(
     publishCalls.filter(
       (call) => new URL(call.url).pathname.endsWith("/git/commits"),
     ).length,
-    1,
+    2,
   );
   assert.equal(
     publishCalls.filter((call) => call.method === "PATCH").length,
-    1,
+    2,
   );
   assert.ok(
     publishCalls.every(
@@ -605,11 +639,11 @@ test("confirms existing records before appending a separate JSONL record", async
   assert.equal(uploadedRecords.length, 2);
   const original = uploadedRecords.find((record) => record.id === existing.id);
   const appended = uploadedRecords.find((record) => record.id === saved.id);
-  assert.equal(original.rating, 7);
-  assert.equal(original.review, "旧评价");
+  assert.equal(original.rating, 9);
+  assert.equal(original.review, "替换后的评价");
   assert.equal(original.note, "不能丢失");
-  assert.equal(appended.rating, 9);
-  assert.equal(appended.review, "新评价");
+  assert.equal(appended.rating, 10);
+  assert.equal(appended.review, "另外追加的新评价");
   assert.deepEqual(appended.externalIds, existing.externalIds);
 
   const uploadedIndex = parseJsonl(
@@ -626,6 +660,42 @@ test("confirms existing records before appending a separate JSONL record", async
   assert.equal(backup.kind, "anime-library-backup");
   assert.equal(backup.animeText, originalAnimeText);
   assert.equal(backup.indexText, originalIndexText);
+});
+
+test("replacement fails safely when no exact record exists", async () => {
+  const similar = createAnimeRecord({
+    item: {
+      ...item,
+      id: "bangumi:other",
+      title: "相似的番剧",
+      displayTitle: "相似的番剧",
+      names: ["相似的番剧"],
+      sites: { bangumi: "999999" },
+    },
+    id: "bgm-999999",
+    rating: 7,
+    review: "相似但不同",
+    now: "2026-10-25T08:00:00.000Z",
+  });
+  const api = createGithubMock({ records: [similar] });
+  const service = createService(api.requestJson);
+
+  await assert.rejects(
+    () =>
+      service.saveRecord({
+        item,
+        selectedResult,
+        rating: 9,
+        review: "不应写入",
+        replaceExisting: true,
+      }),
+    /未找到可替换的精确番剧记录/u,
+  );
+  assert.equal(
+    api.calls.filter((call) => ["PUT", "PATCH"].includes(call.method))
+      .length,
+    0,
+  );
 });
 
 test("batch imports new anime once and preserves existing ratings and reviews", async () => {

@@ -44,7 +44,7 @@ const RETRYABLE_GITHUB_STATUS_CODES = new Set([
 
 export class DuplicateRecordError extends Error {
   constructor(duplicates, scannedCount = 0) {
-    super(`发现 ${duplicates.length} 条疑似重复记录，请确认是否仍然添加`);
+    super(`发现 ${duplicates.length} 条疑似重复记录，请确认如何处理`);
     this.name = "DuplicateRecordError";
     this.code = "DUPLICATE_RECORDS";
     this.duplicates = duplicates;
@@ -1417,6 +1417,7 @@ export class GitHubRecordsService {
     rating,
     review,
     allowDuplicates = false,
+    replaceExisting = false,
     onProgress = null,
   }) {
     const config = this.assertConfigured();
@@ -1431,13 +1432,13 @@ export class GitHubRecordsService {
           attempt,
         });
         const idSet = new Set(ids);
-        const existing =
+        let existing =
           library.records.find((record) =>
             idSet.has(cleanString(record.id)),
           ) ?? null;
-        const existingId = cleanString(existing?.id) || null;
+        let existingId = cleanString(existing?.id) || null;
 
-        if (!allowDuplicates) {
+        if (!allowDuplicates || replaceExisting) {
           reportProgress(
             progressOptions,
             "duplicates",
@@ -1449,7 +1450,26 @@ export class GitHubRecordsService {
             selectedResult,
             aiResult,
           });
-          if (inspection.duplicates.length) {
+          if (replaceExisting) {
+            const exactDuplicate = inspection.duplicates.find(
+              (duplicate) => duplicate.kind === "existing",
+            );
+            if (!exactDuplicate?.id) {
+              throw new Error(
+                "未找到可替换的精确番剧记录，请重新识别后再试",
+              );
+            }
+            existing =
+              library.records.find(
+                (record) => cleanString(record.id) === exactDuplicate.id,
+              ) ?? null;
+            existingId = cleanString(existing?.id) || null;
+            if (!existing) {
+              throw new Error(
+                "要替换的番剧记录已发生变化，请重新识别后再试",
+              );
+            }
+          } else if (inspection.duplicates.length) {
             throw new DuplicateRecordError(
               inspection.duplicates,
               inspection.scannedCount,
@@ -1457,7 +1477,10 @@ export class GitHubRecordsService {
           }
         }
 
-        const appendedDuplicate = Boolean(allowDuplicates && existing);
+        const appendedDuplicate = Boolean(
+          allowDuplicates && !replaceExisting && existing,
+        );
+        const replacedExisting = Boolean(replaceExisting && existing);
         const id = appendedDuplicate
           ? createDuplicateRecordId(
               existingId ?? ids[0],
@@ -1492,7 +1515,11 @@ export class GitHubRecordsService {
           index: nextIndex,
           message:
             `chore(data): ${
-              appendedDuplicate ? "append duplicate" : "save"
+              replacedExisting
+                ? "replace review"
+                : appendedDuplicate
+                  ? "append duplicate"
+                  : "save"
             } ${commitTitle(merged.title)} (${id})\n\n` +
             `Anime: ${commitTitle(merged.title)}\n` +
             `Record-Id: ${id}\n` +
@@ -1514,6 +1541,7 @@ export class GitHubRecordsService {
           id,
           record: merged,
           appendedDuplicate,
+          replacedExisting,
           commit: published.commitSha,
           sha: published.animeBlob,
           htmlUrl: `${config.urls.webUrl}/blob/${config.branch}/${ANIME_JSONL_PATH}`,
