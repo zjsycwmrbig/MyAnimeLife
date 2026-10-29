@@ -104,6 +104,100 @@
       </header>
 
       <div class="detail-content">
+        {% if record.hasPublicMetadata %}
+          <section
+            class="detail-section public-metadata-section"
+            aria-labelledby="public-metadata-title"
+          >
+            <div class="section-marker">BGM</div>
+            <div class="section-content">
+              <div class="public-metadata-heading">
+                <div>
+                  <p class="public-metadata-kicker">PUBLIC DATABASE</p>
+                  <h2 id="public-metadata-title">Bangumi 公共资料</h2>
+                </div>
+                <a
+                  class="public-metadata-link"
+                  href="https://bgm.tv/subject/{{ record.externalIds.bangumi }}"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  查看条目
+                  {{ icon("external") }}
+                </a>
+              </div>
+
+              <div class="public-metadata-panel">
+                {% if record.publicRatingDisplay or record.publicRatingCountLabel or record.publicRankLabel %}
+                  <div class="public-rating-layout{% if not record.publicRatingDisplay %} is-facts-only{% elif not record.publicRatingCountLabel and not record.publicRankLabel %} is-score-only{% endif %}">
+                    {% if record.publicRatingDisplay %}
+                      <div class="public-score">
+                        <span>公共评分</span>
+                        <p>
+                          <strong>{{ record.publicRatingDisplay }}</strong>
+                          <small>/ 10</small>
+                        </p>
+                      </div>
+                    {% endif %}
+                    {% if record.publicRatingCountLabel or record.publicRankLabel %}
+                      <dl class="public-rating-facts">
+                        {% if record.publicRatingCountLabel %}
+                          <div>
+                            <dt>评分人数</dt>
+                            <dd>{{ record.publicRatingCountLabel }}</dd>
+                          </div>
+                        {% endif %}
+                        {% if record.publicRankLabel %}
+                          <div>
+                            <dt>Bangumi 排名</dt>
+                            <dd>#{{ record.publicRank }}</dd>
+                          </div>
+                        {% endif %}
+                      </dl>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                {% if record.publicTags.length %}
+                  <div class="public-tags">
+                    <div class="public-subheading">
+                      <h3>高频标签</h3>
+                      <span>按 Bangumi 标签热度排列</span>
+                    </div>
+                    <ul>
+                      {% for tag in record.publicTags %}
+                        <li>
+                          <span>{{ tag.name }}</span>
+                          {% if tag.count %}<small>{{ tag.count }}</small>{% endif %}
+                        </li>
+                      {% endfor %}
+                    </ul>
+                    {% if record.publicTagOverflow %}
+                      <small class="public-tag-overflow">
+                        另有 {{ record.publicTagOverflow }} 个标签
+                      </small>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
+                {% if record.publicSummary %}
+                  <div class="public-summary">
+                    <h3>作品简介</h3>
+                    <p>{{ record.publicSummary }}</p>
+                  </div>
+                {% endif %}
+
+                <p class="public-metadata-source">
+                  数据来自 Bangumi
+                  {% if record.publicFetchedAtLabel %}
+                    · 缓存于 {{ record.publicFetchedAtLabel }}
+                  {% endif %}
+                </p>
+              </div>
+            </div>
+          </section>
+        {% endif %}
+
         <section class="detail-section" aria-labelledby="review-title">
           <div class="section-marker">01</div>
           <div class="section-content">

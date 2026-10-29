@@ -13,7 +13,10 @@ import {
   parseJsonl,
   sortRecordsById,
 } from "./library-data.mjs";
-import { BANGUMI_CACHE_JSONL_PATH } from "./bangumi-cache-data.mjs";
+import {
+  BANGUMI_CACHE_JSONL_PATH,
+  parseBangumiCacheJsonl,
+} from "./bangumi-cache-data.mjs";
 import { calculateInsights } from "./insights-data.mjs";
 import { normalizeShareConfig } from "./site-settings.mjs";
 
@@ -96,6 +99,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
   minute: "2-digit",
   hour12: false,
 });
+
+const countFormatter = new Intl.NumberFormat("zh-CN");
 
 async function readJson(filePath) {
   let text;
@@ -347,6 +352,23 @@ export async function loadEntries(root = defaultRoot, options = {}) {
   return library.records;
 }
 
+async function loadBangumiCache(root, config) {
+  const relativePath = config.bangumiCacheFile ?? BANGUMI_CACHE_JSONL_PATH;
+  const filePath = resolveInside(root, relativePath);
+  let text = "";
+  try {
+    text = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw new Error(`无法读取 ${relativePath}: ${error.message}`);
+    }
+  }
+  return {
+    entries: parseBangumiCacheJsonl(text, relativePath),
+    text,
+  };
+}
+
 function collectMarkdownText(tokens) {
   const parts = [];
   for (const token of tokens ?? []) {
@@ -429,13 +451,30 @@ function createSourceLinks(externalIds = {}) {
     .filter(Boolean);
 }
 
-function createRecordViewModel(record) {
+function createRecordViewModel(record, bangumiMetadata = null) {
   const sourceLinks = createSourceLinks(record.externalIds);
   const reviewText = markdownToText(record.review);
   const seasonLabel = formatSeasonLabel(record);
   const year = Number.isInteger(record.season?.year) ? record.season.year : null;
   const yearLabel = year === null ? "" : String(year);
   const releaseLabel = [yearLabel, seasonLabel].filter(Boolean).join(" · ");
+  const publicTags = (bangumiMetadata?.tags ?? []).slice(0, 18);
+  const publicRatingValue =
+    bangumiMetadata?.score === null || bangumiMetadata?.score === undefined
+      ? null
+      : Number(bangumiMetadata.score);
+  const publicRatingCount = Number(bangumiMetadata?.ratingCount) || 0;
+  const publicRank = Number.isInteger(bangumiMetadata?.rank)
+    ? bangumiMetadata.rank
+    : null;
+  const hasPublicMetadata = Boolean(
+    bangumiMetadata &&
+      (publicRatingValue !== null ||
+        publicRatingCount > 0 ||
+        publicRank ||
+        publicTags.length ||
+        bangumiMetadata.summary),
+  );
 
   return {
     ...record,
@@ -458,6 +497,25 @@ function createRecordViewModel(record) {
     matchedAtLabel: record.match.matchedAt
       ? formatDateTime(record.match.matchedAt)
       : "无",
+    hasPublicMetadata,
+    publicRatingDisplay:
+      publicRatingValue === null ? "" : publicRatingValue.toFixed(1),
+    publicRatingCount,
+    publicRatingCountLabel:
+      publicRatingCount > 0
+        ? `${countFormatter.format(publicRatingCount)} 人评分`
+        : "",
+    publicRank,
+    publicRankLabel: publicRank ? `Bangumi 排名 #${publicRank}` : "",
+    publicTags,
+    publicTagOverflow: Math.max(
+      0,
+      (bangumiMetadata?.tags?.length ?? 0) - publicTags.length,
+    ),
+    publicSummary: bangumiMetadata?.summary ?? "",
+    publicFetchedAtLabel: bangumiMetadata?.fetchedAt
+      ? formatDateTime(bangumiMetadata.fetchedAt)
+      : "",
     matchStatusLabel:
       MATCH_STATUS_LABELS[record.match.status] ?? record.match.status,
     matchMethodLabel:
@@ -530,10 +588,10 @@ function createNunjucksEnvironment(templateDirectory) {
   return environment;
 }
 
-function dataVersion(dataText, indexText) {
+function dataVersion(...texts) {
   return crypto
     .createHash("sha256")
-    .update(`${dataText}\n${indexText}`)
+    .update(texts.join("\n"))
     .digest("hex")
     .slice(0, 16);
 }
@@ -554,13 +612,24 @@ export async function buildSite(options = {}) {
     validator,
     indexValidator,
   });
+  const bangumiCache = await loadBangumiCache(root, config);
+  const bangumiMetadataBySubject = new Map(
+    bangumiCache.entries.map((entry) => [entry.subjectId, entry]),
+  );
   const allEntries = libraryData.records;
   const publicEntries = allEntries.filter((record) => !record.deletedAt);
 
   const template = await loadTemplate(root, config.template);
   const repository = createRepositoryContext(config);
   const records = publicEntries
-    .map(createRecordViewModel)
+    .map((record) =>
+      createRecordViewModel(
+        record,
+        bangumiMetadataBySubject.get(
+          String(record.externalIds?.bangumi ?? "").trim(),
+        ) ?? null,
+      ),
+    )
     .sort((left, right) => {
       const byYear = (right.year ?? -1) - (left.year ?? -1);
       const byUpdatedAt =
@@ -577,6 +646,7 @@ export async function buildSite(options = {}) {
   const libraryDataVersion = dataVersion(
     libraryData.dataText,
     libraryData.indexText,
+    bangumiCache.text,
   );
 
   await fs.rm(outputDirectory, { recursive: true, force: true });

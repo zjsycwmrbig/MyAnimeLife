@@ -2874,6 +2874,204 @@ body {
   place-items: center;
 }
 
+.public-metadata-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.public-metadata-heading h2 {
+  margin: 4px 0 0;
+}
+
+.public-metadata-kicker {
+  margin: 0;
+  color: var(--accent);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.public-metadata-link {
+  display: inline-flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.public-metadata-link:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.public-metadata-link .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.public-metadata-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.public-rating-layout {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr);
+}
+
+.public-rating-layout.is-facts-only,
+.public-rating-layout.is-score-only {
+  grid-template-columns: 1fr;
+}
+
+.public-score {
+  padding: 22px;
+  background: var(--dark);
+  color: #fff;
+}
+
+.public-score > span {
+  color: rgb(255 255 255 / 64%);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.public-score p {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.public-score strong {
+  font-family: var(--font-display);
+  font-size: 52px;
+  font-weight: 600;
+  line-height: 0.95;
+}
+
+.public-score small {
+  color: rgb(255 255 255 / 58%);
+  font-size: 11px;
+}
+
+.public-rating-facts {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.public-rating-facts > div {
+  min-width: 0;
+  padding: 22px;
+  border-left: 1px solid var(--line);
+}
+
+.public-rating-layout.is-facts-only .public-rating-facts > div:first-child {
+  border-left: 0;
+}
+
+.public-rating-facts dt,
+.public-subheading span,
+.public-metadata-source {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.public-rating-facts dd {
+  margin: 8px 0 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.public-tags,
+.public-summary {
+  padding: 20px 22px;
+  border-top: 1px solid var(--line);
+}
+
+.public-subheading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.public-subheading h3,
+.public-summary h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.public-tags ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.public-tags li {
+  display: inline-flex;
+  min-height: 29px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.public-tags li small {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.public-tag-overflow {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.public-summary p {
+  margin: 0;
+  color: #344039;
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.82;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.public-metadata-source {
+  margin: 0;
+  padding: 10px 22px;
+  border-top: 1px solid var(--line);
+  background: rgb(23 32 27 / 3%);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
 @media (max-width: 640px) {
   .records-pagination {
     align-items: stretch;
@@ -2887,6 +3085,32 @@ body {
 
   .pagination-controls {
     justify-content: center;
+  }
+
+  .public-metadata-heading,
+  .public-subheading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .public-rating-layout,
+  .public-rating-layout.is-facts-only,
+  .public-rating-layout.is-score-only {
+    grid-template-columns: 1fr;
+  }
+
+  .public-rating-facts > div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .public-tags,
+  .public-summary {
+    padding: 17px;
+  }
+
+  .public-metadata-source {
+    padding: 9px 17px;
   }
 }
 

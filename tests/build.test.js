@@ -16,6 +16,7 @@ import {
   buildAnimeIndex,
   serializeJsonl,
 } from "../scripts/library-data.mjs";
+import { serializeBangumiCache } from "../scripts/bangumi-cache-data.mjs";
 
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -82,6 +83,13 @@ async function writeLibrary(fixtureRoot, records) {
   await fs.writeFile(
     path.join(fixtureRoot, "data", "anime-index.jsonl"),
     serializeJsonl(buildAnimeIndex(records)),
+  );
+}
+
+async function writeBangumiCache(fixtureRoot, entries) {
+  await fs.writeFile(
+    path.join(fixtureRoot, "data", "bangumi-cache.jsonl"),
+    serializeBangumiCache(entries),
   );
 }
 
@@ -267,6 +275,7 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(detailHtml, /我的评价/u);
     assert.match(detailHtml, /aria-haspopup="dialog"/u);
+    assert.doesNotMatch(detailHtml, /Bangumi 公共资料/u);
 
     const insightsHtml = await fs.readFile(
       path.join(fixtureRoot, "dist", "insights", "index.html"),
@@ -376,6 +385,68 @@ test("ships three independently buildable templates", async () => {
       ),
     );
     assert.equal(library.itemCount, 1);
+
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("shows cached Bangumi public rating and tags on every detail template", async () => {
+  const publicRecord = {
+    ...validRecord,
+    externalIds: { bangumi: "400602" },
+    rating: 8,
+    review: "私人评价仍然保留。",
+  };
+  const cacheEntry = {
+    subjectId: "400602",
+    score: 8.7,
+    ratingCount: 12345,
+    rank: 24,
+    tags: [
+      { name: "奇幻", count: 1800 },
+      { name: "科幻", count: 920 },
+    ],
+    summary: "这是 Bangumi 缓存中的作品简介。",
+    fetchedAt: "2026-10-27T08:00:00Z",
+    source: "bangumi-api",
+  };
+
+  for (const template of ["default", "compact", "spotlight"]) {
+    const fixtureRoot = await createBuildFixture(template);
+    await writeLibrary(fixtureRoot, [publicRecord]);
+    await writeBangumiCache(fixtureRoot, [cacheEntry]);
+    await buildSite({
+      root: fixtureRoot,
+      now: new Date("2026-10-25T12:00:00Z"),
+    });
+
+    const detailHtml = await fs.readFile(
+      path.join(
+        fixtureRoot,
+        "dist",
+        "anime",
+        publicRecord.id,
+        "index.html",
+      ),
+      "utf8",
+    );
+    assert.match(detailHtml, /Bangumi 公共资料/u);
+    assert.match(detailHtml, /8\.7/u);
+    assert.match(detailHtml, /12,345 人评分/u);
+    assert.match(detailHtml, /Bangumi 排名/u);
+    assert.match(detailHtml, /#24/u);
+    assert.match(detailHtml, /奇幻/u);
+    assert.match(detailHtml, /科幻/u);
+    assert.match(detailHtml, /这是 Bangumi 缓存中的作品简介/u);
+    assert.match(detailHtml, /data-bangumi-id="400602"/u);
+    assert.match(detailHtml, /私人评价仍然保留/u);
+
+    const styles = await fs.readFile(
+      path.join(fixtureRoot, "dist", "assets", "styles.css"),
+      "utf8",
+    );
+    assert.match(styles, /\.public-metadata-panel/u);
+    assert.match(styles, /\.public-tags/u);
 
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
