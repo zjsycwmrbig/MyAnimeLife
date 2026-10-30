@@ -279,6 +279,11 @@ test("ships three independently buildable templates", async () => {
     assert.match(detailHtml, /data-similar-anime/u);
     assert.match(detailHtml, /相似推荐/u);
     assert.match(detailHtml, /含已收录/u);
+    assert.match(detailHtml, /data-similar-sort/u);
+    assert.match(detailHtml, /value="score-desc"/u);
+    assert.match(detailHtml, /value="score-asc"/u);
+    assert.match(detailHtml, /value="popularity-desc"/u);
+    assert.match(detailHtml, /value="heat-desc"/u);
     assert.match(detailHtml, /similar\.css\?v=20261025T120000000Z/u);
     assert.match(detailHtml, /similar\.js\?v=20261025T120000000Z/u);
 
@@ -479,6 +484,49 @@ test("shows cached Bangumi public rating and tags on every detail template", asy
     );
     assert.match(styles, /\.public-metadata-panel/u);
     assert.match(styles, /\.public-tags/u);
+
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("renders an available tag radar when cached tags provide enough axes", async () => {
+  const publicRecord = {
+    ...validRecord,
+    externalIds: { bangumi: "400602" },
+  };
+  const cacheEntry = {
+    subjectId: "400602",
+    score: 8.7,
+    ratingCount: 12345,
+    tags: [
+      { name: "奇幻", count: 1800 },
+      { name: "科幻", count: 920 },
+      { name: "悬疑", count: 640 },
+    ],
+    fetchedAt: "2026-10-27T08:00:00Z",
+    source: "bangumi-api",
+  };
+
+  for (const template of ["default", "compact", "spotlight"]) {
+    const fixtureRoot = await createBuildFixture(template);
+    await writeLibrary(fixtureRoot, [publicRecord]);
+    await writeBangumiCache(fixtureRoot, [cacheEntry]);
+    await buildSite({
+      root: fixtureRoot,
+      now: new Date("2026-10-25T12:00:00Z"),
+    });
+
+    const insightsHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "insights", "index.html"),
+      "utf8",
+    );
+    assert.match(insightsHtml, /id="tab-tags"/u);
+    assert.match(insightsHtml, /id="panel-tags"/u);
+    assert.match(insightsHtml, /data-tag-radar-svg/u);
+    assert.match(insightsHtml, /标签缓存覆盖/u);
+    assert.match(insightsHtml, /奇幻/u);
+    assert.match(insightsHtml, /科幻/u);
+    assert.match(insightsHtml, /悬疑/u);
 
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }

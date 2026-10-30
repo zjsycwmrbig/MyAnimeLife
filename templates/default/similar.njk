@@ -12,21 +12,34 @@
         <p class="similar-kicker">MORE LIKE THIS</p>
         <h2 id="similar-title">相似推荐</h2>
       </div>
-      <div
-        class="similar-scope-switch"
-        data-similar-scope-switch
-        role="group"
-        aria-label="推荐收录范围"
-        hidden
-      >
-        <button type="button" data-similar-scope="unowned" aria-pressed="true">
-          <span>未收录</span>
-          <small data-similar-count="unowned">0</small>
-        </button>
-        <button type="button" data-similar-scope="all" aria-pressed="false">
-          <span>含已收录</span>
-          <small data-similar-count="owned">0</small>
-        </button>
+      <div class="similar-controls">
+        <label class="similar-sort">
+          <span>排序</span>
+          <select data-similar-sort aria-label="相似推荐排序">
+            <option value="similarity">相似度优先</option>
+            <option value="score-desc">Bangumi 评分：高到低</option>
+            <option value="score-asc">Bangumi 评分：低到高</option>
+            <option value="popularity-desc">Bangumi 评分人数：多到少</option>
+            <option value="heat-desc">共同标签热度：高到低</option>
+            <option value="shared-desc">共同标签：多到少</option>
+          </select>
+        </label>
+        <div
+          class="similar-scope-switch"
+          data-similar-scope-switch
+          role="group"
+          aria-label="推荐收录范围"
+          hidden
+        >
+          <button type="button" data-similar-scope="unowned" aria-pressed="true">
+            <span>未收录</span>
+            <small data-similar-count="unowned">0</small>
+          </button>
+          <button type="button" data-similar-scope="all" aria-pressed="false">
+            <span>含已收录</span>
+            <small data-similar-count="owned">0</small>
+          </button>
+        </div>
       </div>
     </div>
     <p class="similar-status" data-similar-status role="status"></p>

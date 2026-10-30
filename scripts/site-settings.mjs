@@ -1,6 +1,7 @@
 export const DISPLAY_TEMPLATE_IDS = ["default", "compact", "spotlight"];
 export const SHARE_TEMPLATE_IDS = DISPLAY_TEMPLATE_IDS;
 export const SHARE_ACCENT_IDS = ["coral", "teal", "blue", "amber"];
+export const TAG_RADAR_MODES = ["auto", "manual"];
 
 export const SHARE_ACCENTS = {
   coral: {
@@ -41,6 +42,48 @@ function cleanString(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeNameList(value, maximumItems = 48, maximumLength = 40) {
+  const candidates = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,，、]+/u)
+      : [];
+  const seen = new Set();
+  const result = [];
+  for (const candidate of candidates) {
+    const name = cleanString(candidate)
+      .replace(/\s+/gu, " ")
+      .slice(0, maximumLength);
+    const key = name.toLocaleLowerCase("zh-CN");
+    if (!name || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(name);
+    if (result.length >= maximumItems) {
+      break;
+    }
+  }
+  return result;
+}
+
+function normalizeAliasGroups(value) {
+  const groups = Array.isArray(value) ? value : [];
+  return groups
+    .map((group) => {
+      const names = normalizeNameList(
+        Array.isArray(group)
+          ? group
+          : cleanString(group).split(/[=＝/]+/u),
+        12,
+        30,
+      );
+      return names.length >= 2 ? names : null;
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
 function requireChoice(value, choices, label) {
   const candidate = cleanString(value);
   if (!choices.includes(candidate)) {
@@ -76,6 +119,26 @@ export function normalizeShareConfig(value, displayTemplate = "default") {
   };
 }
 
+export function normalizeTagRadarConfig(value) {
+  const radar = value && typeof value === "object" ? value : {};
+  const requestedMaxAxes = Number(radar.maxAxes);
+  return {
+    enabled: radar.enabled === undefined ? true : Boolean(radar.enabled),
+    mode: TAG_RADAR_MODES.includes(cleanString(radar.mode))
+      ? cleanString(radar.mode)
+      : "auto",
+    maxAxes:
+      Number.isInteger(requestedMaxAxes) &&
+      requestedMaxAxes >= 3 &&
+      requestedMaxAxes <= 12
+        ? requestedMaxAxes
+        : 8,
+    axes: normalizeNameList(radar.axes, 12, 40),
+    excludedTags: normalizeNameList(radar.excludedTags, 60, 40),
+    aliasGroups: normalizeAliasGroups(radar.aliasGroups),
+  };
+}
+
 export function siteSettingsPayload(config) {
   return {
     site: {
@@ -86,6 +149,9 @@ export function siteSettingsPayload(config) {
     },
     template: config.template,
     share: normalizeShareConfig(config.share, config.template),
+    insights: {
+      tagRadar: normalizeTagRadarConfig(config.insights?.tagRadar),
+    },
   };
 }
 
@@ -119,6 +185,13 @@ export function applySiteSettings(config, input) {
       "分享配色",
     ),
   };
+  const insightsInput =
+    input.insights && typeof input.insights === "object"
+      ? input.insights
+      : {};
+  const tagRadar = normalizeTagRadarConfig(
+    insightsInput.tagRadar ?? config.insights?.tagRadar,
+  );
 
   const next = {
     ...config,
@@ -146,6 +219,10 @@ export function applySiteSettings(config, input) {
     },
     template,
     share,
+    insights: {
+      ...(config.insights ?? {}),
+      tagRadar,
+    },
   };
   return next;
 }

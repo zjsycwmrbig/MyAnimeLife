@@ -114,6 +114,225 @@
     }
   }
 
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const createSvgElement = (name, attributes = {}) => {
+    const node = document.createElementNS(SVG_NS, name);
+    for (const [key, value] of Object.entries(attributes)) {
+      node.setAttribute(key, String(value));
+    }
+    return node;
+  };
+
+  for (const figure of document.querySelectorAll("[data-tag-radar]")) {
+    const host = figure.querySelector("[data-tag-radar-svg]");
+    const tooltip = figure.querySelector("[data-tag-radar-tooltip]");
+    const layout = figure.closest(".tag-radar-layout");
+    const legendRows = [
+      ...(layout?.querySelectorAll("[data-tag-radar-legend]") ?? []),
+    ];
+    if (!host || !tooltip || legendRows.length < 3) {
+      continue;
+    }
+
+    const axes = legendRows.map((row, index) => ({
+      index,
+      label: row.dataset.tagLabel || row.textContent.trim() || `标签 ${index + 1}`,
+      count: Math.max(0, Number(row.dataset.tagCount) || 0),
+      percent: Math.max(0, Math.min(100, Number(row.dataset.tagPercent) || 0)),
+      row,
+    }));
+    const width = 560;
+    const height = 430;
+    const centerX = width / 2;
+    const centerY = height / 2 + 4;
+    const radius = 142;
+    const labelRadius = 177;
+    const step = (Math.PI * 2) / axes.length;
+    const pointAt = (index, ratio) => {
+      const angle = -Math.PI / 2 + index * step;
+      return {
+        x: centerX + Math.cos(angle) * radius * ratio,
+        y: centerY + Math.sin(angle) * radius * ratio,
+      };
+    };
+    const polygonPoints = (ratioForAxis) =>
+      axes
+        .map((axis) => {
+          const point = pointAt(axis.index, ratioForAxis(axis));
+          return `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+        })
+        .join(" ");
+
+    const svg = createSvgElement("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      role: "group",
+      "aria-label": "番剧标签偏好多边形图",
+    });
+    const title = createSvgElement("title");
+    title.textContent = `标签偏好多边形图，共 ${axes.length} 个标签`;
+    svg.append(title);
+
+    for (let level = 1; level <= 4; level += 1) {
+      svg.append(
+        createSvgElement("polygon", {
+          class: `tag-radar-ring${level === 4 ? " is-outer" : ""}`,
+          points: polygonPoints(() => level / 4),
+        }),
+      );
+    }
+
+    const spokes = [];
+    const labels = [];
+    for (const axis of axes) {
+      const edge = pointAt(axis.index, 1);
+      const angle = -Math.PI / 2 + axis.index * step;
+      const labelPoint = {
+        x: centerX + Math.cos(angle) * labelRadius,
+        y: centerY + Math.sin(angle) * labelRadius,
+      };
+      const spoke = createSvgElement("line", {
+        class: "tag-radar-spoke",
+        x1: centerX,
+        y1: centerY,
+        x2: edge.x,
+        y2: edge.y,
+      });
+      const label = createSvgElement("text", {
+        class: "tag-radar-axis-label",
+        x: labelPoint.x,
+        y: labelPoint.y,
+        "text-anchor":
+          labelPoint.x < centerX - 8
+            ? "end"
+            : labelPoint.x > centerX + 8
+              ? "start"
+              : "middle",
+        "dominant-baseline":
+          labelPoint.y < centerY - 8
+            ? "auto"
+            : labelPoint.y > centerY + 8
+              ? "hanging"
+              : "middle",
+      });
+      const visibleLabel =
+        [...axis.label].length > 12
+          ? `${[...axis.label].slice(0, 11).join("")}…`
+          : axis.label;
+      label.textContent = visibleLabel;
+      svg.append(spoke, label);
+      spokes.push(spoke);
+      labels.push(label);
+    }
+
+    const radarShape = createSvgElement("polygon", {
+      class: "tag-radar-shape",
+      points: polygonPoints((axis) => axis.percent / 100),
+    });
+    svg.append(radarShape);
+
+    const points = axes.map((axis) => {
+      const point = pointAt(axis.index, axis.percent / 100);
+      const group = createSvgElement("g", {
+        class: "tag-radar-point-target",
+        tabindex: "0",
+        role: "img",
+        "aria-label": `${axis.label}，${axis.count} 部作品`,
+      });
+      const hitArea = createSvgElement("circle", {
+        class: "tag-radar-point-hit",
+        cx: point.x,
+        cy: point.y,
+        r: 15,
+      });
+      const dot = createSvgElement("circle", {
+        class: "tag-radar-point",
+        cx: point.x,
+        cy: point.y,
+        r: 5,
+      });
+      group.append(hitArea, dot);
+      svg.append(group);
+      return group;
+    });
+
+    host.replaceChildren(svg);
+    let activeIndex = null;
+
+    const setActive = (index) => {
+      activeIndex = index;
+      spokes.forEach((spoke, spokeIndex) =>
+        spoke.classList.toggle("is-active", spokeIndex === index),
+      );
+      labels.forEach((label, labelIndex) =>
+        label.classList.toggle("is-active", labelIndex === index),
+      );
+      points.forEach((point, pointIndex) =>
+        point.classList.toggle("is-active", pointIndex === index),
+      );
+      axes.forEach((axis, axisIndex) =>
+        axis.row.classList.toggle("is-active", axisIndex === index),
+      );
+    };
+
+    const hideTooltip = () => {
+      tooltip.hidden = true;
+      setActive(null);
+    };
+
+    const showTooltip = (axis, clientX, clientY) => {
+      setActive(axis.index);
+      tooltip.textContent = `${axis.label} · ${axis.count} 部 · ${axis.percent}%`;
+      tooltip.hidden = false;
+      const bounds = figure.getBoundingClientRect();
+      const preferredLeft =
+        Number.isFinite(clientX) ? clientX - bounds.left + 14 : bounds.width / 2;
+      const preferredTop =
+        Number.isFinite(clientY) ? clientY - bounds.top + 14 : 24;
+      const maximumLeft = Math.max(
+        10,
+        bounds.width - tooltip.offsetWidth - 10,
+      );
+      const maximumTop = Math.max(
+        10,
+        bounds.height - tooltip.offsetHeight - 10,
+      );
+      tooltip.style.left = `${Math.max(10, Math.min(maximumLeft, preferredLeft))}px`;
+      tooltip.style.top = `${Math.max(10, Math.min(maximumTop, preferredTop))}px`;
+    };
+
+    const showFromElement = (axis, element) => {
+      const bounds = element.getBoundingClientRect();
+      showTooltip(axis, bounds.left + bounds.width / 2, bounds.top + 8);
+    };
+
+    axes.forEach((axis) => {
+      const point = points[axis.index];
+      point.addEventListener("pointerenter", (event) =>
+        showTooltip(axis, event.clientX, event.clientY),
+      );
+      point.addEventListener("pointermove", (event) =>
+        showTooltip(axis, event.clientX, event.clientY),
+      );
+      point.addEventListener("pointerleave", hideTooltip);
+      point.addEventListener("focus", () => showFromElement(axis, point));
+      point.addEventListener("blur", hideTooltip);
+      axis.row.addEventListener("pointerenter", () =>
+        showFromElement(axis, axis.row),
+      );
+      axis.row.addEventListener("focus", () =>
+        showFromElement(axis, axis.row),
+      );
+      axis.row.addEventListener("pointerleave", hideTooltip);
+      axis.row.addEventListener("blur", hideTooltip);
+    });
+
+    figure.addEventListener("pointerleave", () => {
+      if (activeIndex !== null) {
+        hideTooltip();
+      }
+    });
+  }
+
   const yearDistribution = document.querySelector("#year-distribution");
   const yearMinInput = document.querySelector("#insights-year-min");
   const yearMaxInput = document.querySelector("#insights-year-max");

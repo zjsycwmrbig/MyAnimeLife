@@ -68,7 +68,49 @@ test("updates presentation settings without touching repository or data paths", 
       resolvedTemplate: "compact",
       accent: "amber",
     },
+    insights: {
+      tagRadar: {
+        enabled: true,
+        mode: "auto",
+        maxAxes: 8,
+        axes: [],
+        excludedTags: [],
+        aliasGroups: [],
+      },
+    },
   });
+});
+
+test("normalizes custom tag radar axes, exclusions, and aliases", () => {
+  const next = applySiteSettings(config, {
+    insights: {
+      tagRadar: {
+        enabled: true,
+        mode: "manual",
+        maxAxes: "6",
+        axes: ["科幻", "奇幻", "悬疑", "科幻"],
+        excludedTags: ["短片", "TV"],
+        aliasGroups: [
+          ["漫改", "漫画改"],
+          "轻改=轻小说改",
+          ["只有一个标签"],
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual(next.insights.tagRadar, {
+    enabled: true,
+    mode: "manual",
+    maxAxes: 6,
+    axes: ["科幻", "奇幻", "悬疑"],
+    excludedTags: ["短片", "TV"],
+    aliasGroups: [
+      ["漫改", "漫画改"],
+      ["轻改", "轻小说改"],
+    ],
+  });
+  assert.deepEqual(siteSettingsPayload(next).insights.tagRadar, next.insights.tagRadar);
 });
 
 test("rejects unsupported templates and accents", () => {

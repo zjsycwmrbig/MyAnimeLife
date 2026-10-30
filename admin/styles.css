@@ -3293,6 +3293,63 @@ th:nth-child(4) {
   background: #b4782f;
 }
 
+.tag-radar-settings {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.tag-radar-settings .settings-section-heading {
+  margin-bottom: 8px;
+}
+
+.tag-radar-settings .settings-section-intro {
+  margin-bottom: 16px;
+}
+
+.tag-radar-fields {
+  align-items: start;
+}
+
+.tag-radar-fields .field small {
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.setting-toggle {
+  position: relative;
+  min-height: 36px;
+  padding: 0 12px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.setting-toggle:has(input:checked) {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.setting-toggle:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.setting-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--share-accent);
+}
+
 .local-style-cache {
   margin-top: 28px;
   padding-top: 24px;

@@ -38,6 +38,9 @@
         <button class="insight-tab" id="tab-rhythm" role="tab" aria-selected="false" aria-controls="panel-rhythm" data-insights-tab="rhythm">收录趋势</button>
         <button class="insight-tab" id="tab-years" role="tab" aria-selected="false" aria-controls="panel-years" data-insights-tab="years">年份分布</button>
         <button class="insight-tab" id="tab-ratings" role="tab" aria-selected="false" aria-controls="panel-ratings" data-insights-tab="ratings">评分分布</button>
+        {% if insights.tagRadar.available %}
+          <button class="insight-tab" id="tab-tags" role="tab" aria-selected="false" aria-controls="panel-tags" data-insights-tab="tags">标签偏好</button>
+        {% endif %}
         <button class="insight-tab" id="tab-sources" role="tab" aria-selected="false" aria-controls="panel-sources" data-insights-tab="sources">索引覆盖</button>
       </nav>
 
@@ -200,10 +203,63 @@
         </div>
       </section>
 
+      {% if insights.tagRadar.available %}
+        <section class="insight-tab-panel" id="panel-tags" role="tabpanel" aria-labelledby="tab-tags" data-insights-panel="tags" hidden>
+          <div class="insights-carousel" data-carousel>
+            <div class="carousel-toolbar">
+              <div><p class="section-index">05 / TAGS</p><h3>标签偏好</h3></div>
+              <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个标签视图">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个标签视图">→</button></div>
+            </div>
+            <div class="carousel-viewport">
+              <article class="carousel-slide is-active" data-carousel-slide aria-label="标签偏好多边形图">
+                <div class="tag-radar-layout">
+                  <div class="tag-radar-visual" data-tag-radar>
+                    <div class="tag-radar-svg" data-tag-radar-svg role="img" aria-label="番剧标签偏好多边形图"></div>
+                    <output class="tag-radar-tooltip" data-tag-radar-tooltip hidden></output>
+                  </div>
+                  <div class="tag-radar-side">
+                    <div class="tag-radar-highlight">
+                      <span>最高频标签</span>
+                      <strong>{{ insights.tagRadar.topTag.label }}</strong>
+                      <small>出现在 {{ insights.tagRadar.topTag.count }} 部有标签的作品中</small>
+                    </div>
+                    <div class="tag-radar-coverage">
+                      <div><span>标签缓存覆盖</span><strong>{{ insights.tagRadar.coverage.percent }}%</strong></div>
+                      <div class="tag-radar-coverage-track"><span style="--coverage-size: {{ insights.tagRadar.coverage.percent }}%"></span></div>
+                      <small>{{ insights.tagRadar.coverage.tagged }} / {{ insights.tagRadar.coverage.total }} 部作品有可用公共标签</small>
+                    </div>
+                    <div class="tag-radar-legend" aria-label="标签偏好图例">
+                      {% for axis in insights.tagRadar.axes %}
+                        <div tabindex="0" data-tag-radar-legend data-tag-index="{{ loop.index0 }}" data-tag-label="{{ axis.label }}" data-tag-count="{{ axis.count }}" data-tag-percent="{{ axis.percent }}"><span>{{ axis.label }}</span><span class="tag-radar-legend-track"><i style="--tag-size: {{ axis.percent }}%"></i></span><strong>{{ axis.count }}</strong></div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              </article>
+              <article class="carousel-slide" data-carousel-slide aria-label="标签统计范围">
+                <div class="tag-radar-method">
+                  <div>
+                    <span>统计口径</span>
+                    <strong>{% if insights.tagRadar.mode == "manual" %}手动轴{% else %}自动高频轴{% endif %}</strong>
+                    <p>每部作品中的同名标签只计一次；年份、媒介类型和手动排除标签不会进入统计。</p>
+                  </div>
+                  <dl>
+                    <div><dt>当前轴数</dt><dd>{{ insights.tagRadar.axes.length }} / {{ insights.tagRadar.maxAxes }}</dd></div>
+                    <div><dt>可用标签作品</dt><dd>{{ insights.tagRadar.coverage.tagged }}</dd></div>
+                    <div><dt>排除标签</dt><dd>{{ insights.tagRadar.excludedTags.length }}</dd></div>
+                    <div><dt>别名合并组</dt><dd>{{ insights.tagRadar.aliasGroups.length }}</dd></div>
+                  </dl>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      {% endif %}
+
       <section class="insight-tab-panel" id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" data-insights-panel="sources" hidden>
         <div class="insights-carousel" data-carousel>
           <div class="carousel-toolbar">
-            <div><p class="section-index">05 / INDEX</p><h3>索引覆盖</h3></div>
+            <div><p class="section-index">06 / INDEX</p><h3>索引覆盖</h3></div>
             <div class="carousel-controls"><button type="button" class="carousel-button" data-carousel-prev aria-label="上一个索引视图">←</button><span data-carousel-status aria-live="polite">1 / 2</span><button type="button" class="carousel-button" data-carousel-next aria-label="下一个索引视图">→</button></div>
           </div>
           <div class="carousel-viewport">

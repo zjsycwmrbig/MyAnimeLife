@@ -45,6 +45,7 @@
     "months",
     "decades",
     "ratings",
+    "tags",
     "sources",
   ];
   const OVERVIEW_MODULE_LABELS = {
@@ -54,6 +55,7 @@
     months: "最近十二个月",
     decades: "年代分布",
     ratings: "评分分布",
+    tags: "标签偏好",
     sources: "索引覆盖",
   };
 
@@ -136,6 +138,7 @@
       months: true,
       decades: true,
       ratings: true,
+      tags: true,
       sources: true,
     };
     if (Array.isArray(value)) {
@@ -581,6 +584,120 @@
       .join("");
   }
 
+  function tagRadarGraphic(insights, x, y, width, height, palette) {
+    const radar = insights.tagRadar ?? {};
+    const axes = (Array.isArray(radar.axes) ? radar.axes : [])
+      .filter((axis) => clean(axis?.label))
+      .slice(0, 12);
+    if (!radar.available || axes.length < 3) {
+      return `<text x="${x}" y="${y + 24}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">建立至少 3 个公共标签轴后，这里会显示标签偏好雷达图。</text>
+        <text x="${x}" y="${y + 52}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="13">当前可用轴 ${axes.length} 个 · 标签缓存覆盖 ${Number(radar.coverage?.percent) || 0}%</text>`;
+    }
+
+    const compact = width < 900;
+    const radius = Math.max(
+      58,
+      Math.min(compact ? 86 : 116, height * 0.36, width * 0.18),
+    );
+    const centerX = x + radius + (compact ? 38 : 56);
+    const centerY = y + height / 2;
+    const labelRadius = radius + (compact ? 17 : 23);
+    const step = (Math.PI * 2) / axes.length;
+    const pointAt = (index, ratio) => {
+      const angle = -Math.PI / 2 + index * step;
+      return {
+        x: centerX + Math.cos(angle) * radius * ratio,
+        y: centerY + Math.sin(angle) * radius * ratio,
+      };
+    };
+    const polygon = (ratioForAxis) =>
+      axes
+        .map((axis, index) => {
+          const point = pointAt(index, ratioForAxis(axis));
+          return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
+        })
+        .join(" ");
+
+    const rings = [0.25, 0.5, 0.75, 1]
+      .map(
+        (ratio) =>
+          `<polygon points="${polygon(() => ratio)}" fill="none" stroke="${palette.ink}" stroke-opacity="${ratio === 1 ? 0.22 : 0.1}" stroke-width="${ratio === 1 ? 1.5 : 1}" />`,
+      )
+      .join("");
+    const spokes = axes
+      .map((axis, index) => {
+        const point = pointAt(index, 1);
+        return `<line x1="${centerX}" y1="${centerY}" x2="${point.x}" y2="${point.y}" stroke="${palette.ink}" stroke-opacity=".12" />`;
+      })
+      .join("");
+    const labels = axes
+      .map((axis, index) => {
+        const angle = -Math.PI / 2 + index * step;
+        const point = {
+          x: centerX + Math.cos(angle) * labelRadius,
+          y: centerY + Math.sin(angle) * labelRadius,
+        };
+        const anchor =
+          point.x < centerX - 8
+            ? "end"
+            : point.x > centerX + 8
+              ? "start"
+              : "middle";
+        const label = [...clean(axis.label)];
+        const visible =
+          label.length > (compact ? 6 : 8)
+            ? `${label.slice(0, compact ? 5 : 7).join("")}…`
+            : label.join("");
+        return `<text x="${point.x}" y="${point.y}" text-anchor="${anchor}" dominant-baseline="middle" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="${compact ? 10 : 12}" font-weight="700">${escapeXml(visible)}</text>`;
+      })
+      .join("");
+    const points = axes
+      .map((axis, index) => {
+        const point = pointAt(
+          index,
+          Math.max(0, Math.min(100, Number(axis.percent) || 0)) / 100,
+        );
+        return `<circle cx="${point.x}" cy="${point.y}" r="${compact ? 3.5 : 4.5}" fill="${palette.paper}" stroke="${palette.accent}" stroke-width="2.5" />`;
+      })
+      .join("");
+
+    const legendX = x + (compact ? Math.min(width * 0.43, 300) : 360);
+    const legendWidth = Math.max(120, width - (legendX - x) - 8);
+    const rowHeight = compact ? 23 : 27;
+    const maximumRows = Math.max(3, Math.floor((height - 22) / rowHeight));
+    const visibleAxes = axes.slice(0, maximumRows);
+    const legend = visibleAxes
+      .map((axis, index) => {
+        const rowY = y + 15 + index * rowHeight;
+        const name = [...clean(axis.label)];
+        const visibleName =
+          name.length > (compact ? 7 : 10)
+            ? `${name.slice(0, compact ? 6 : 9).join("")}…`
+            : name.join("");
+        const trackX = legendX + (compact ? 74 : 112);
+        const trackWidth = Math.max(
+          24,
+          legendWidth - (trackX - legendX) - 42,
+        );
+        const barWidth =
+          (Math.max(0, Math.min(100, Number(axis.percent) || 0)) / 100) *
+          trackWidth;
+        return `<text x="${legendX}" y="${rowY + 9}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="${compact ? 10 : 12}" font-weight="700">${escapeXml(visibleName)}</text>
+          <rect x="${trackX}" y="${rowY + 2}" width="${trackWidth}" height="7" rx="3.5" fill="${palette.soft}" />
+          <rect x="${trackX}" y="${rowY + 2}" width="${Math.max(2, barWidth)}" height="7" rx="3.5" fill="${palette.accent}" />
+          <text x="${legendX + legendWidth}" y="${rowY + 9}" text-anchor="end" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="${compact ? 10 : 12}" font-weight="800">${Number(axis.count) || 0}</text>`;
+      })
+      .join("");
+    const topTag = clean(radar.topTag?.label) || clean(axes[0].label);
+    const coverage = Number(radar.coverage?.percent) || 0;
+
+    return `<text x="${legendX}" y="${y + height - 29}" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="${compact ? 10 : 12}" font-weight="800">TOP · ${escapeXml(topTag)}</text>
+      <text x="${legendX + legendWidth}" y="${y + height - 29}" text-anchor="end" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="${compact ? 10 : 12}">标签缓存覆盖 ${coverage}%</text>
+      ${rings}${spokes}${labels}
+      <polygon points="${polygon((axis) => Math.max(0, Math.min(100, Number(axis.percent) || 0)) / 100)}" fill="${palette.accent}" fill-opacity=".2" stroke="${palette.accent}" stroke-width="2.5" stroke-linejoin="round" />
+      ${points}${legend}`;
+  }
+
   function overviewPanel(id, insights, index, x, y, width, height, palette) {
     const summary = insights.summary ?? {};
     const windows = insights.windows ?? [];
@@ -662,6 +779,15 @@
         palette,
         { labelWidth: 126, valueWidth: 90 },
       );
+    } else if (id === "tags") {
+      content = tagRadarGraphic(
+        insights,
+        contentX,
+        contentY,
+        contentWidth,
+        Math.max(150, contentHeight),
+        palette,
+      );
     } else if (id === "sources") {
       const sources = insights.sources ?? [];
       const best = insights.bestDecade
@@ -708,6 +834,7 @@
     if (id === "months") return 286;
     if (id === "decades") return 112 + rowCount(insights.decades) * 42;
     if (id === "ratings") return 112 + rowCount(insights.ratings) * 42;
+    if (id === "tags") return 330;
     if (id === "sources") return 126 + rowCount(insights.sources) * 42;
     return 220;
   }
@@ -732,23 +859,33 @@
 
   function cardOverviewSvg(insights, options, palette, modules) {
     const width = 1600;
-    const height = 1000;
     const summary = insights.summary ?? {};
     const windows = insights.windows ?? [];
     const selected = OVERVIEW_MODULE_IDS.filter(
       (id) => modules[id] && id !== "summary",
     );
-    let body = `<rect width="${width}" height="${height}" fill="${palette.paper}" />${overviewHeader(options, palette, true)}`;
     let moduleTop = 210;
+    if (modules.summary) moduleTop += 124;
+    const rows = Math.ceil(selected.length / 2);
+    const gap = 20;
+    const rowHeights = Array.from({ length: rows }, (_, row) => {
+      const rowItems = selected.slice(row * 2, row * 2 + 2);
+      return rowItems.includes("tags") ? 300 : 258;
+    });
+    const height = Math.max(
+      520,
+      moduleTop +
+        rowHeights.reduce((sum, rowHeight) => sum + rowHeight, 0) +
+        Math.max(0, rows - 1) * gap +
+        64,
+    );
+    let body = `<rect width="${width}" height="${height}" fill="${palette.paper}" />${overviewHeader(options, palette, true)}`;
+    moduleTop = 210;
     if (modules.summary) {
       body += summaryTiles(summary, windows, 72, moduleTop, 1456, 104, palette);
       moduleTop += 124;
     }
     if (selected.length) {
-      const gap = 20;
-      const rows = Math.ceil(selected.length / 2);
-      const availableHeight = height - moduleTop - 64;
-      const panelHeight = Math.min(258, (availableHeight - gap * (rows - 1)) / rows);
       selected.forEach((id, index) => {
         const row = Math.floor(index / 2);
         const column = index % 2;
@@ -756,14 +893,19 @@
           selected.length % 2 === 1 && index === selected.length - 1;
         const panelWidth = isLastOdd ? 1456 : (1456 - gap) / 2;
         const x = 72 + column * ((1456 - gap) / 2 + gap);
+        const rowTop =
+          moduleTop +
+          rowHeights
+            .slice(0, row)
+            .reduce((sum, rowHeight) => sum + rowHeight + gap, 0);
         body += overviewPanel(
           id,
           insights,
           index + (modules.summary ? 1 : 0),
           x,
-          moduleTop + row * (panelHeight + gap),
+          rowTop,
           panelWidth,
-          Math.max(116, panelHeight),
+          rowHeights[row],
           palette,
         );
       });

@@ -15,6 +15,16 @@
     "template": "default",
     "accent": "coral"
   },
+  "insights": {
+    "tagRadar": {
+      "enabled": true,
+      "mode": "auto",
+      "maxAxes": 8,
+      "axes": [],
+      "excludedTags": [],
+      "aliasGroups": []
+    }
+  },
   "dataFile": "data/anime.jsonl",
   "indexFile": "data/anime-index.jsonl",
   "bangumiCacheFile": "data/bangumi-cache.jsonl",

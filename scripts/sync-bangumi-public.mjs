@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { CatalogStore } from "./catalog-store.mjs";
+import { compactPublicCatalogMetadata } from "./recommendations.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(scriptDirectory, "..");
@@ -23,6 +24,7 @@ function parseArguments(argv) {
   const options = {
     root: defaultRoot,
     output: "admin/bangumi-public.json",
+    catalogOutput: "admin/bangumi-public-catalog.json",
     archive: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -31,6 +33,8 @@ function parseArguments(argv) {
       options.root = path.resolve(argv[++index]);
     } else if (argument === "--output") {
       options.output = argv[++index];
+    } else if (argument === "--catalog-output") {
+      options.catalogOutput = argv[++index];
     } else if (argument === "--archive") {
       options.archive = path.resolve(argv[++index]);
     } else {
@@ -186,6 +190,7 @@ async function main() {
   const options = parseArguments(process.argv.slice(2));
   const root = path.resolve(options.root);
   const outputPath = path.resolve(root, options.output);
+  const catalogOutputPath = path.resolve(root, options.catalogOutput);
   const catalog = await new CatalogStore(root).load();
   const requestedIds = new Set(
     catalog.items
@@ -230,9 +235,10 @@ async function main() {
       requestedIds,
       archiveFetchedAt,
     );
+    const generatedAt = new Date().toISOString();
     const payload = {
       schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       source: {
         name: "Bangumi Archive",
         url: "https://github.com/bangumi/Archive",
@@ -246,9 +252,17 @@ async function main() {
       subjects,
     };
     await writeJsonAtomic(outputPath, payload);
+    await writeJsonAtomic(
+      catalogOutputPath,
+      compactPublicCatalogMetadata(catalog, generatedAt),
+    );
     const outputStat = await fsPromises.stat(outputPath);
+    const catalogOutputStat = await fsPromises.stat(catalogOutputPath);
     console.log(
       `Wrote ${path.relative(root, outputPath)}: ${Object.keys(subjects).length} subjects, ${outputStat.size} bytes`,
+    );
+    console.log(
+      `Wrote ${path.relative(root, catalogOutputPath)}: ${catalogOutputStat.size} bytes`,
     );
   } finally {
     if (temporaryDirectory) {

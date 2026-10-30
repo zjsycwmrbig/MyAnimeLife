@@ -1,3 +1,5 @@
+import { normalizeTagRadarConfig } from "./site-settings.mjs";
+
 const SOURCE_LABELS = {
   bangumi: "Bangumi",
   bilibiliMedia: "Bilibili",
@@ -5,6 +7,20 @@ const SOURCE_LABELS = {
   anilist: "AniList",
   mal: "MyAnimeList",
 };
+
+const IGNORED_TAG_RADAR_TAGS = new Set([
+  "tv",
+  "ova",
+  "oad",
+  "web",
+  "剧场版",
+  "电影",
+  "动画",
+  "日本",
+  "日本动画",
+  "电视动画",
+  "国产动画",
+]);
 
 function round(value, digits = 1) {
   if (!Number.isFinite(value)) {
@@ -36,6 +52,133 @@ function median(values) {
 
 function percent(value, total) {
   return total > 0 ? round((value / total) * 100) : 0;
+}
+
+function tagKey(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/gu, "");
+}
+
+function createTagNormalizer(aliasGroups, excludedTags) {
+  const aliases = new Map();
+  const excluded = new Set(
+    excludedTags.map(tagKey).filter(Boolean),
+  );
+  for (const group of aliasGroups) {
+    const names = group.map((name) => String(name).trim()).filter(Boolean);
+    if (names.length < 2) {
+      continue;
+    }
+    const canonical = names.at(-1);
+    const canonicalKey = tagKey(canonical);
+    for (const name of names) {
+      aliases.set(tagKey(name), {
+        key: canonicalKey,
+        label: canonical,
+      });
+    }
+  }
+  return (value) => {
+    const label = String(value ?? "").normalize("NFKC").trim();
+    const sourceKey = tagKey(label);
+    const aliased = aliases.get(sourceKey);
+    const resolvedKey = aliased?.key ?? sourceKey;
+    if (
+      !sourceKey ||
+      /^\d{4}$/u.test(sourceKey) ||
+      IGNORED_TAG_RADAR_TAGS.has(sourceKey) ||
+      IGNORED_TAG_RADAR_TAGS.has(resolvedKey) ||
+      excluded.has(sourceKey) ||
+      excluded.has(resolvedKey)
+    ) {
+      return null;
+    }
+    return aliased ?? {
+      key: resolvedKey,
+      label: label.replace(/\s+/gu, " "),
+    };
+  };
+}
+
+function calculateTagRadar(records, siteConfig) {
+  const config = normalizeTagRadarConfig(siteConfig?.insights?.tagRadar);
+  const normalizeTag = createTagNormalizer(
+    config.aliasGroups,
+    config.excludedTags,
+  );
+  const counts = new Map();
+  let tagged = 0;
+
+  for (const record of records) {
+    const recordTags = new Set();
+    for (const value of Array.isArray(record.publicTags)
+      ? record.publicTags
+      : []) {
+      const normalized = normalizeTag(
+        value && typeof value === "object" ? value.name : value,
+      );
+      if (!normalized || recordTags.has(normalized.key)) {
+        continue;
+      }
+      recordTags.add(normalized.key);
+      const entry = counts.get(normalized.key) ?? {
+        key: normalized.key,
+        label: normalized.label,
+        count: 0,
+      };
+      entry.count += 1;
+      counts.set(normalized.key, entry);
+    }
+    if (recordTags.size) {
+      tagged += 1;
+    }
+  }
+
+  const ranked = [...counts.values()].sort(
+    (left, right) =>
+      right.count - left.count ||
+      left.label.localeCompare(right.label, "zh-CN"),
+  );
+  const configured = config.axes
+    .map((name) => normalizeTag(name))
+    .filter(Boolean);
+  const selected =
+    config.mode === "manual" && configured.length
+      ? configured
+          .map((tag) => counts.get(tag.key) ?? {
+            key: tag.key,
+            label: tag.label,
+            count: 0,
+          })
+          .slice(0, config.maxAxes)
+      : ranked.slice(0, config.maxAxes);
+  const maximum = Math.max(1, ...selected.map((tag) => tag.count));
+  const axes = selected.map((tag) => ({
+    ...tag,
+    value: tag.count,
+    percent: percent(tag.count, maximum),
+  }));
+  const total = records.length;
+  const coverage = {
+    tagged,
+    total,
+    percent: percent(tagged, total),
+  };
+
+  return {
+    enabled: config.enabled,
+    available: config.enabled && axes.length >= 3 && tagged > 0,
+    mode: config.mode,
+    maxAxes: config.maxAxes,
+    axes,
+    coverage,
+    topTag: ranked[0] ?? null,
+    excludedTags: config.excludedTags,
+    aliasGroups: config.aliasGroups,
+  };
 }
 
 function monthKey(date) {
@@ -195,7 +338,7 @@ function withPieSegments(items) {
     });
 }
 
-export function calculateInsights(records, now = new Date()) {
+export function calculateInsights(records, now = new Date(), siteConfig = {}) {
   const ratings = records
     .map((record) => record.rating)
     .filter((rating) => rating !== null)
@@ -312,6 +455,7 @@ export function calculateInsights(records, now = new Date()) {
   const months = monthSeries(records, now);
   const days = currentMonthSeries(records, now);
   const weeks = weekSeries(records, now);
+  const tagRadar = calculateTagRadar(records, siteConfig);
 
   return {
     summary: {
@@ -355,6 +499,7 @@ export function calculateInsights(records, now = new Date()) {
     })),
     sources,
     bestDecade: ratedDecades[0] ?? null,
+    tagRadar,
   };
 }
 

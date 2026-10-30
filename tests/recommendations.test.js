@@ -92,6 +92,47 @@ test("ranks shared tags first and distinguishes owned recommendations", () => {
   assert.equal(unowned.coverUrl, "https://example.test/3.jpg");
   assert.equal(unowned.year, 2022);
   assert.equal(unowned.seasonMatch, false);
+  assert.equal(unowned.score, 8.6);
+  assert.equal(unowned.ratingCount, 700);
+  assert.equal(unowned.rank, 180);
+  assert.equal(unowned.tagHeat, 300);
+  assert.equal(owned.score, 7.8);
+  assert.equal(owned.ratingCount, 900);
+  assert.equal(owned.tagHeat, 540);
+});
+
+test("uses personal cache covers and keeps scoreless recommendations", () => {
+  const input = fixture();
+  input.publicSnapshot.subjects["2"] = [null, 0, null, [["科幻", 100]]];
+  input.catalogMetadata = normalizePublicCatalogMetadata({
+    items: {
+      2: ["缓存封面候选", "", 2021, "TV", "2021-01-01", 1, "第1季", null],
+    },
+  });
+  input.records = [input.records[0]];
+  input.personalCacheEntries = [
+    {
+      subjectId: "1",
+      tags: [
+        { name: "科幻", count: 300 },
+        { name: "机战", count: 240 },
+      ],
+    },
+    {
+      subjectId: "2",
+      coverUrl: "https://example.test/personal-cache-2.jpg",
+      tags: [{ name: "科幻", count: 100 }],
+    },
+  ];
+
+  const item = buildSimilarRecommendations(input).shards.get("source-anime")
+    .items[0];
+  assert.equal(item.title, "缓存封面候选");
+  assert.equal(item.coverUrl, "https://example.test/personal-cache-2.jpg");
+  assert.equal(item.score, null);
+  assert.equal(item.ratingCount, 0);
+  assert.equal(item.rank, null);
+  assert.equal(item.tagHeat, 300);
 });
 
 test("returns an explicit no-tag recommendation state", () => {

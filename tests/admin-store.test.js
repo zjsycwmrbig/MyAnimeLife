@@ -159,6 +159,16 @@ test("saves display and share preferences to the site config", async () => {
       },
       template: "spotlight",
       share: { template: "compact", accent: "blue" },
+      insights: {
+        tagRadar: {
+          enabled: true,
+          mode: "manual",
+          maxAxes: 6,
+          axes: ["科幻", "奇幻", "悬疑"],
+          excludedTags: ["短片"],
+          aliasGroups: [["漫改", "漫画改"]],
+        },
+      },
     });
 
     assert.equal(saved.settings.template, "spotlight");
@@ -174,6 +184,14 @@ test("saves display and share preferences to the site config", async () => {
     assert.deepEqual(config.share, {
       template: "compact",
       accent: "blue",
+    });
+    assert.deepEqual(config.insights.tagRadar, {
+      enabled: true,
+      mode: "manual",
+      maxAxes: 6,
+      axes: ["科幻", "奇幻", "悬疑"],
+      excludedTags: ["短片"],
+      aliasGroups: [["漫改", "漫画改"]],
     });
     assert.equal(config.dataFile, "data/anime.jsonl");
   } finally {

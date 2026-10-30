@@ -33,6 +33,7 @@ import {
 } from "./draft-store.js";
 import { applyAdminAppearance } from "./appearance.js";
 import { replaceChildrenSafe } from "./dom.js";
+import { normalizeTagRadarConfig } from "../scripts/site-settings.mjs";
 
 const MAX_BATCH_SIZE = 100;
 const MAX_TEMPLATE_LOGS = 40;
@@ -266,6 +267,12 @@ const elements = {
   shareAccentInputs: [
     ...document.querySelectorAll('input[name="shareAccent"]'),
   ],
+  tagRadarEnabled: document.querySelector("#tagRadarEnabled"),
+  tagRadarMode: document.querySelector("#tagRadarMode"),
+  tagRadarMaxAxes: document.querySelector("#tagRadarMaxAxes"),
+  tagRadarAxes: document.querySelector("#tagRadarAxes"),
+  tagRadarExcludedTags: document.querySelector("#tagRadarExcludedTags"),
+  tagRadarAliasGroups: document.querySelector("#tagRadarAliasGroups"),
   localAppearanceBadge: document.querySelector("#localAppearanceBadge"),
   localAppearanceStatus: document.querySelector("#localAppearanceStatus"),
   siteSettingsLocalSave: document.querySelector("#siteSettingsLocalSave"),
@@ -508,14 +515,80 @@ function setLocalAppearanceStatus(message, tone = "") {
   elements.localAppearanceStatus.classList.toggle("is-success", tone === "success");
 }
 
+function tagListText(value) {
+  return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function aliasGroupsText(value) {
+  return Array.isArray(value)
+    ? value.map((group) => (Array.isArray(group) ? group.join("=") : "")).join("\n")
+    : "";
+}
+
+function readTagList(value) {
+  return [...new Set(
+    String(value ?? "")
+      .split(/[\n,，、]+/u)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
+}
+
+function readAliasGroups(value) {
+  return String(value ?? "")
+    .split(/\n+/u)
+    .map((line) =>
+      [...new Set(
+        line
+          .split(/[=＝/]+/u)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      )],
+    )
+    .filter((group) => group.length >= 2);
+}
+
+function readTagRadarForm() {
+  return normalizeTagRadarConfig({
+    enabled: elements.tagRadarEnabled.checked,
+    mode: elements.tagRadarMode.value,
+    maxAxes: elements.tagRadarMaxAxes.value,
+    axes: readTagList(elements.tagRadarAxes.value),
+    excludedTags: readTagList(elements.tagRadarExcludedTags.value),
+    aliasGroups: readAliasGroups(elements.tagRadarAliasGroups.value),
+  });
+}
+
+function renderTagRadarSettings(value) {
+  const radar = normalizeTagRadarConfig(value);
+  elements.tagRadarEnabled.checked = radar.enabled;
+  elements.tagRadarMode.value = radar.mode;
+  elements.tagRadarMaxAxes.value = String(radar.maxAxes);
+  elements.tagRadarAxes.value = tagListText(radar.axes);
+  elements.tagRadarExcludedTags.value = tagListText(radar.excludedTags);
+  elements.tagRadarAliasGroups.value = aliasGroupsText(radar.aliasGroups);
+  syncTagRadarControls();
+}
+
+function syncTagRadarControls() {
+  const locked = state.settingsBusy || !getRuntime().writable;
+  const enabled = elements.tagRadarEnabled.checked && !locked;
+  const manual = enabled && elements.tagRadarMode.value === "manual";
+  elements.tagRadarMode.disabled = !enabled;
+  elements.tagRadarMaxAxes.disabled = !enabled;
+  elements.tagRadarExcludedTags.disabled = !enabled;
+  elements.tagRadarAliasGroups.disabled = !enabled;
+  elements.tagRadarAxes.disabled = !manual;
+}
+
 function renderLocalAppearance() {
   const local = readLocalAppearance();
-  const active = Boolean(local?.share);
+  const active = Boolean(local?.share || local?.insights?.tagRadar);
   elements.localAppearanceBadge.textContent = active ? "已启用" : "未启用";
   elements.localAppearanceBadge.classList.toggle("is-success", active);
   setLocalAppearanceStatus(
     active
-      ? `当前分享样式来自本机缓存${local.savedAt ? ` · ${formatDate(local.savedAt)}` : ""}`
+      ? `当前分享样式与标签雷达来自本机缓存${local.savedAt ? ` · ${formatDate(local.savedAt)}` : ""}`
       : "当前使用仓库配置。",
     active ? "success" : "",
   );
@@ -537,6 +610,7 @@ function renderSettingsAccess() {
     : writable
       ? "可修改"
       : "只读";
+  syncTagRadarControls();
 }
 
 function selectRadio(inputs, value) {
@@ -563,6 +637,7 @@ function renderSiteSettings(settings) {
     shareTemplateOrDefault(settings.share?.template),
   );
   selectRadio(elements.shareAccentInputs, settings.share?.accent ?? "coral");
+  renderTagRadarSettings(settings.insights?.tagRadar);
   const local = readLocalAppearance();
   if (local?.share) {
     selectRadio(
@@ -573,6 +648,9 @@ function renderSiteSettings(settings) {
       elements.shareAccentInputs,
       local.share.accent ?? settings.share?.accent ?? "coral",
     );
+  }
+  if (local?.insights?.tagRadar) {
+    renderTagRadarSettings(local.insights.tagRadar);
   }
   applyAdminAppearance(settings, local);
   state.settingsLoaded = true;
@@ -604,6 +682,10 @@ function applyAppearanceFromForm() {
         elements.shareAccentInputs.find((input) => input.checked)?.value ??
         state.remoteSettings.share?.accent ??
         "coral",
+    },
+    insights: {
+      ...(state.remoteSettings.insights ?? {}),
+      tagRadar: readTagRadarForm(),
     },
   };
   applyAdminAppearance(settings, null);
@@ -653,6 +735,9 @@ function readAppearanceForm() {
         elements.shareAccentInputs.find((input) => input.checked)?.value ??
         "coral",
     },
+    insights: {
+      tagRadar: readTagRadarForm(),
+    },
     savedAt: new Date().toISOString(),
   };
 }
@@ -690,6 +775,7 @@ function clearLocalAppearance() {
         elements.shareAccentInputs,
         state.remoteSettings.share?.accent ?? "coral",
       );
+      renderTagRadarSettings(state.remoteSettings.insights?.tagRadar);
       applyAdminAppearance(state.remoteSettings, null);
     }
     renderLocalAppearance();
@@ -722,6 +808,9 @@ async function saveSiteSettings(event) {
       accent:
         elements.shareAccentInputs.find((input) => input.checked)?.value ??
         "coral",
+    },
+    insights: {
+      tagRadar: readTagRadarForm(),
     },
   };
   state.settingsBusy = true;
@@ -2819,6 +2908,12 @@ elements.catalogOperationLogClear?.addEventListener("click", () =>
 elements.siteSettingsForm.addEventListener("submit", saveSiteSettings);
 elements.siteSettingsForm.addEventListener("change", (event) => {
   if (!event.target.closest("[data-local-appearance-control]")) {
+    if (
+      event.target === elements.tagRadarEnabled ||
+      event.target === elements.tagRadarMode
+    ) {
+      syncTagRadarControls();
+    }
     applyAppearanceFromForm();
   }
 });

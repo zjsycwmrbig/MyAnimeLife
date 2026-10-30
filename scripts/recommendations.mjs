@@ -221,6 +221,7 @@ function recommendationDocuments(publicSnapshot, personalCacheEntries) {
       ratingCount: Number(entry.ratingCount) || 0,
       rank: Number(entry.rank) || null,
       tags: normalizeRecommendationTags(entry.tags),
+      coverUrl: cleanString(entry.coverUrl) || null,
     };
     const previous = documents.get(subjectId);
     documents.set(subjectId, {
@@ -230,6 +231,7 @@ function recommendationDocuments(publicSnapshot, personalCacheEntries) {
       ratingCount: previous?.ratingCount || incoming.ratingCount,
       rank: previous?.rank ?? incoming.rank,
       tags: mergeDocumentTags(previous, incoming),
+      coverUrl: previous?.coverUrl || incoming.coverUrl,
     });
   }
   return documents;
@@ -384,18 +386,27 @@ function buildSourceRecommendations(options) {
       const displayTitle =
         cleanString(ownedRecord?.title) ||
         cleanString(metadata?.displayTitle) ||
+        cleanString(metadata?.originalTitle) ||
         `Bangumi #${candidate.subjectId}`;
       const coverUrl =
         cleanString(ownedRecord?.coverUrl) ||
+        cleanString(document?.coverUrl) ||
         cleanString(metadata?.coverUrl) ||
         null;
+      const tagHeat = candidate.commonTags.reduce(
+        (sum, tag) => sum + (Number(tag.count) || 0),
+        0,
+      );
       return {
         id: `bgm-${candidate.subjectId}`,
         subjectId: candidate.subjectId,
         recordId: ownedRecord?.id ?? null,
         owned: Boolean(ownedRecord),
         title: displayTitle,
-        originalTitle: cleanString(metadata?.originalTitle) || null,
+        originalTitle:
+          cleanString(metadata?.originalTitle) ||
+          cleanString(metadata?.displayTitle) ||
+          null,
         coverUrl,
         type: cleanString(metadata?.type) || "unknown",
         begin: cleanString(metadata?.begin) || null,
@@ -413,6 +424,10 @@ function buildSourceRecommendations(options) {
           .slice(0, 6)
           .map((tag) => tag.name),
         score: document?.score ?? null,
+        ratingCount: Number.isInteger(Number(document?.ratingCount))
+          ? Number(document.ratingCount)
+          : 0,
+        tagHeat,
         rank: document?.rank ?? null,
         year: metadata?.year ?? null,
         seasonMatch: sameSeason(season, candidateSeason),

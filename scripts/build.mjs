@@ -690,7 +690,7 @@ export async function buildSite(options = {}) {
         new Date(left.updatedAt).getTime();
       return byYear || byUpdatedAt || left.title.localeCompare(right.title, "zh-CN");
     });
-  const insights = calculateInsights(records, now);
+  const insights = calculateInsights(records, now, config);
   const stats = insights.summary;
   const recommendations = buildSimilarRecommendations({
     publicSnapshot: publicBangumiData.snapshot,
@@ -885,6 +885,12 @@ export async function buildSite(options = {}) {
         mode: "github",
         repository: repository.slug,
         branch: repository.branch,
+        presentation: {
+          site: config.site,
+          template: config.template,
+          share: normalizeShareConfig(config.share, config.template),
+          insights: config.insights ?? {},
+        },
       },
       null,
       2,

@@ -7,6 +7,7 @@
   const endpoint = section.dataset.similarEndpoint;
   const version = section.dataset.similarVersion ?? "";
   const scopeSwitch = section.querySelector("[data-similar-scope-switch]");
+  const sortSelect = section.querySelector("[data-similar-sort]");
   const status = section.querySelector("[data-similar-status]");
   const grid = section.querySelector("[data-similar-grid]");
   const pagination = section.querySelector("[data-similar-pagination]");
@@ -29,6 +30,7 @@
   if (
     !endpoint ||
     !scopeSwitch ||
+    !sortSelect ||
     !status ||
     !grid ||
     !pagination ||
@@ -52,8 +54,14 @@
   };
   let recommendations = null;
   let selectedScope = "unowned";
+  let selectedSort = "similarity";
   let currentPage = 1;
   let started = false;
+  const coverCacheKey = "myanimelife.similar-cover-cache.v1";
+  const coverCache = readCoverCache();
+  const pendingCovers = new Set();
+  const coverQueue = [];
+  let activeCoverRequests = 0;
 
   function createElement(tag, className = "", text = "") {
     const element = document.createElement(tag);
@@ -64,6 +72,14 @@
       element.textContent = text;
     }
     return element;
+  }
+
+  function numberOrNull(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
   }
 
   function safeCoverUrl(value) {
@@ -80,6 +96,136 @@
     } catch {
       return "";
     }
+  }
+
+  function readCoverCache() {
+    try {
+      const value = JSON.parse(localStorage.getItem(coverCacheKey) || "{}");
+      return value && typeof value === "object" ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function rememberCover(subjectId, coverUrl) {
+    const now = Date.now();
+    coverCache[subjectId] = { coverUrl, checkedAt: now };
+    const recent = Object.entries(coverCache)
+      .sort(
+        ([, left], [, right]) =>
+          Number(right?.checkedAt) - Number(left?.checkedAt),
+      )
+      .slice(0, 120);
+    for (const key of Object.keys(coverCache)) {
+      delete coverCache[key];
+    }
+    for (const [key, value] of recent) {
+      coverCache[key] = value;
+    }
+    try {
+      localStorage.setItem(coverCacheKey, JSON.stringify(coverCache));
+    } catch {
+      // Cover caching is an optimization; recommendations remain usable.
+    }
+  }
+
+  function coverCacheState(subjectId) {
+    const cached = coverCache[subjectId];
+    if (!cached) {
+      return { status: "missing", coverUrl: "" };
+    }
+    const ttl = cached.coverUrl ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
+    if (Date.now() - Number(cached.checkedAt) > ttl) {
+      return { status: "expired", coverUrl: "" };
+    }
+    const coverUrl = safeCoverUrl(cached.coverUrl);
+    return {
+      status: coverUrl ? "available" : "missing",
+      coverUrl,
+    };
+  }
+
+  function appendCoverImage(cover, coverUrl, title) {
+    const image = document.createElement("img");
+    image.src = coverUrl;
+    image.alt = "";
+    image.title = `${title} 封面`;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    const loading = createElement("span", "similar-cover-loading");
+    loading.setAttribute("aria-hidden", "true");
+    cover.append(image, loading);
+    image.addEventListener("load", () => {
+      loading.hidden = true;
+      image.dataset.loaded = "true";
+    });
+    image.addEventListener("error", () => {
+      loading.hidden = true;
+      image.remove();
+    });
+  }
+
+  async function fetchBangumiCover(subjectId) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(
+        `https://api.bgm.tv/v0/subjects/${encodeURIComponent(subjectId)}`,
+        {
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      return safeCoverUrl(
+        payload?.images?.large ??
+          payload?.images?.common ??
+          payload?.images?.medium,
+      );
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  function pumpCoverQueue() {
+    while (activeCoverRequests < 3 && coverQueue.length) {
+      const task = coverQueue.shift();
+      activeCoverRequests += 1;
+      void task().finally(() => {
+        activeCoverRequests -= 1;
+        pumpCoverQueue();
+      });
+    }
+  }
+
+  function hydrateCover(item, cover) {
+    const cached = coverCacheState(item.subjectId);
+    if (cached.coverUrl) {
+      appendCoverImage(cover, cached.coverUrl, item.title);
+      return;
+    }
+    if (cached.status === "missing" || pendingCovers.has(item.subjectId)) {
+      return;
+    }
+    pendingCovers.add(item.subjectId);
+    coverQueue.push(async () => {
+      try {
+        const coverUrl = await fetchBangumiCover(item.subjectId);
+        rememberCover(item.subjectId, coverUrl);
+        if (coverUrl && cover.isConnected) {
+          appendCoverImage(cover, coverUrl, item.title);
+        }
+      } catch {
+        rememberCover(item.subjectId, "");
+      } finally {
+        pendingCovers.delete(item.subjectId);
+      }
+    });
+    pumpCoverQueue();
   }
 
   function setStatus(message, tone = "") {
@@ -146,23 +292,9 @@
 
     const coverUrl = safeCoverUrl(item.coverUrl);
     if (coverUrl) {
-      const image = document.createElement("img");
-      image.src = coverUrl;
-      image.alt = "";
-      image.loading = "lazy";
-      image.decoding = "async";
-      image.referrerPolicy = "no-referrer";
-      const loading = createElement("span", "similar-cover-loading");
-      loading.setAttribute("aria-hidden", "true");
-      cover.append(image, loading);
-      image.addEventListener("load", () => {
-        loading.hidden = true;
-        image.dataset.loaded = "true";
-      });
-      image.addEventListener("error", () => {
-        loading.hidden = true;
-        image.remove();
-      });
+      appendCoverImage(cover, coverUrl, item.title);
+    } else if (item.subjectId) {
+      hydrateCover(item, cover);
     }
 
     const state = createElement(
@@ -183,11 +315,22 @@
     const metaValues = itemMeta(item);
     meta.textContent = metaValues.length ? metaValues.join(" · ") : "Bangumi";
     const score = createElement("p", "similar-public-score");
-    if (Number.isFinite(Number(item.score))) {
+    const publicScore = numberOrNull(item.score);
+    const ratingCount = Math.max(0, Number(item.ratingCount) || 0);
+    if (publicScore !== null) {
       score.append(
         createElement("span", "", "BGM"),
-        createElement("strong", "", Number(item.score).toFixed(1)),
+        createElement("strong", "", publicScore.toFixed(1)),
       );
+      if (ratingCount > 0) {
+        score.append(
+          createElement(
+            "small",
+            "",
+            `${ratingCount.toLocaleString("zh-CN")} 人评分`,
+          ),
+        );
+      }
     } else {
       score.textContent = "暂无评分";
     }
@@ -204,12 +347,13 @@
 
     const footer = createElement("div", "similar-card-footer");
     if (item.owned) {
+      const recordRating = numberOrNull(item.recordRating);
       footer.append(
         createElement(
           "span",
           "similar-own-rating",
-          Number.isFinite(Number(item.recordRating))
-            ? `我的评分 ${Number(item.recordRating).toFixed(1)}`
+          recordRating !== null
+            ? `我的评分 ${recordRating.toFixed(1)}`
             : "我的档案",
         ),
         createElement("strong", "similar-card-action", "查看档案"),
@@ -312,10 +456,11 @@
     const allItems = Array.isArray(recommendations?.items)
       ? recommendations.items
       : [];
-    const items =
+    const scopeItems =
       selectedScope === "all"
         ? allItems
         : allItems.filter((item) => !item.owned);
+    const items = sortItems(scopeItems);
     const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
     currentPage = Math.min(pageCount, Math.max(1, currentPage));
     const start = (currentPage - 1) * PAGE_SIZE;
@@ -334,6 +479,76 @@
         : [createEmptyState()]),
     );
     renderPagination(items.length, pageCount);
+  }
+
+  function sortItems(items) {
+    const sorted = [...items];
+    const compareSubject = (left, right) =>
+      String(left.subjectId).localeCompare(String(right.subjectId), "en", {
+        numeric: true,
+      });
+    const compareScore = (left, right, direction) => {
+      const leftScore = numberOrNull(left.score);
+      const rightScore = numberOrNull(right.score);
+      if (leftScore === null && rightScore === null) {
+        return 0;
+      }
+      if (leftScore === null) {
+        return 1;
+      }
+      if (rightScore === null) {
+        return -1;
+      }
+      return direction * (leftScore - rightScore);
+    };
+    const popularity = (item) => Math.max(0, Number(item.ratingCount) || 0);
+    const tagHeat = (item) => Math.max(0, Number(item.tagHeat) || 0);
+    if (selectedSort === "score-desc") {
+      sorted.sort(
+        (left, right) =>
+          compareScore(left, right, -1) ||
+          popularity(right) - popularity(left) ||
+          tagHeat(right) - tagHeat(left) ||
+          (numberOrNull(right.similarity) ?? 0) -
+            (numberOrNull(left.similarity) ?? 0) ||
+          compareSubject(left, right),
+      );
+    } else if (selectedSort === "score-asc") {
+      sorted.sort(
+        (left, right) =>
+          compareScore(left, right, 1) ||
+          popularity(right) - popularity(left) ||
+          tagHeat(right) - tagHeat(left) ||
+          compareSubject(left, right),
+      );
+    } else if (selectedSort === "popularity-desc") {
+      sorted.sort(
+        (left, right) =>
+          popularity(right) - popularity(left) ||
+          compareScore(left, right, -1) ||
+          tagHeat(right) - tagHeat(left) ||
+          compareSubject(left, right),
+      );
+    } else if (selectedSort === "heat-desc") {
+      sorted.sort(
+        (left, right) =>
+          tagHeat(right) - tagHeat(left) ||
+          popularity(right) - popularity(left) ||
+          compareScore(left, right, -1) ||
+          compareSubject(left, right),
+      );
+    } else if (selectedSort === "shared-desc") {
+      sorted.sort(
+        (left, right) =>
+          (Number(right.sharedCount) || 0) -
+            (Number(left.sharedCount) || 0) ||
+          (numberOrNull(right.similarity) ?? 0) -
+            (numberOrNull(left.similarity) ?? 0) ||
+          popularity(right) - popularity(left) ||
+          compareSubject(left, right),
+      );
+    }
+    return sorted;
   }
 
   function setScope(scope) {
@@ -398,6 +613,11 @@
       setScope(button.dataset.similarScope);
     });
   }
+  sortSelect.addEventListener("change", () => {
+    selectedSort = sortSelect.value;
+    currentPage = 1;
+    render();
+  });
 
   previousButton.addEventListener("click", () => {
     currentPage = Math.max(1, currentPage - 1);

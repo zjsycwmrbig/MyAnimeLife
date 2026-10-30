@@ -5,6 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#eef1eb" />
     <title>Anime Records Manager</title>
+    <script src="./config.js"></script>
+    <script>
+      (() => {
+        const templates = ["default", "compact", "spotlight"];
+        const accents = {
+          coral: ["#cf6247", "#8f3f2c", "#f9e9e4"],
+          teal: ["#2f756d", "#1f504b", "#e7f2ee"],
+          blue: ["#456f9d", "#2e4d70", "#e9eff6"],
+          amber: ["#b4782f", "#7e511e", "#f5ecdc"],
+        };
+        const themeColors = {
+          default: "#eef1eb",
+          compact: "#f4f7f7",
+          spotlight: "#10171b",
+        };
+        const injected =
+          window.ANIME_ADMIN_CONFIG?.presentation &&
+          typeof window.ANIME_ADMIN_CONFIG.presentation === "object"
+            ? window.ANIME_ADMIN_CONFIG.presentation
+            : {};
+        let local = null;
+        try {
+          local = JSON.parse(
+            localStorage.getItem("myanimelife.appearance.preferences") || "null",
+          );
+        } catch {
+          local = null;
+        }
+        const template = templates.includes(injected.template)
+          ? injected.template
+          : "default";
+        const requestedAccent =
+          local?.share?.accent ?? injected.share?.accent ?? "coral";
+        const accent = Object.hasOwn(accents, requestedAccent)
+          ? requestedAccent
+          : "coral";
+        const root = document.documentElement;
+        root.dataset.siteTemplate = template;
+        root.dataset.shareAccent = accent;
+        root.style.setProperty("--share-accent", accents[accent][0]);
+        root.style.setProperty("--share-accent-dark", accents[accent][1]);
+        root.style.setProperty("--share-accent-soft", accents[accent][2]);
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", themeColors[template]);
+        const siteTitle = String(
+          injected.site?.title ?? "",
+        ).trim();
+        document.title = siteTitle
+          ? `${siteTitle} · 管理`
+          : "Anime Records Manager";
+      })();
+    </script>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -929,6 +982,49 @@
                 </label>
               </fieldset>
 
+              <div class="tag-radar-settings">
+                <div class="settings-section-heading">
+                  <div>
+                    <p class="eyebrow">TAG RADAR</p>
+                    <h2>标签偏好</h2>
+                  </div>
+                  <label class="setting-toggle">
+                    <input id="tagRadarEnabled" type="checkbox" />
+                    <span>启用雷达图</span>
+                  </label>
+                </div>
+                <p class="settings-section-intro">
+                  雷达图从 Bangumi 公共标签缓存中统计出现频率，排除年份和媒介类型等固定标签。至少需要 3 个可用标签才会展示。
+                </p>
+                <div class="settings-fields tag-radar-fields">
+                  <label class="field">
+                    <span>取值方式</span>
+                    <select id="tagRadarMode">
+                      <option value="auto">自动选取高频标签</option>
+                      <option value="manual">使用自定义标签顺序</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>最多展示轴数</span>
+                    <input id="tagRadarMaxAxes" type="number" min="3" max="12" step="1" inputmode="numeric" />
+                  </label>
+                  <label class="field settings-field-wide">
+                    <span>自定义标签</span>
+                    <textarea id="tagRadarAxes" rows="3" placeholder="每行一个，例如：科幻&#10;奇幻&#10;悬疑"></textarea>
+                    <small>仅在手动取值方式下按此顺序展示最多 3–12 个标签。</small>
+                  </label>
+                  <label class="field settings-field-wide">
+                    <span>排除标签</span>
+                    <textarea id="tagRadarExcludedTags" rows="2" placeholder="每行一个，例如：恋爱喜剧&#10;短片"></textarea>
+                  </label>
+                  <label class="field settings-field-wide">
+                    <span>标签别名合并</span>
+                    <textarea id="tagRadarAliasGroups" rows="3" placeholder="每行一组，例如：&#10;漫改=漫画改&#10;轻改=轻小说改"></textarea>
+                    <small>每行使用等号连接，最后一个名称作为雷达图显示名。</small>
+                  </label>
+                </div>
+              </div>
+
               <div class="local-style-cache">
                 <div class="settings-section-heading">
                   <div>
@@ -938,7 +1034,7 @@
                   <span id="localAppearanceBadge" class="status-badge">未启用</span>
                 </div>
                 <p class="local-style-cache-copy">
-                  保存后只对当前浏览器生效，不会写入 GitHub。分享模板和配色会优先读取这里的设置；清除后恢复仓库配置。
+                  保存后只对当前浏览器生效，不会写入 GitHub。分享样式和标签雷达参数会优先读取这里的设置；清除后恢复仓库配置。
                 </p>
                 <div class="local-style-cache-actions">
                   <button id="siteSettingsLocalSave" class="button button-quiet" data-local-appearance-control="true" type="button">
@@ -1191,7 +1287,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./config.js"></script>
     <script type="module" src="./app.js"></script>
     <script type="module" src="./catalog.js"></script>
     <script type="module" src="./duplicates.js"></script>

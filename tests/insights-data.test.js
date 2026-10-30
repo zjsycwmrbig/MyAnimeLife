@@ -14,6 +14,7 @@ function record({
   title = id,
   review = "",
   note = "",
+  publicTags = [],
 }) {
   return {
     id,
@@ -22,6 +23,7 @@ function record({
     review,
     coverUrl: null,
     note,
+    publicTags,
     externalIds,
     season: year
       ? { key: id, number: 1, label: "第1季", year }
@@ -149,6 +151,156 @@ test("calculates collection windows, decades, and rating distributions", () => {
     ),
     4,
   );
+});
+
+test("builds automatic tag radar axes from normalized cached tags", () => {
+  const now = new Date("2026-10-25T12:00:00.000Z");
+  const insights = calculateInsights(
+    [
+      record({
+        id: "a",
+        createdAt: "2026-10-24T12:00:00.000Z",
+        publicTags: ["科幻", "漫改", { name: "科幻", count: 300 }, "TV"],
+      }),
+      record({
+        id: "b",
+        createdAt: "2026-10-23T12:00:00.000Z",
+        publicTags: ["漫画改", "科幻", "2024"],
+      }),
+      record({
+        id: "c",
+        createdAt: "2026-10-22T12:00:00.000Z",
+        publicTags: ["奇幻", "科幻"],
+      }),
+      record({
+        id: "d",
+        createdAt: "2026-10-21T12:00:00.000Z",
+        publicTags: ["奇幻", "科幻"],
+      }),
+      record({
+        id: "e",
+        createdAt: "2026-10-20T12:00:00.000Z",
+        publicTags: ["日常", "短片"],
+      }),
+      record({
+        id: "f",
+        createdAt: "2026-10-19T12:00:00.000Z",
+      }),
+    ],
+    now,
+    {
+      insights: {
+        tagRadar: {
+          enabled: true,
+          mode: "auto",
+          maxAxes: 3,
+          excludedTags: ["短片"],
+          aliasGroups: [["漫改", "漫画改"]],
+        },
+      },
+    },
+  );
+
+  assert.equal(insights.tagRadar.available, true);
+  assert.equal(insights.tagRadar.mode, "auto");
+  assert.equal(insights.tagRadar.axes.length, 3);
+  assert.equal(insights.tagRadar.axes[0].label, "科幻");
+  assert.equal(insights.tagRadar.axes[0].count, 4);
+  assert.deepEqual(
+    insights.tagRadar.axes
+      .slice(1)
+      .map((axis) => [axis.label, axis.count])
+      .sort(),
+    [
+      ["奇幻", 2],
+      ["漫画改", 2],
+    ].sort(),
+  );
+  assert.deepEqual(insights.tagRadar.coverage, {
+    tagged: 5,
+    total: 6,
+    percent: 83.3,
+  });
+  assert.equal(insights.tagRadar.axes[0].percent, 100);
+  assert.equal(
+    insights.tagRadar.axes.some((axis) => axis.label === "短片"),
+    false,
+  );
+});
+
+test("keeps manual tag radar order and exposes zero-count axes", () => {
+  const now = new Date("2026-10-25T12:00:00.000Z");
+  const insights = calculateInsights(
+    [
+      record({
+        id: "a",
+        createdAt: "2026-10-24T12:00:00.000Z",
+        publicTags: ["科幻", "奇幻"],
+      }),
+      record({
+        id: "b",
+        createdAt: "2026-10-23T12:00:00.000Z",
+        publicTags: ["科幻", "悬疑"],
+      }),
+    ],
+    now,
+    {
+      insights: {
+        tagRadar: {
+          enabled: true,
+          mode: "manual",
+          maxAxes: 3,
+          axes: ["奇幻", "未知标签", "科幻", "悬疑"],
+        },
+      },
+    },
+  );
+
+  assert.equal(insights.tagRadar.available, true);
+  assert.deepEqual(
+    insights.tagRadar.axes.map((axis) => [axis.label, axis.count, axis.percent]),
+    [
+      ["奇幻", 1, 50],
+      ["未知标签", 0, 0],
+      ["科幻", 2, 100],
+    ],
+  );
+  assert.equal(insights.tagRadar.topTag.label, "科幻");
+});
+
+test("applies excluded tags after alias normalization", () => {
+  const insights = calculateInsights(
+    [
+      record({
+        id: "a",
+        createdAt: "2026-10-24T12:00:00.000Z",
+        publicTags: ["漫改", "科幻", "奇幻", "悬疑"],
+      }),
+      record({
+        id: "b",
+        createdAt: "2026-10-23T12:00:00.000Z",
+        publicTags: ["漫画改", "科幻", "奇幻"],
+      }),
+    ],
+    new Date("2026-10-25T12:00:00.000Z"),
+    {
+      insights: {
+        tagRadar: {
+          enabled: true,
+          mode: "auto",
+          maxAxes: 4,
+          excludedTags: ["漫画改"],
+          aliasGroups: [["漫改", "漫画改"]],
+        },
+      },
+    },
+  );
+
+  assert.equal(
+    insights.tagRadar.axes.some((axis) => axis.label === "漫画改"),
+    false,
+  );
+  assert.equal(insights.tagRadar.axes.length, 3);
 });
 
 test("compares repositories by stable ids without merging different seasons", () => {

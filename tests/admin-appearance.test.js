@@ -142,3 +142,23 @@ test("keeps year and tag filters in the document flow", async () => {
   assert.doesNotMatch(panelRule, /position:\s*fixed/u);
   assert.match(panelRule, /height:\s*clamp\(/u);
 });
+
+test("applies the injected admin template before styles load", async () => {
+  const html = await fs.readFile(
+    new URL("../admin/index.html", import.meta.url),
+    "utf8",
+  );
+  const configIndex = html.indexOf('<script src="./config.js"></script>');
+  const bootstrapIndex = html.indexOf("root.dataset.siteTemplate = template");
+  const stylesheetIndex = html.indexOf('<link rel="stylesheet" href="./styles.css"');
+
+  assert.ok(configIndex >= 0);
+  assert.ok(bootstrapIndex > configIndex);
+  assert.ok(stylesheetIndex > bootstrapIndex);
+  assert.equal(
+    html.match(/<script src="\.\/config\.js"><\/script>/gu)?.length,
+    1,
+  );
+  assert.match(html, /ANIME_ADMIN_CONFIG\?\.presentation/u);
+  assert.match(html, /myanimelife\.appearance\.preferences/u);
+});
