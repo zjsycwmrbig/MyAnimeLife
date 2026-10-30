@@ -276,6 +276,36 @@ test("ships three independently buildable templates", async () => {
     assert.match(detailHtml, /我的评价/u);
     assert.match(detailHtml, /aria-haspopup="dialog"/u);
     assert.doesNotMatch(detailHtml, /Bangumi 公共资料/u);
+    assert.match(detailHtml, /data-similar-anime/u);
+    assert.match(detailHtml, /相似推荐/u);
+    assert.match(detailHtml, /含已收录/u);
+    assert.match(detailHtml, /similar\.css\?v=20261025T120000000Z/u);
+    assert.match(detailHtml, /similar\.js\?v=20261025T120000000Z/u);
+
+    const similarShard = JSON.parse(
+      await fs.readFile(
+        path.join(
+          fixtureRoot,
+          "dist",
+          "data",
+          "similar",
+          `${validRecord.id}.json`,
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(similarShard.sourceId, validRecord.id);
+    assert.equal(similarShard.sourceTagCount, 0);
+    assert.deepEqual(similarShard.items, []);
+
+    const similarCatalog = JSON.parse(
+      await fs.readFile(
+        path.join(fixtureRoot, "dist", "data", "similar-catalog.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(similarCatalog.itemCount, 1);
+    assert.equal(similarCatalog.items[0].recordId, validRecord.id);
 
     const insightsHtml = await fs.readFile(
       path.join(fixtureRoot, "dist", "insights", "index.html"),
@@ -344,6 +374,8 @@ test("ships three independently buildable templates", async () => {
       "scripts/duplicate-data.mjs",
       "scripts/admin-data.mjs",
       "assets/share.js",
+      "assets/similar.js",
+      "assets/similar.css",
     ]) {
       await fs.access(path.join(fixtureRoot, "dist", file));
     }

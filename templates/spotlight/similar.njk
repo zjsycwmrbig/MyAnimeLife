@@ -1,0 +1,52 @@
+<section
+  class="detail-section similar-section"
+  data-similar-anime
+  data-similar-endpoint="{{ similarEndpoint }}"
+  data-similar-version="{{ dataVersion }}"
+  aria-labelledby="similar-title"
+>
+  <div class="section-marker">04</div>
+  <div class="section-content">
+    <div class="similar-heading">
+      <div>
+        <p class="similar-kicker">MORE LIKE THIS</p>
+        <h2 id="similar-title">相似推荐</h2>
+      </div>
+      <div
+        class="similar-scope-switch"
+        data-similar-scope-switch
+        role="group"
+        aria-label="推荐收录范围"
+        hidden
+      >
+        <button type="button" data-similar-scope="unowned" aria-pressed="true">
+          <span>未收录</span>
+          <small data-similar-count="unowned">0</small>
+        </button>
+        <button type="button" data-similar-scope="all" aria-pressed="false">
+          <span>含已收录</span>
+          <small data-similar-count="owned">0</small>
+        </button>
+      </div>
+    </div>
+    <p class="similar-status" data-similar-status role="status"></p>
+    <div class="similar-grid" data-similar-grid></div>
+    <nav
+      class="similar-pagination"
+      data-similar-pagination
+      aria-label="相似推荐分页"
+      hidden
+    >
+      <p data-similar-page-summary></p>
+      <div class="similar-pagination-actions">
+        <button type="button" data-similar-page="previous" aria-label="上一页">
+          <span aria-hidden="true">&larr;</span>
+        </button>
+        <div class="similar-pagination-pages" data-similar-pages></div>
+        <button type="button" data-similar-page="next" aria-label="下一页">
+          <span aria-hidden="true">&rarr;</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+</section>

@@ -3,6 +3,10 @@
 
 {% block bodyClass %}detail-page{% endblock %}
 
+{% block head %}
+  <link rel="stylesheet" href="{{ assetRoot }}similar.css?v={{ assetVersion }}" />
+{% endblock %}
+
 {% block content %}
   <div class="page-shell detail-shell">
     <a class="back-link" href="{{ homeUrl }}">
@@ -270,7 +274,15 @@
             {% endif %}
           </div>
         </section>
+
+        {% include "similar.njk" %}
       </div>
     </article>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ assetRoot }}share.js?v={{ assetVersion }}" defer></script>
+  <script src="{{ assetRoot }}app.js?v={{ assetVersion }}" defer></script>
+  <script src="{{ assetRoot }}similar.js?v={{ assetVersion }}" defer></script>
 {% endblock %}

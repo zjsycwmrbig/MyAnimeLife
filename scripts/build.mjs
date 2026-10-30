@@ -18,10 +18,17 @@ import {
   parseBangumiCacheJsonl,
 } from "./bangumi-cache-data.mjs";
 import { calculateInsights } from "./insights-data.mjs";
+import {
+  buildSimilarRecommendations,
+  createSimilarCatalogIndex,
+  normalizePublicCatalogMetadata,
+} from "./recommendations.mjs";
 import { normalizeShareConfig } from "./site-settings.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRoot = path.resolve(scriptDirectory, "..");
+const PUBLIC_BANGUMI_SNAPSHOT_PATH = "admin/bangumi-public.json";
+const PUBLIC_BANGUMI_CATALOG_PATH = "admin/bangumi-public-catalog.json";
 
 const MATCH_METHOD_LABELS = {
   "site-id": "站点 ID 精确匹配",
@@ -369,6 +376,34 @@ async function loadBangumiCache(root, config) {
   };
 }
 
+async function readOptionalJson(root, relativePath) {
+  try {
+    const text = await fs.readFile(resolveInside(root, relativePath), "utf8");
+    return { text, value: JSON.parse(text) };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { text: "", value: null };
+    }
+    if (error instanceof SyntaxError) {
+      throw new Error(`${relativePath} 不是有效的 JSON: ${error.message}`);
+    }
+    throw new Error(`无法读取 ${relativePath}: ${error.message}`);
+  }
+}
+
+async function loadPublicBangumiData(root) {
+  const [snapshot, catalog] = await Promise.all([
+    readOptionalJson(root, PUBLIC_BANGUMI_SNAPSHOT_PATH),
+    readOptionalJson(root, PUBLIC_BANGUMI_CATALOG_PATH),
+  ]);
+  return {
+    snapshot: snapshot.value,
+    snapshotText: snapshot.text,
+    catalog: catalog.value,
+    catalogText: catalog.text,
+  };
+}
+
 function collectMarkdownText(tokens) {
   const parts = [];
   for (const token of tokens ?? []) {
@@ -601,6 +636,23 @@ async function writeFile(filePath, contents) {
   await fs.writeFile(filePath, contents);
 }
 
+async function writeSimilarRecommendationData(outputDirectory, recommendations) {
+  const similarDirectory = path.join(outputDirectory, "data", "similar");
+  await fs.mkdir(similarDirectory, { recursive: true });
+  await Promise.all(
+    [...recommendations.shards.entries()].map(([recordId, shard]) =>
+      writeFile(
+        resolveInside(similarDirectory, `${recordId}.json`),
+        `${JSON.stringify(shard, null, 2)}\n`,
+      ),
+    ),
+  );
+  await writeFile(
+    resolveInside(outputDirectory, "data", "similar-catalog.json"),
+    `${JSON.stringify(createSimilarCatalogIndex(recommendations), null, 2)}\n`,
+  );
+}
+
 export async function buildSite(options = {}) {
   const root = path.resolve(options.root ?? defaultRoot);
   const now = options.now ?? new Date();
@@ -613,6 +665,7 @@ export async function buildSite(options = {}) {
     indexValidator,
   });
   const bangumiCache = await loadBangumiCache(root, config);
+  const publicBangumiData = await loadPublicBangumiData(root);
   const bangumiMetadataBySubject = new Map(
     bangumiCache.entries.map((entry) => [entry.subjectId, entry]),
   );
@@ -639,6 +692,13 @@ export async function buildSite(options = {}) {
     });
   const insights = calculateInsights(records, now);
   const stats = insights.summary;
+  const recommendations = buildSimilarRecommendations({
+    publicSnapshot: publicBangumiData.snapshot,
+    catalogMetadata: normalizePublicCatalogMetadata(publicBangumiData.catalog),
+    personalCacheEntries: bangumiCache.entries,
+    records: publicEntries,
+    generatedAt: now.toISOString(),
+  });
   const outputDirectory = resolveInside(root, config.outputDirectory);
   const environment = createNunjucksEnvironment(template.directory);
   const generatedAt = now.toISOString();
@@ -647,10 +707,13 @@ export async function buildSite(options = {}) {
     libraryData.dataText,
     libraryData.indexText,
     bangumiCache.text,
+    publicBangumiData.snapshotText,
+    publicBangumiData.catalogText,
   );
 
   await fs.rm(outputDirectory, { recursive: true, force: true });
   await fs.mkdir(outputDirectory, { recursive: true });
+  await writeSimilarRecommendationData(outputDirectory, recommendations);
   await fs.cp(
     path.join(template.directory, template.manifest.assets),
     path.join(outputDirectory, "assets"),
@@ -660,6 +723,16 @@ export async function buildSite(options = {}) {
     path.join(root, "scripts", "share-card.js"),
     path.join(outputDirectory, "assets", "share.js"),
   );
+  await Promise.all([
+    fs.copyFile(
+      path.join(root, "scripts", "similar.js"),
+      path.join(outputDirectory, "assets", "similar.js"),
+    ),
+    fs.copyFile(
+      path.join(root, "scripts", "similar.css"),
+      path.join(outputDirectory, "assets", "similar.css"),
+    ),
+  ]);
 
   const common = {
     site: config.site,
@@ -731,6 +804,8 @@ export async function buildSite(options = {}) {
       homeUrl: "../../",
       assetRoot: "../../assets/",
       record,
+      similarEndpoint: `../../data/similar/${record.id}.json`,
+      similarCatalogEndpoint: "../../data/similar-catalog.json",
       repositoryEditUrl: repository.url
         ? `${repository.url}/edit/${repository.branch}/${config.dataFile}`
         : "",

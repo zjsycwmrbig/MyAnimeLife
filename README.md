@@ -70,7 +70,7 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 封面优先使用记录中的地址；旧的 `http` 地址会在构建时升级为 `https`，缺少封面的 Bangumi 记录会在展示页按需恢复并缓存
 - 支持标题、评价、备注和跨站索引 ID 搜索
 - 我的记录支持关键词、内容状态、评分范围、作品年份和收录日期组合筛选，并可切换收录时间、修改时间、评分、作品年份和标题的正倒序
-- 每部番剧有独立详情页
+- 每部番剧有独立详情页，底部会根据 Bangumi 公共标签和个人标签缓存计算相似推荐；默认隐藏已收录作品，可切换查看全部，并按共同标签数量排序、分页展示
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
 - 同时提供本地批量管理页和 GitHub Pages 在线管理页，可搜索、编辑评分和评价、批量删除并提交到远端
@@ -479,6 +479,8 @@ manual-01jabcdef
 - `repository`：当前 GitHub 仓库信息
 - `records`：首页记录集合
 - `record`：详情页当前记录
+- `similarEndpoint`：详情页当前记录的相似推荐分片地址
+- `similarCatalogEndpoint`：全部相似推荐分片的概览地址
 - `stats`：收录数、已评分数量和平均分
 - `insights`：收录窗口、月度趋势、年代、评分和索引覆盖统计
 - `homeUrl`：适合当前页面层级的首页地址
