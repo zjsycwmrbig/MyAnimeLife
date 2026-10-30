@@ -86,7 +86,7 @@
           </button>
           <button data-view="catalog" type="button">全量索引</button>
           <button data-view="duplicates" type="button">重复检查</button>
-          <button data-view="settings" type="button">站点样式</button>
+          <button data-view="settings" type="button">站点设置</button>
           <button data-view="about" type="button">关于我们</button>
         </nav>
         <div class="topbar-actions">
@@ -834,155 +834,201 @@
       </main>
 
       <main id="settingsWorkspace" class="settings-workspace" hidden>
-        <section class="settings-page" aria-label="站点样式设置">
+        <section class="settings-page" aria-label="站点设置">
           <header class="settings-heading">
             <div>
-              <p class="eyebrow">APPEARANCE</p>
-              <h1>站点样式</h1>
+              <p class="eyebrow">SETTINGS</p>
+              <h1>站点设置</h1>
+              <p>集中管理站点信息、阅读模板、分享卡片、标签偏好和本机缓存。</p>
             </div>
             <span id="settingsWriteBadge" class="status-badge">读取中</span>
           </header>
 
-          <form id="siteSettingsForm" class="site-settings-form">
-            <section class="settings-section">
-              <div class="settings-section-heading">
-                <div>
-                  <p class="eyebrow">SITE</p>
-                  <h2>站点信息</h2>
+          <div class="settings-layout">
+            <nav class="settings-nav" aria-label="设置分区">
+              <p>SETTINGS</p>
+              <a class="is-active" href="#setting-site" data-settings-nav="site">
+                <span>01</span>
+                <strong>站点信息</strong>
+              </a>
+              <a href="#setting-display" data-settings-nav="display">
+                <span>02</span>
+                <strong>站点模板</strong>
+              </a>
+              <a href="#setting-share" data-settings-nav="share">
+                <span>03</span>
+                <strong>分享卡片</strong>
+              </a>
+              <a href="#setting-tags" data-settings-nav="tags">
+                <span>04</span>
+                <strong>标签偏好</strong>
+              </a>
+              <a href="#setting-local-cache" data-settings-nav="local-cache">
+                <span>05</span>
+                <strong>本机缓存</strong>
+              </a>
+            </nav>
+
+            <form id="siteSettingsForm" class="site-settings-form">
+              <section
+                id="setting-site"
+                class="settings-section"
+                data-settings-section="site"
+              >
+                <div class="settings-section-heading">
+                  <div>
+                    <p class="eyebrow">SITE</p>
+                    <h2>站点信息</h2>
+                  </div>
                 </div>
-              </div>
-              <div class="settings-fields">
-                <label class="field">
-                  <span>站点标题</span>
-                  <input id="siteTitleInput" maxlength="80" required />
-                </label>
-                <label class="field">
-                  <span>品牌标识</span>
-                  <input id="siteBrandInput" maxlength="40" required />
-                </label>
-                <label class="field settings-field-wide">
-                  <span>简介</span>
-                  <textarea id="siteDescriptionInput" rows="3" maxlength="240" required></textarea>
-                </label>
-                <label class="field settings-field-wide">
-                  <span>页脚</span>
-                  <input id="siteFooterInput" maxlength="120" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-section">
-              <div class="settings-section-heading">
-                <div>
-                  <p class="eyebrow">DISPLAY</p>
-                  <h2>站点模板</h2>
+                <div class="settings-fields">
+                  <label class="field">
+                    <span>站点标题</span>
+                    <input id="siteTitleInput" maxlength="80" required />
+                  </label>
+                  <label class="field">
+                    <span>品牌标识</span>
+                    <input id="siteBrandInput" maxlength="40" required />
+                  </label>
+                  <label class="field settings-field-wide">
+                    <span>简介</span>
+                    <textarea id="siteDescriptionInput" rows="3" maxlength="240" required></textarea>
+                  </label>
+                  <label class="field settings-field-wide">
+                    <span>页脚</span>
+                    <input id="siteFooterInput" maxlength="120" />
+                  </label>
                 </div>
-              </div>
-              <p class="settings-section-intro">
-                一套模板会同时塑造阅读页、详情页和管理页。分享模板与分享配色只影响导出的分享卡片。
-              </p>
-              <div class="template-choice-grid">
-                <label class="template-choice">
-                  <input type="radio" name="displayTemplate" value="default" />
-                  <span class="template-preview template-preview--default" aria-hidden="true">
-                    <span></span><span></span><span></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Archive</strong>
-                    <small>暖纸档案 · 阅读页 + 管理页</small>
-                  </span>
-                </label>
-                <label class="template-choice">
-                  <input type="radio" name="displayTemplate" value="compact" />
-                  <span class="template-preview template-preview--compact" aria-hidden="true">
-                    <span></span><span></span><span></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Compact</strong>
-                    <small>高密度工具 · 阅读页 + 管理页</small>
-                  </span>
-                </label>
-                <label class="template-choice">
-                  <input type="radio" name="displayTemplate" value="spotlight" />
-                  <span class="template-preview template-preview--spotlight" aria-hidden="true">
-                    <span></span><span></span><span></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Spotlight</strong>
-                    <small>深色海报台 · 阅读页 + 管理页</small>
-                  </span>
-                </label>
-              </div>
-            </section>
+              </section>
 
-            <section class="settings-section">
-              <div class="settings-section-heading">
-                <div>
-                  <p class="eyebrow">SHARE CARD</p>
-                  <h2>分享模板</h2>
+              <section
+                id="setting-display"
+                class="settings-section"
+                data-settings-section="display"
+              >
+                <div class="settings-section-heading">
+                  <div>
+                    <p class="eyebrow">DISPLAY</p>
+                    <h2>站点模板</h2>
+                  </div>
                 </div>
-              </div>
-              <div class="template-choice-grid share-choice-grid">
-                <label class="template-choice share-choice">
-                  <input type="radio" name="shareTemplate" value="default" />
-                  <span class="share-preview share-preview--archive" aria-hidden="true">
-                    <span class="share-preview-cover"></span>
-                    <span class="share-preview-copy"></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Archive</strong>
-                    <small>封面与短评并排</small>
-                  </span>
-                </label>
-                <label class="template-choice share-choice">
-                  <input type="radio" name="shareTemplate" value="compact" />
-                  <span class="share-preview share-preview--compact" aria-hidden="true">
-                    <span class="share-preview-cover"></span>
-                    <span class="share-preview-copy"></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Compact</strong>
-                    <small>大封面信息流</small>
-                  </span>
-                </label>
-                <label class="template-choice share-choice">
-                  <input type="radio" name="shareTemplate" value="spotlight" />
-                  <span class="share-preview share-preview--spotlight" aria-hidden="true">
-                    <span class="share-preview-cover"></span>
-                    <span class="share-preview-copy"></span>
-                  </span>
-                  <span class="template-choice-copy">
-                    <strong>Spotlight</strong>
-                    <small>深色海报卡片</small>
-                  </span>
-                </label>
-              </div>
+                <p class="settings-section-intro">
+                  一套模板会同时塑造阅读页、详情页和管理页。修改后会立即预览管理页，并在发布后应用到站点页面。
+                </p>
+                <div class="template-choice-grid">
+                  <label class="template-choice">
+                    <input type="radio" name="displayTemplate" value="default" />
+                    <span class="template-preview template-preview--default" aria-hidden="true">
+                      <span></span><span></span><span></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Archive</strong>
+                      <small>暖纸档案 · 阅读页 + 管理页</small>
+                    </span>
+                  </label>
+                  <label class="template-choice">
+                    <input type="radio" name="displayTemplate" value="compact" />
+                    <span class="template-preview template-preview--compact" aria-hidden="true">
+                      <span></span><span></span><span></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Compact</strong>
+                      <small>高密度工具 · 阅读页 + 管理页</small>
+                    </span>
+                  </label>
+                  <label class="template-choice">
+                    <input type="radio" name="displayTemplate" value="spotlight" />
+                    <span class="template-preview template-preview--spotlight" aria-hidden="true">
+                      <span></span><span></span><span></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Spotlight</strong>
+                      <small>深色海报台 · 阅读页 + 管理页</small>
+                    </span>
+                  </label>
+                </div>
+              </section>
 
-              <fieldset class="accent-settings">
-                <legend>分享配色</legend>
-                <label class="accent-choice">
-                  <input type="radio" name="shareAccent" value="coral" />
-                  <span class="accent-swatch accent-swatch--coral"></span>
-                  <span>珊瑚</span>
-                </label>
-                <label class="accent-choice">
-                  <input type="radio" name="shareAccent" value="teal" />
-                  <span class="accent-swatch accent-swatch--teal"></span>
-                  <span>青绿</span>
-                </label>
-                <label class="accent-choice">
-                  <input type="radio" name="shareAccent" value="blue" />
-                  <span class="accent-swatch accent-swatch--blue"></span>
-                  <span>靛蓝</span>
-                </label>
-                <label class="accent-choice">
-                  <input type="radio" name="shareAccent" value="amber" />
-                  <span class="accent-swatch accent-swatch--amber"></span>
-                  <span>琥珀</span>
-                </label>
-              </fieldset>
+              <section
+                id="setting-share"
+                class="settings-section"
+                data-settings-section="share"
+              >
+                <div class="settings-section-heading">
+                  <div>
+                    <p class="eyebrow">SHARE CARD</p>
+                    <h2>分享卡片</h2>
+                  </div>
+                </div>
+                <p class="settings-section-intro">
+                  分享模板和配色只影响导出的图片卡片，不改变阅读页本身的布局。
+                </p>
+                <div class="template-choice-grid share-choice-grid">
+                  <label class="template-choice share-choice">
+                    <input type="radio" name="shareTemplate" value="default" />
+                    <span class="share-preview share-preview--archive" aria-hidden="true">
+                      <span class="share-preview-cover"></span>
+                      <span class="share-preview-copy"></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Archive</strong>
+                      <small>封面与短评并排</small>
+                    </span>
+                  </label>
+                  <label class="template-choice share-choice">
+                    <input type="radio" name="shareTemplate" value="compact" />
+                    <span class="share-preview share-preview--compact" aria-hidden="true">
+                      <span class="share-preview-cover"></span>
+                      <span class="share-preview-copy"></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Compact</strong>
+                      <small>大封面信息流</small>
+                    </span>
+                  </label>
+                  <label class="template-choice share-choice">
+                    <input type="radio" name="shareTemplate" value="spotlight" />
+                    <span class="share-preview share-preview--spotlight" aria-hidden="true">
+                      <span class="share-preview-cover"></span>
+                      <span class="share-preview-copy"></span>
+                    </span>
+                    <span class="template-choice-copy">
+                      <strong>Spotlight</strong>
+                      <small>深色海报卡片</small>
+                    </span>
+                  </label>
+                </div>
 
-              <div class="tag-radar-settings">
+                <fieldset class="accent-settings">
+                  <legend>分享配色</legend>
+                  <label class="accent-choice">
+                    <input type="radio" name="shareAccent" value="coral" />
+                    <span class="accent-swatch accent-swatch--coral"></span>
+                    <span>珊瑚</span>
+                  </label>
+                  <label class="accent-choice">
+                    <input type="radio" name="shareAccent" value="teal" />
+                    <span class="accent-swatch accent-swatch--teal"></span>
+                    <span>青绿</span>
+                  </label>
+                  <label class="accent-choice">
+                    <input type="radio" name="shareAccent" value="blue" />
+                    <span class="accent-swatch accent-swatch--blue"></span>
+                    <span>靛蓝</span>
+                  </label>
+                  <label class="accent-choice">
+                    <input type="radio" name="shareAccent" value="amber" />
+                    <span class="accent-swatch accent-swatch--amber"></span>
+                    <span>琥珀</span>
+                  </label>
+                </fieldset>
+              </section>
+
+              <section
+                id="setting-tags"
+                class="settings-section settings-tags-section"
+                data-settings-section="tags"
+              >
                 <div class="settings-section-heading">
                   <div>
                     <p class="eyebrow">TAG RADAR</p>
@@ -994,38 +1040,86 @@
                   </label>
                 </div>
                 <p class="settings-section-intro">
-                  雷达图从 Bangumi 公共标签缓存中统计出现频率，排除年份和媒介类型等固定标签。至少需要 3 个可用标签才会展示。
+                  自动模式会从 Bangumi 公共标签中选取高频项。手动模式可从按热度排序的已知标签中选择，也可以用自定义名称补充。
                 </p>
                 <div class="settings-fields tag-radar-fields">
                   <label class="field">
                     <span>取值方式</span>
                     <select id="tagRadarMode">
                       <option value="auto">自动选取高频标签</option>
-                      <option value="manual">使用自定义标签顺序</option>
+                      <option value="manual">手动选择标签与顺序</option>
                     </select>
                   </label>
                   <label class="field">
                     <span>最多展示轴数</span>
                     <input id="tagRadarMaxAxes" type="number" min="3" max="12" step="1" inputmode="numeric" />
                   </label>
-                  <label class="field settings-field-wide">
-                    <span>自定义标签</span>
-                    <textarea id="tagRadarAxes" rows="3" placeholder="每行一个，例如：科幻&#10;奇幻&#10;悬疑"></textarea>
-                    <small>仅在手动取值方式下按此顺序展示最多 3–12 个标签。</small>
-                  </label>
-                  <label class="field settings-field-wide">
-                    <span>排除标签</span>
-                    <textarea id="tagRadarExcludedTags" rows="2" placeholder="每行一个，例如：恋爱喜剧&#10;短片"></textarea>
-                  </label>
-                  <label class="field settings-field-wide">
-                    <span>标签别名合并</span>
-                    <textarea id="tagRadarAliasGroups" rows="3" placeholder="每行一组，例如：&#10;漫改=漫画改&#10;轻改=轻小说改"></textarea>
-                    <small>每行使用等号连接，最后一个名称作为雷达图显示名。</small>
-                  </label>
                 </div>
-              </div>
 
-              <div class="local-style-cache">
+                <div id="tagManualEditor" class="tag-picker" hidden>
+                  <div class="tag-picker-heading">
+                    <div>
+                      <h3>已选标签</h3>
+                      <p>顺序就是雷达图轴的顺序。</p>
+                    </div>
+                    <span id="tagSelectionSummary">0 / 8</span>
+                  </div>
+                  <div id="tagSelectedAxes" class="tag-selected-list"></div>
+                  <p id="tagSelectionEmpty" class="tag-picker-empty">
+                    还没有选择标签。可以从下方热门标签添加，或输入自定义标签。
+                  </p>
+
+                  <div class="tag-known-browser">
+                    <div class="tag-known-heading">
+                      <div>
+                        <h3>已知热门标签</h3>
+                        <p>来自当前公共番剧索引，按总热度排序。</p>
+                      </div>
+                      <label class="tag-search-field">
+                        <span>搜索标签</span>
+                        <input id="tagKnownSearch" type="search" placeholder="例如：科幻、日常" />
+                      </label>
+                    </div>
+                    <div id="tagKnownCatalog" class="tag-known-list"></div>
+                    <p id="tagKnownStatus" class="tag-known-status" role="status" aria-live="polite">
+                      进入此分区后加载标签索引。
+                    </p>
+                  </div>
+
+                  <div class="tag-custom-row">
+                    <label class="field">
+                      <span>补充自定义标签</span>
+                      <input id="tagCustomInput" maxlength="40" placeholder="输入索引中没有的标签" />
+                    </label>
+                    <button id="tagCustomAdd" class="button button-quiet" type="button">
+                      添加标签
+                    </button>
+                  </div>
+                  <input id="tagRadarAxes" type="hidden" />
+                </div>
+
+                <details class="tag-advanced-settings">
+                  <summary>高级标签规则</summary>
+                  <div class="settings-fields">
+                    <label class="field settings-field-wide">
+                      <span>排除标签</span>
+                      <textarea id="tagRadarExcludedTags" rows="2" placeholder="每行一个，例如：恋爱喜剧&#10;短片"></textarea>
+                      <small>这些标签不会进入自动模式或手动模式的计算。</small>
+                    </label>
+                    <label class="field settings-field-wide">
+                      <span>标签别名合并</span>
+                      <textarea id="tagRadarAliasGroups" rows="3" placeholder="每行一组，例如：&#10;漫改=漫画改&#10;轻改=轻小说改"></textarea>
+                      <small>每行使用等号连接，最后一个名称作为雷达图显示名。</small>
+                    </label>
+                  </div>
+                </details>
+              </section>
+
+              <section
+                id="setting-local-cache"
+                class="settings-section"
+                data-settings-section="local-cache"
+              >
                 <div class="settings-section-heading">
                   <div>
                     <p class="eyebrow">THIS BROWSER</p>
@@ -1045,16 +1139,16 @@
                   </button>
                   <span id="localAppearanceStatus" class="local-style-cache-status" role="status" aria-live="polite"></span>
                 </div>
-              </div>
-            </section>
+              </section>
 
-            <div class="settings-actions">
-              <p id="settingsStatus" class="settings-status" role="status" aria-live="polite"></p>
-              <button id="siteSettingsSave" class="button button-primary" type="submit">
-                保存并发布
-              </button>
-            </div>
-          </form>
+              <div class="settings-actions">
+                <p id="settingsStatus" class="settings-status" role="status" aria-live="polite"></p>
+                <button id="siteSettingsSave" class="button button-primary" type="submit">
+                  保存并发布
+                </button>
+              </div>
+            </form>
+          </div>
         </section>
       </main>
 
@@ -1080,7 +1174,7 @@
               </div>
               <p class="about-copy">
                 从公开模板仓库读取最新代码，并写入当前数据仓库的分支。更新会保留整个
-                <code>data/</code> 目录与 <code>config/site.json</code>，包括番剧记录、索引、备份和站点样式设置。
+                <code>data/</code> 目录与 <code>config/site.json</code>，包括番剧记录、索引、备份和站点设置。
               </p>
               <div class="about-repository-list">
                 <div>
@@ -1240,7 +1334,9 @@
           <strong>Token 权限</strong>
           <span>
             仅选择该数据仓库，并授予 Repository permissions →
-            Contents: Read and write。不要使用写入 URL 或提交到仓库的 Token。
+            Contents: Read and write。若要通过管理页从模板更新，模板中的
+            <code>.github/workflows/</code> 还需要 Workflows: Read and write；
+            仅编辑番剧数据时不需要该权限。不要使用写入 URL 或提交到仓库的 Token。
           </span>
           <a
             href="https://github.com/settings/personal-access-tokens/new"

@@ -248,7 +248,7 @@ https://<owner>.github.io/<repository>/admin/
 - 公开数据仓库不填写 Token 也能浏览记录、全量索引、重复检查和统计信息。
 - 公开浏览通过 HEAD SHA 从 `raw.githubusercontent.com` 读取配置、记录索引和个人 Bangumi 缓存，只使用两次 GitHub API 调用来确定当前提交和 Git 树。
 - 编辑、批量加入和删除需要 GitHub 细粒度 Token；验证成功后 Token 会保存在当前浏览器当前站点的 `localStorage` 中，之后打开管理页会自动填充，不会写入 URL、日志或仓库文件。点击“清除 Token”会同时删除本地缓存；请只在自己的设备上使用，并仅授予目标数据仓库的 `Contents: Read and write` 权限。
-- Token 只需对目标数据仓库授予 `Repository permissions > Contents: Read and write`。不需要 Actions、Administration 或其他仓库权限。
+- 编辑番剧数据时只需对目标数据仓库授予 `Repository permissions > Contents: Read and write`。如果还要在管理页执行“从模板更新”，模板中包含 `.github/workflows/`，Token 还必须额外授予 `Repository permissions > Workflows: Read and write`；不需要 Actions、Administration 或其他仓库权限。
 - 每次在线修改都会先读取远端 HEAD，再用 Git Data API 创建 blobs、tree、commit，最后以非强制方式更新分支。番剧数据、轻量索引和新备份位于同一个提交中；Bangumi 个人缓存使用独立提交，不创建番剧备份。
 - 如果编辑期间远端分支已有新的提交，更新分支会被拒绝，页面会提示先刷新再重试，不会覆盖其他人的改动。
 - 每次实际修改前仍会生成包含完整 JSONL 和索引 JSONL 的备份，并按 `backupLimit` 在同一个提交中轮换旧备份。
@@ -276,7 +276,7 @@ https://<owner>.github.io/<repository>/admin/
 
 GitHub Pages 在线管理页的“关于我们”页面提供“检查模板更新”和“拉取最新管理页”。它会读取公开模板仓库 `zjsycwmrbig/MyAnimeLife` 的 `main` 分支，并在当前数据仓库创建一次新的 Git 提交。整个 `data/` 目录和 `config/site.json` 会沿用数据仓库中的版本，包括番剧记录、索引、备份和站点样式设置；其他文件会按模板当前版本重建，当前仓库自行修改的页面、工作流和脚本可能被覆盖。
 
-更新需要对当前数据仓库拥有 `Contents: Read and write` 权限的细粒度 Token。执行前页面会显示覆盖提醒并要求确认；如果更新期间分支产生了新提交，操作会被拒绝，不会强制覆盖远端改动。
+更新需要对当前数据仓库拥有 `Contents: Read and write` 和 `Workflows: Read and write` 权限的细粒度 Token，因为同步范围包含 `.github/workflows/`。执行前页面会显示覆盖提醒并要求确认；如果更新期间分支产生了新提交，操作会被拒绝，不会强制覆盖远端改动。
 
 ### 数据洞察与仓库 PK
 

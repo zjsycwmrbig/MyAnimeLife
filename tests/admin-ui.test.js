@@ -40,3 +40,51 @@ test("catalog operation log panel is wired into the batch workflow", async () =>
   assert.match(html, /id="catalogOperationLogList"/u);
   assert.match(styles, /\.catalog-operation-log/u);
 });
+
+test("settings page exposes a sticky section navigation", async () => {
+  const [html, styles, source] = await Promise.all([
+    readAdminFile("index.html"),
+    readAdminFile("styles.css"),
+    readAdminFile("catalog.js"),
+  ]);
+
+  assert.match(html, />站点设置</u);
+  assert.doesNotMatch(html, />站点样式</u);
+  assert.match(html, /class="settings-nav" aria-label="设置分区"/u);
+  for (const section of ["site", "display", "share", "tags", "local-cache"]) {
+    assert.match(html, new RegExp(`data-settings-nav="${section}"`, "u"));
+    assert.match(html, new RegExp(`data-settings-section="${section}"`, "u"));
+  }
+  assert.match(styles, /\.settings-nav \{[\s\S]*?position: sticky;/u);
+  assert.match(source, /function scrollToSettingsSection\(/u);
+  assert.match(source, /function updateSettingsNavigation\(/u);
+});
+
+test("tag preference editor selects searchable known tags by heat", async () => {
+  const [html, styles, source] = await Promise.all([
+    readAdminFile("index.html"),
+    readAdminFile("styles.css"),
+    readAdminFile("catalog.js"),
+  ]);
+
+  assert.match(html, /id="tagManualEditor"/u);
+  assert.match(html, /id="tagSelectedAxes"/u);
+  assert.match(html, /id="tagKnownSearch"/u);
+  assert.match(html, /id="tagKnownCatalog"/u);
+  assert.match(html, /id="tagCustomInput"/u);
+  assert.match(html, /按总热度排序/u);
+  assert.match(source, /readKnownBangumiTags/u);
+  assert.match(source, /function renderKnownTagCatalog\(/u);
+  assert.match(source, /data-tag-axis-action/u);
+  assert.match(styles, /\.known-tag-chip/u);
+  assert.match(styles, /\.tag-selected-list/u);
+});
+
+test("recommendation covers keep a loading state and no-referrer policy", async () => {
+  const source = await readAdminFile("../scripts/similar.js");
+
+  assert.match(source, /function appendCoverImage\(cover, coverUrl, title\)/u);
+  assert.match(source, /image\.referrerPolicy = "no-referrer"/u);
+  assert.match(source, /const coverUrl = safeCoverUrl\(item\.coverUrl\)/u);
+  assert.match(source, /hydrateCover\(item, cover\)/u);
+});

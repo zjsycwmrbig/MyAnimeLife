@@ -198,7 +198,11 @@ test("does not retry write requests or permanent client errors", async () => {
 
   await assert.rejects(
     () => readClient.request(""),
-    (error) => error instanceof GitHubApiError && error.status === 403,
+    (error) =>
+      error instanceof GitHubApiError &&
+      error.status === 403 &&
+      /Forbidden/u.test(error.message) &&
+      /Workflows: Read and write/u.test(error.message),
   );
   assert.equal(readAttempts, 1);
 });

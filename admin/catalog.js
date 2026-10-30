@@ -19,6 +19,7 @@ import {
   markBangumiMetadataPersonal,
   readBangumiMetadata,
   readAllBangumiMetadata,
+  readKnownBangumiTags,
   removeBangumiMetadata,
   replaceBangumiMetadataBySource,
   resolveBangumiMetadata,
@@ -44,6 +45,12 @@ const state = {
   view: "library",
   catalogLoaded: false,
   settingsLoaded: false,
+  knownTagsLoaded: false,
+  knownTagsLoading: false,
+  knownTagsPromise: null,
+  knownTags: [],
+  knownTagQuery: "",
+  knownTagsError: "",
   loading: false,
   busy: false,
   settingsBusy: false,
@@ -271,8 +278,21 @@ const elements = {
   tagRadarMode: document.querySelector("#tagRadarMode"),
   tagRadarMaxAxes: document.querySelector("#tagRadarMaxAxes"),
   tagRadarAxes: document.querySelector("#tagRadarAxes"),
+  tagManualEditor: document.querySelector("#tagManualEditor"),
+  tagSelectedAxes: document.querySelector("#tagSelectedAxes"),
+  tagSelectionSummary: document.querySelector("#tagSelectionSummary"),
+  tagSelectionEmpty: document.querySelector("#tagSelectionEmpty"),
+  tagKnownSearch: document.querySelector("#tagKnownSearch"),
+  tagKnownCatalog: document.querySelector("#tagKnownCatalog"),
+  tagKnownStatus: document.querySelector("#tagKnownStatus"),
+  tagCustomInput: document.querySelector("#tagCustomInput"),
+  tagCustomAdd: document.querySelector("#tagCustomAdd"),
   tagRadarExcludedTags: document.querySelector("#tagRadarExcludedTags"),
   tagRadarAliasGroups: document.querySelector("#tagRadarAliasGroups"),
+  settingsNav: [...document.querySelectorAll("[data-settings-nav]")],
+  settingsSections: [
+    ...document.querySelectorAll("[data-settings-section]"),
+  ],
   localAppearanceBadge: document.querySelector("#localAppearanceBadge"),
   localAppearanceStatus: document.querySelector("#localAppearanceStatus"),
   siteSettingsLocalSave: document.querySelector("#siteSettingsLocalSave"),
@@ -564,21 +584,252 @@ function renderTagRadarSettings(value) {
   elements.tagRadarEnabled.checked = radar.enabled;
   elements.tagRadarMode.value = radar.mode;
   elements.tagRadarMaxAxes.value = String(radar.maxAxes);
-  elements.tagRadarAxes.value = tagListText(radar.axes);
+  setTagAxes(radar.axes);
   elements.tagRadarExcludedTags.value = tagListText(radar.excludedTags);
   elements.tagRadarAliasGroups.value = aliasGroupsText(radar.aliasGroups);
   syncTagRadarControls();
 }
 
+function tagKey(value) {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/gu, "");
+}
+
+function readTagAxes() {
+  return readTagList(elements.tagRadarAxes.value);
+}
+
+function tagAxesLimit() {
+  const value = Number(elements.tagRadarMaxAxes.value);
+  return Number.isInteger(value) && value >= 3 && value <= 12 ? value : 8;
+}
+
+function setTagAxes(values) {
+  const seen = new Set();
+  const axes = [];
+  for (const value of values ?? []) {
+    const name = String(value ?? "").trim().slice(0, 40);
+    const key = tagKey(name);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    axes.push(name);
+    if (axes.length >= tagAxesLimit()) {
+      break;
+    }
+  }
+  elements.tagRadarAxes.value = tagListText(axes);
+  renderSelectedTagAxes();
+  renderKnownTagCatalog();
+}
+
+function renderSelectedTagAxes() {
+  const axes = readTagAxes();
+  const limit = tagAxesLimit();
+  elements.tagSelectionSummary.textContent = `${axes.length} / ${limit}`;
+  elements.tagSelectionEmpty.hidden = axes.length > 0;
+  const rows = axes.map((name, index) => {
+    const row = document.createElement("div");
+    row.className = "tag-axis-chip";
+
+    const order = document.createElement("span");
+    order.className = "tag-axis-order";
+    order.textContent = String(index + 1).padStart(2, "0");
+
+    const label = document.createElement("strong");
+    label.textContent = name;
+
+    const actions = document.createElement("span");
+    actions.className = "tag-axis-actions";
+    for (const [action, symbol, title] of [
+      ["up", "↑", "前移"],
+      ["down", "↓", "后移"],
+      ["remove", "×", "移除"],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.tagAxisAction = action;
+      button.dataset.tagIndex = String(index);
+      button.textContent = symbol;
+      button.title = `${title} ${name}`;
+      button.setAttribute("aria-label", `${title} ${name}`);
+      button.disabled =
+        state.settingsBusy ||
+        !getRuntime().writable ||
+        (action === "up" && index === 0) ||
+        (action === "down" && index === axes.length - 1);
+      actions.append(button);
+    }
+    row.append(order, label, actions);
+    return row;
+  });
+  elements.tagSelectedAxes.replaceChildren(...rows);
+}
+
+function formatTagHeat(value) {
+  const count = Math.max(0, Math.trunc(Number(value) || 0));
+  if (count >= 10000) {
+    return `${(count / 10000).toFixed(count >= 100000 ? 0 : 1)} 万`;
+  }
+  return count.toLocaleString("zh-CN");
+}
+
+function renderKnownTagCatalog() {
+  if (!elements.tagKnownCatalog) {
+    return;
+  }
+  const locked = state.settingsBusy || !getRuntime().writable;
+  const axes = readTagAxes();
+  const selected = new Set(axes.map(tagKey));
+  const query = tagKey(state.knownTagQuery);
+  const matches = state.knownTags.filter(
+    (tag) => !query || tagKey(tag.name).includes(query),
+  );
+  const visible = matches.slice(0, 80);
+  const buttons = visible.map((tag) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "known-tag-chip";
+    button.dataset.knownTag = tag.name;
+    const active = selected.has(tagKey(tag.name));
+    button.classList.toggle("is-selected", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.title = active ? `移除 ${tag.name}` : `添加 ${tag.name}`;
+    button.disabled =
+      locked || (!active && axes.length >= tagAxesLimit());
+
+    const name = document.createElement("strong");
+    name.textContent = tag.name;
+    const heat = document.createElement("small");
+    heat.textContent = `${formatTagHeat(tag.heat)} 热度 · ${tag.subjectCount} 部`;
+    button.append(name, heat);
+    return button;
+  });
+  elements.tagKnownCatalog.replaceChildren(...buttons);
+
+  if (state.knownTagsLoading) {
+    elements.tagKnownStatus.textContent = "正在读取公共标签热度...";
+  } else if (state.knownTagsError) {
+    elements.tagKnownStatus.textContent =
+      `标签索引读取失败：${state.knownTagsError}`;
+  } else if (!state.knownTagsLoaded) {
+    elements.tagKnownStatus.textContent = "进入此分区后加载标签索引。";
+  } else if (!matches.length) {
+    elements.tagKnownStatus.textContent = "没有找到匹配的已知标签，可在下方自定义添加。";
+  } else {
+    elements.tagKnownStatus.textContent =
+      matches.length > visible.length
+        ? `显示热度最高的 ${visible.length} 个，共 ${matches.length} 个匹配项；继续输入可缩小范围。`
+        : `共 ${matches.length} 个可用标签，按公共标签热度排序。`;
+  }
+}
+
+async function loadKnownTagCatalog() {
+  if (state.knownTagsLoaded || state.knownTagsPromise) {
+    return state.knownTagsPromise;
+  }
+  state.knownTagsLoading = true;
+  state.knownTagsError = "";
+  renderKnownTagCatalog();
+  const request = readKnownBangumiTags()
+    .then((tags) => {
+      state.knownTags = Array.isArray(tags) ? tags : [];
+      state.knownTagsLoaded = true;
+      state.knownTagsError = "";
+      return state.knownTags;
+    })
+    .catch((error) => {
+      state.knownTags = [];
+      state.knownTagsError = error.message || "未知错误";
+      return [];
+    })
+    .finally(() => {
+      state.knownTagsLoading = false;
+      state.knownTagsPromise = null;
+      renderKnownTagCatalog();
+    });
+  state.knownTagsPromise = request;
+  return request;
+}
+
 function syncTagRadarControls() {
   const locked = state.settingsBusy || !getRuntime().writable;
   const enabled = elements.tagRadarEnabled.checked && !locked;
-  const manual = enabled && elements.tagRadarMode.value === "manual";
+  const manual = elements.tagRadarEnabled.checked &&
+    elements.tagRadarMode.value === "manual";
   elements.tagRadarMode.disabled = !enabled;
   elements.tagRadarMaxAxes.disabled = !enabled;
   elements.tagRadarExcludedTags.disabled = !enabled;
   elements.tagRadarAliasGroups.disabled = !enabled;
-  elements.tagRadarAxes.disabled = !manual;
+  elements.tagRadarAxes.disabled = !enabled || !manual;
+  elements.tagManualEditor.hidden = !manual;
+  elements.tagKnownSearch.disabled = locked || !manual;
+  elements.tagCustomInput.disabled = locked || !manual;
+  elements.tagCustomAdd.disabled = locked || !manual;
+  renderSelectedTagAxes();
+  renderKnownTagCatalog();
+  if (manual) {
+    void loadKnownTagCatalog();
+  }
+}
+
+function activateSettingsNav(sectionName) {
+  for (const link of elements.settingsNav) {
+    const active = link.dataset.settingsNav === sectionName;
+    link.classList.toggle("is-active", active);
+    if (active) {
+      link.setAttribute("aria-current", "location");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+function scrollToSettingsSection(sectionName) {
+  const section = elements.settingsSections.find(
+    (candidate) => candidate.dataset.settingsSection === sectionName,
+  );
+  if (!section) {
+    return;
+  }
+  activateSettingsNav(sectionName);
+  section.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+  if (sectionName === "tags") {
+    void loadKnownTagCatalog();
+  }
+}
+
+let settingsNavFrame = 0;
+function updateSettingsNavigation() {
+  settingsNavFrame = 0;
+  if (state.view !== "settings") {
+    return;
+  }
+  const offset =
+    (document.querySelector(".topbar")?.getBoundingClientRect().height ?? 0) + 36;
+  let active = elements.settingsSections[0]?.dataset.settingsSection;
+  for (const section of elements.settingsSections) {
+    if (section.getBoundingClientRect().top <= offset) {
+      active = section.dataset.settingsSection;
+    }
+  }
+  if (active) {
+    activateSettingsNav(active);
+  }
+}
+
+function scheduleSettingsNavigation() {
+  if (settingsNavFrame) {
+    return;
+  }
+  settingsNavFrame = window.requestAnimationFrame(updateSettingsNavigation);
 }
 
 function renderLocalAppearance() {
@@ -1798,6 +2049,7 @@ function activateView(view, options = {}) {
   }
   if (view === "settings") {
     void loadSiteSettings();
+    window.requestAnimationFrame(updateSettingsNavigation);
   }
   if (view === "about") {
     renderAbout();
@@ -2915,6 +3167,83 @@ elements.siteSettingsForm.addEventListener("change", (event) => {
       syncTagRadarControls();
     }
     applyAppearanceFromForm();
+  }
+});
+for (const link of elements.settingsNav) {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    scrollToSettingsSection(link.dataset.settingsNav);
+  });
+}
+window.addEventListener("scroll", scheduleSettingsNavigation, {
+  passive: true,
+});
+elements.tagRadarMaxAxes.addEventListener("input", () => {
+  setTagAxes(readTagAxes());
+  applyAppearanceFromForm();
+});
+elements.tagKnownSearch.addEventListener("input", () => {
+  state.knownTagQuery = elements.tagKnownSearch.value;
+  renderKnownTagCatalog();
+});
+elements.tagKnownCatalog.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-known-tag]");
+  if (!button || button.disabled) {
+    return;
+  }
+  const name = button.dataset.knownTag;
+  const key = tagKey(name);
+  const axes = readTagAxes();
+  const selected = axes.some((axis) => tagKey(axis) === key);
+  setTagAxes(
+    selected
+      ? axes.filter((axis) => tagKey(axis) !== key)
+      : [...axes, name],
+  );
+  applyAppearanceFromForm();
+});
+elements.tagSelectedAxes.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-tag-axis-action]");
+  if (!button || button.disabled) {
+    return;
+  }
+  const index = Number(button.dataset.tagIndex);
+  const axes = readTagAxes();
+  if (!Number.isInteger(index) || !axes[index]) {
+    return;
+  }
+  const action = button.dataset.tagAxisAction;
+  if (action === "remove") {
+    axes.splice(index, 1);
+  } else if (action === "up" && index > 0) {
+    [axes[index - 1], axes[index]] = [axes[index], axes[index - 1]];
+  } else if (action === "down" && index < axes.length - 1) {
+    [axes[index + 1], axes[index]] = [axes[index], axes[index + 1]];
+  }
+  setTagAxes(axes);
+  applyAppearanceFromForm();
+});
+
+function addCustomTag() {
+  const name = elements.tagCustomInput.value.trim();
+  if (!name) {
+    return;
+  }
+  const axes = readTagAxes();
+  if (axes.length >= tagAxesLimit()) {
+    showToast(`最多选择 ${tagAxesLimit()} 个标签`, { error: true });
+    return;
+  }
+  setTagAxes([...axes, name]);
+  elements.tagCustomInput.value = "";
+  applyAppearanceFromForm();
+}
+
+elements.tagCustomAdd.addEventListener("click", addCustomTag);
+elements.tagCustomInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addCustomTag();
   }
 });
 for (const input of [elements.siteTitleInput, elements.siteBrandInput]) {

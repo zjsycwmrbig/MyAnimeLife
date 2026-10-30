@@ -7,6 +7,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
+import {
+  enrichCatalogWithAniListCovers,
+  hydrateCatalogCoversFromCompact,
+} from "./anilist-covers.mjs";
 import { CatalogStore } from "./catalog-store.mjs";
 import { compactPublicCatalogMetadata } from "./recommendations.mjs";
 
@@ -26,6 +30,7 @@ function parseArguments(argv) {
     output: "admin/bangumi-public.json",
     catalogOutput: "admin/bangumi-public-catalog.json",
     archive: "",
+    skipCoverSync: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -37,6 +42,8 @@ function parseArguments(argv) {
       options.catalogOutput = argv[++index];
     } else if (argument === "--archive") {
       options.archive = path.resolve(argv[++index]);
+    } else if (argument === "--skip-cover-sync") {
+      options.skipCoverSync = true;
     } else {
       throw new Error(`未知参数：${argument}`);
     }
@@ -186,12 +193,33 @@ async function writeJsonAtomic(filePath, payload) {
   await fsPromises.rename(temporaryPath, filePath);
 }
 
+async function readOptionalJson(filePath) {
+  try {
+    return JSON.parse(await fsPromises.readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const root = path.resolve(options.root);
   const outputPath = path.resolve(root, options.output);
   const catalogOutputPath = path.resolve(root, options.catalogOutput);
   const catalog = await new CatalogStore(root).load();
+  const previousCatalog = await readOptionalJson(catalogOutputPath);
+  const reusedCovers = hydrateCatalogCoversFromCompact(catalog, previousCatalog);
+  if (reusedCovers > 0) {
+    console.log(`Reused ${reusedCovers} existing catalog covers.`);
+  }
+  if (!options.skipCoverSync) {
+    console.log("Filling missing catalog covers from AniList...");
+    const coverResult = await enrichCatalogWithAniListCovers(catalog);
+    console.log(
+      `AniList covers: ${coverResult.matched}/${coverResult.requested} matched, ` +
+        `${coverResult.applied} applied, ${coverResult.failures.length} request failures.`,
+    );
+  }
   const requestedIds = new Set(
     catalog.items
       .map((item) => clean(item.sites?.bangumi))
@@ -252,10 +280,9 @@ async function main() {
       subjects,
     };
     await writeJsonAtomic(outputPath, payload);
-    await writeJsonAtomic(
-      catalogOutputPath,
-      compactPublicCatalogMetadata(catalog, generatedAt),
-    );
+    const compactCatalog = compactPublicCatalogMetadata(catalog, generatedAt);
+    compactCatalog.source.coverSource = catalog.source?.coverSource ?? null;
+    await writeJsonAtomic(catalogOutputPath, compactCatalog);
     const outputStat = await fsPromises.stat(outputPath);
     const catalogOutputStat = await fsPromises.stat(catalogOutputPath);
     console.log(

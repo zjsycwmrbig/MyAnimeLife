@@ -302,8 +302,9 @@ export class GitHubClient {
           if (status === 401) {
             message = "GitHub Token 无效或已过期，请重新填写";
           } else if (status === 403) {
-            message =
-              "GitHub 拒绝访问。请确认 Token 对该仓库拥有 Contents 读写权限，且 API 额度未耗尽";
+            message = `GitHub 拒绝访问 (HTTP 403)${
+              detail ? `：${detail}` : ""
+            }。请确认 Token 对该仓库拥有 Contents: Read and write，且 API 额度未耗尽；从模板更新管理页时，还需要 Workflows: Read and write`;
           }
           return message;
         },

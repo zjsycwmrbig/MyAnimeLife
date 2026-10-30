@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   applyBangumiMetadata,
+  collectBangumiTagHeat,
   filterAndSortByBangumiMetadata,
   hasUsableBangumiMetadata,
   isCachedBangumiMetadata,
@@ -9,6 +10,42 @@ import {
   normalizeBangumiSnapshotSubject,
   summarizeBangumiMetadata,
 } from "../admin/bangumi-metadata-cache.js";
+
+test("aggregates known tags by heat while removing fixed display tags", () => {
+  const tags = collectBangumiTagHeat({
+    subjects: {
+      1: [
+        8.1,
+        100,
+        10,
+        [
+          ["科幻", 300],
+          ["漫改", 200],
+          ["TV", 999],
+          ["2026", 999],
+        ],
+      ],
+      2: [
+        7.8,
+        80,
+        20,
+        [
+          ["科幻", 260],
+          ["漫画改", 180],
+          ["OVA", 999],
+        ],
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    tags.slice(0, 3).map((tag) => [tag.name, tag.heat, tag.subjectCount]),
+    [
+      ["科幻", 560, 2],
+      ["漫画改", 380, 2],
+    ],
+  );
+});
 
 test("normalizes Bangumi score, rank, tags, and cover", () => {
   const metadata = normalizeBangumiMetadata(

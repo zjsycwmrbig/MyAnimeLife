@@ -86,6 +86,8 @@ DeepSeek Key 使用 `GM_setValue` 保存在本机 Tampermonkey 存储中，不�
 
 Token 不是 GitHub 账户密码，只保存在本机 Tampermonkey 存储中。模板仓库用于生成个人数据仓库，油猴脚本的同步仓库地址必须填写用户自己生成的个人数据仓库。
 
+油猴脚本写入番剧数据只需要 `Contents: Read and write`。如果还要在在线管理页使用“从模板更新管理页”，因为模板会同步 `.github/workflows/`，同一个 Token 还需要额外授予 `Workflows: Read and write`。
+
 模板检查只在用户点击时请求公开的 GitHub API，不增加脚本启动开销。上游仓库必须先启用 `Template repository`，上述生成入口才会生效。若以后模板有多个分支，从模板创建仓库时应保持 `Include all branches` 未勾选，避免把上游其他分支带入个人仓库。
 
 GitHub Fork 会复制完整提交历史，不能只排除 JSONL 数据文件或对其内容隐藏。即使最新提交已经清空记录，旧提交中的内容仍可能被恢复；`.gitignore` 只影响未跟踪文件，也无法解决这个问题。个人记录只应写入模板生成的个人仓库，不要提交回上游模板。

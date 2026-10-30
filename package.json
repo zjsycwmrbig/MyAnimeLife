@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "sync:anilist-covers": "node scripts/sync-anilist-covers.mjs",
     "sync:bangumi-public": "node scripts/sync-bangumi-public.mjs",
     "validate": "node scripts/validate.mjs",
     "dev": "npm run build && node scripts/serve.mjs",

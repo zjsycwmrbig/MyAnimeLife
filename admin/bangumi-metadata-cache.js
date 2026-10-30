@@ -10,6 +10,21 @@ const DATABASE_VERSION = 1;
 const FETCH_CONCURRENCY = 3;
 const PUBLIC_SNAPSHOT_URL = new URL("./bangumi-public.json", import.meta.url);
 const PUBLIC_SNAPSHOT_SCHEMA_VERSION = 1;
+const TAG_ALIASES = new Map([
+  ["漫改", "漫画改"],
+  ["轻改", "轻小说改"],
+]);
+const IGNORED_DISPLAY_TAGS = new Set([
+  "tv",
+  "ova",
+  "oad",
+  "web",
+  "剧场版",
+  "总集篇",
+  "日本",
+  "日本动画",
+  "动画",
+]);
 
 let publicSnapshot = null;
 let publicSnapshotPromise = null;
@@ -21,6 +36,66 @@ function clean(value) {
 function timestamp(value) {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function displayTagKey(value) {
+  return clean(value)
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/gu, "");
+}
+
+export function collectBangumiTagHeat(publicSnapshot) {
+  const stats = new Map();
+  const subjects = publicSnapshot?.subjects;
+  if (!subjects || typeof subjects !== "object" || Array.isArray(subjects)) {
+    return [];
+  }
+  for (const compactSubject of Object.values(subjects)) {
+    if (!Array.isArray(compactSubject) || !Array.isArray(compactSubject[3])) {
+      continue;
+    }
+    const subjectTags = new Set();
+    for (const rawTag of compactSubject[3]) {
+      const sourceName = clean(Array.isArray(rawTag) ? rawTag[0] : rawTag?.name);
+      const normalized = displayTagKey(sourceName);
+      if (
+        !normalized ||
+        /^\d{4}(?:年(?:\d{1,2}月)?)?$/u.test(normalized) ||
+        IGNORED_DISPLAY_TAGS.has(normalized)
+      ) {
+        continue;
+      }
+      const key = TAG_ALIASES.get(normalized) ?? normalized;
+      const name = TAG_ALIASES.get(normalized) ?? sourceName;
+      const count = Math.max(
+        0,
+        Math.trunc(Number(Array.isArray(rawTag) ? rawTag[1] : rawTag?.count) || 0),
+      );
+      const previous = stats.get(key) ?? {
+        name,
+        heat: 0,
+        subjectCount: 0,
+      };
+      previous.heat += count;
+      if (!subjectTags.has(key)) {
+        previous.subjectCount += 1;
+        subjectTags.add(key);
+      }
+      stats.set(key, previous);
+    }
+  }
+  return [...stats.values()].sort(
+    (left, right) =>
+      right.heat - left.heat ||
+      right.subjectCount - left.subjectCount ||
+      left.name.localeCompare(right.name, "zh-CN"),
+  );
+}
+
+export async function readKnownBangumiTags(options = {}) {
+  const snapshot = await loadPublicSnapshot(options);
+  return collectBangumiTagHeat(snapshot);
 }
 
 export function normalizeBangumiMetadata(
