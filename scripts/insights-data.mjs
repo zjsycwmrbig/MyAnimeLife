@@ -103,7 +103,7 @@ function createTagNormalizer(aliasGroups, excludedTags) {
   };
 }
 
-function calculateTagRadar(records, siteConfig) {
+export function calculateTagRadar(records, siteConfig) {
   const config = normalizeTagRadarConfig(siteConfig?.insights?.tagRadar);
   const normalizeTag = createTagNormalizer(
     config.aliasGroups,

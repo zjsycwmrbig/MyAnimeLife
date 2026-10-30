@@ -41,7 +41,7 @@ test("catalog operation log panel is wired into the batch workflow", async () =>
   assert.match(styles, /\.catalog-operation-log/u);
 });
 
-test("settings page switches independent panels with a vertical tab list", async () => {
+test("settings page uses a scroll-spy outline for one continuous form", async () => {
   const [html, styles, source] = await Promise.all([
     readAdminFile("index.html"),
     readAdminFile("styles.css"),
@@ -50,21 +50,30 @@ test("settings page switches independent panels with a vertical tab list", async
 
   assert.match(html, />站点设置</u);
   assert.doesNotMatch(html, />站点样式</u);
-  assert.match(html, /class="settings-nav"[\s\S]*?role="tablist"/u);
-  assert.match(html, /role="tab"/u);
-  assert.match(html, /role="tabpanel"/u);
+  assert.match(html, /class="settings-nav"[\s\S]*?aria-label="设置大纲"/u);
+  assert.doesNotMatch(html, /role="tablist"/u);
+  assert.doesNotMatch(html, /role="tab"/u);
+  assert.doesNotMatch(html, /role="tabpanel"/u);
   assert.match(html, /id="settingsTabTags"/u);
   for (const section of ["site", "display", "share", "tags", "local-cache"]) {
     assert.match(html, new RegExp(`data-settings-nav="${section}"`, "u"));
     assert.match(html, new RegExp(`data-settings-section="${section}"`, "u"));
+    const sectionTag = html.match(
+      new RegExp(`<section[^>]*data-settings-section="${section}"[^>]*>`, "u"),
+    )?.[0];
+    assert.ok(sectionTag);
+    assert.doesNotMatch(sectionTag, /\bhidden\b/u);
   }
   assert.match(styles, /\.settings-nav \{[\s\S]*?position: sticky;/u);
-  assert.match(styles, /\.settings-nav button/u);
-  assert.match(styles, /\.settings-section\[hidden\]/u);
+  assert.match(styles, /\.settings-nav::before/u);
+  assert.match(styles, /\.settings-nav a\.is-active::before/u);
+  assert.match(styles, /\.site-settings-form \{[\s\S]*?border: 1px solid/u);
+  assert.doesNotMatch(styles, /\.settings-section\[hidden\]/u);
   assert.match(source, /function activateSettingsSection\(/u);
-  assert.match(source, /panel\.dataset\.settingsSection !== sectionName/u);
-  assert.doesNotMatch(source, /function scrollToSettingsSection\(/u);
-  assert.doesNotMatch(source, /function updateSettingsNavigation\(/u);
+  assert.match(source, /function scrollToSettingsSection\(/u);
+  assert.match(source, /function updateSettingsNavigation\(/u);
+  assert.match(source, /scheduleSettingsNavigationUpdate/u);
+  assert.match(source, /aria-current", "location"/u);
 });
 
 test("tag preference editor separates selected tags from a heat-ranked pool", async () => {
@@ -88,6 +97,10 @@ test("tag preference editor separates selected tags from a heat-ranked pool", as
   assert.match(source, /function resolveManualTagName\(/u);
   assert.match(source, /const existingIndex = axes\.findIndex/u);
   assert.match(source, /axes\[existingIndex\] = resolved\.name/u);
+  assert.match(source, /import \{ calculateTagRadar \}/u);
+  assert.match(source, /function prefillManualTagAxesFromAutomatic\(/u);
+  assert.match(source, /api\("\/api\/bangumi-cache"\)/u);
+  assert.match(source, /elements\.tagRadarMode\.value === "manual"/u);
   assert.match(source, /data-tag-axis-action/u);
   assert.match(styles, /\.tag-picker-group/u);
   assert.match(styles, /\.tag-pool-meta/u);

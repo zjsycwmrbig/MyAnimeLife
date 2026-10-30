@@ -867,6 +867,7 @@ export async function buildSite(options = {}) {
     "duplicate-data.mjs",
     "admin-data.mjs",
     "site-settings.mjs",
+    "insights-data.mjs",
     "bangumi-cache-data.mjs",
   ];
   await fs.mkdir(path.join(outputDirectory, "scripts"), { recursive: true });

@@ -847,18 +847,14 @@
           <div class="settings-layout">
             <nav
               class="settings-nav"
-              role="tablist"
-              aria-orientation="vertical"
-              aria-label="设置分区"
+              aria-label="设置大纲"
             >
               <p>SETTINGS</p>
-              <button
+              <a
                 id="settingsTabSite"
                 class="is-active"
-                type="button"
-                role="tab"
-                aria-selected="true"
-                aria-controls="setting-site"
+                href="#setting-site"
+                aria-current="location"
                 data-settings-nav="site"
               >
                 <span>01</span>
@@ -866,67 +862,51 @@
                   <strong>站点信息</strong>
                   <small>名称、简介与页脚</small>
                 </span>
-              </button>
-              <button
+              </a>
+              <a
                 id="settingsTabDisplay"
-                type="button"
-                role="tab"
-                aria-selected="false"
-                aria-controls="setting-display"
+                href="#setting-display"
                 data-settings-nav="display"
-                tabindex="-1"
               >
                 <span>02</span>
                 <span class="settings-nav-copy">
                   <strong>站点模板</strong>
                   <small>阅读页与管理页外观</small>
                 </span>
-              </button>
-              <button
+              </a>
+              <a
                 id="settingsTabShare"
-                type="button"
-                role="tab"
-                aria-selected="false"
-                aria-controls="setting-share"
+                href="#setting-share"
                 data-settings-nav="share"
-                tabindex="-1"
               >
                 <span>03</span>
                 <span class="settings-nav-copy">
                   <strong>分享卡片</strong>
                   <small>导出模板与配色</small>
                 </span>
-              </button>
-              <button
+              </a>
+              <a
                 id="settingsTabTags"
-                type="button"
-                role="tab"
-                aria-selected="false"
-                aria-controls="setting-tags"
+                href="#setting-tags"
                 data-settings-nav="tags"
-                tabindex="-1"
               >
                 <span>04</span>
                 <span class="settings-nav-copy">
                   <strong>标签偏好</strong>
                   <small>标签池与雷达图顺序</small>
                 </span>
-              </button>
-              <button
+              </a>
+              <a
                 id="settingsTabLocalCache"
-                type="button"
-                role="tab"
-                aria-selected="false"
-                aria-controls="setting-local-cache"
+                href="#setting-local-cache"
                 data-settings-nav="local-cache"
-                tabindex="-1"
               >
                 <span>05</span>
                 <span class="settings-nav-copy">
                   <strong>本机缓存</strong>
                   <small>只保存在当前浏览器</small>
                 </span>
-              </button>
+              </a>
             </nav>
 
             <form id="siteSettingsForm" class="site-settings-form">
@@ -934,9 +914,9 @@
                 id="setting-site"
                 class="settings-section"
                 data-settings-section="site"
-                role="tabpanel"
+                role="region"
                 aria-labelledby="settingsTabSite"
-                tabindex="0"
+                tabindex="-1"
               >
                 <div class="settings-section-heading">
                   <div>
@@ -968,10 +948,9 @@
                 id="setting-display"
                 class="settings-section"
                 data-settings-section="display"
-                role="tabpanel"
+                role="region"
                 aria-labelledby="settingsTabDisplay"
-                tabindex="0"
-                hidden
+                tabindex="-1"
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1020,10 +999,9 @@
                 id="setting-share"
                 class="settings-section"
                 data-settings-section="share"
-                role="tabpanel"
+                role="region"
                 aria-labelledby="settingsTabShare"
-                tabindex="0"
-                hidden
+                tabindex="-1"
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1099,10 +1077,9 @@
                 id="setting-tags"
                 class="settings-section settings-tags-section"
                 data-settings-section="tags"
-                role="tabpanel"
+                role="region"
                 aria-labelledby="settingsTabTags"
-                tabindex="0"
-                hidden
+                tabindex="-1"
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1203,10 +1180,9 @@
                 id="setting-local-cache"
                 class="settings-section"
                 data-settings-section="local-cache"
-                role="tabpanel"
+                role="region"
                 aria-labelledby="settingsTabLocalCache"
-                tabindex="0"
-                hidden
+                tabindex="-1"
               >
                 <div class="settings-section-heading">
                   <div>

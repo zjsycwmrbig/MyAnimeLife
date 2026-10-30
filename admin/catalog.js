@@ -35,6 +35,7 @@ import {
 import { applyAdminAppearance } from "./appearance.js";
 import { replaceChildrenSafe } from "./dom.js";
 import { normalizeTagRadarConfig } from "../scripts/site-settings.mjs";
+import { calculateTagRadar } from "../scripts/insights-data.mjs";
 
 const MAX_BATCH_SIZE = 100;
 const MAX_TEMPLATE_LOGS = 40;
@@ -46,6 +47,9 @@ const state = {
   catalogLoaded: false,
   settingsLoaded: false,
   settingsSection: "site",
+  settingsNavigationFrame: null,
+  settingsNavigationLockUntil: 0,
+  tagAxesPrefilling: false,
   knownTagsLoaded: false,
   knownTagsLoading: false,
   knownTagsPromise: null,
@@ -829,32 +833,202 @@ function syncTagRadarControls() {
   }
 }
 
-function activateSettingsSection(sectionName, options = {}) {
-  const section = elements.settingsSections.find(
+function settingsSectionByName(sectionName) {
+  return elements.settingsSections.find(
     (candidate) => candidate.dataset.settingsSection === sectionName,
+  ) ?? null;
+}
+
+function setActiveSettingsSection(sectionName) {
+  state.settingsSection = sectionName;
+  for (const link of elements.settingsNav) {
+    const active = link.dataset.settingsNav === sectionName;
+    link.classList.toggle("is-active", active);
+    if (active) {
+      link.setAttribute("aria-current", "location");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+function settingsScrollOffset() {
+  const topbarHeight =
+    document.querySelector(".topbar")?.getBoundingClientRect().height ?? 72;
+  const mobile = window.matchMedia("(max-width: 900px)").matches;
+  const navigationOffset = mobile
+    ? elements.settingsNav.getBoundingClientRect().height + 12
+    : 26;
+  return topbarHeight + navigationOffset;
+}
+
+function updateSettingsNavigation() {
+  if (state.view !== "settings" || !elements.settingsSections.length) {
+    return;
+  }
+  if (Date.now() < state.settingsNavigationLockUntil) {
+    return;
+  }
+  const threshold = settingsScrollOffset() + 4;
+  let active = elements.settingsSections[0];
+  for (const section of elements.settingsSections) {
+    if (section.getBoundingClientRect().top <= threshold) {
+      active = section;
+    } else {
+      break;
+    }
+  }
+  if (
+    window.innerHeight + window.scrollY >=
+    document.documentElement.scrollHeight - 2
+  ) {
+    active = elements.settingsSections.at(-1);
+  }
+  setActiveSettingsSection(active.dataset.settingsSection);
+}
+
+function scheduleSettingsNavigationUpdate() {
+  if (state.settingsNavigationFrame) {
+    return;
+  }
+  state.settingsNavigationFrame = window.requestAnimationFrame(() => {
+    state.settingsNavigationFrame = null;
+    updateSettingsNavigation();
+  });
+}
+
+function scrollToSettingsSection(sectionName, options = {}) {
+  const section = settingsSectionByName(sectionName);
+  if (!section) {
+    return;
+  }
+  const top =
+    section.getBoundingClientRect().top +
+    window.scrollY -
+    settingsScrollOffset();
+  window.scrollTo({
+    top: Math.max(0, top),
+    behavior: options.instant ? "auto" : "smooth",
+  });
+  state.settingsNavigationLockUntil =
+    Date.now() + (options.instant ? 300 : 1200);
+  setActiveSettingsSection(sectionName);
+  if (sectionName === "tags") {
+    void loadKnownTagCatalog();
+  }
+}
+
+function metaEntriesById(entries) {
+  return new Map(
+    (entries ?? [])
+      .map((entry) => [String(entry?.subjectId ?? ""), entry])
+      .filter(([subjectId]) => subjectId),
   );
+}
+
+function recordSubjectId(record) {
+  return String(
+    record?.externalIds?.bangumi ??
+      record?.sites?.bangumi ??
+      "",
+  ).trim();
+}
+
+async function automaticTagAxisNames() {
+  const [libraryResult, cacheResult, localResult] = await Promise.allSettled([
+    api("/api/library"),
+    api("/api/bangumi-cache"),
+    readAllBangumiMetadata(),
+  ]);
+  if (libraryResult.status === "rejected") {
+    throw libraryResult.reason;
+  }
+
+  const metadataById = metaEntriesById(
+    localResult.status === "fulfilled" ? localResult.value : [],
+  );
+  if (cacheResult.status === "fulfilled") {
+    for (const [subjectId, entry] of metaEntriesById(
+      cacheResult.value?.entries,
+    )) {
+      metadataById.set(subjectId, entry);
+    }
+  }
+  for (const [subjectId, entry] of state.metadataEntries) {
+    metadataById.set(subjectId, entry);
+  }
+
+  const records = (libraryResult.value?.records ?? []).map((record) => {
+    const subjectId = recordSubjectId(record);
+    return {
+      ...record,
+      publicTags: metadataById.get(subjectId)?.tags ?? [],
+    };
+  });
+  const config = readTagRadarForm();
+  const radar = calculateTagRadar(records, {
+    insights: {
+      tagRadar: {
+        ...config,
+        mode: "auto",
+        axes: [],
+      },
+    },
+  });
+  return radar.axes.map((axis) => axis.label);
+}
+
+async function prefillManualTagAxesFromAutomatic() {
+  if (
+    state.tagAxesPrefilling ||
+    elements.tagRadarMode.value !== "manual" ||
+    readTagAxes().length
+  ) {
+    return;
+  }
+  state.tagAxesPrefilling = true;
+  elements.tagKnownStatus.textContent =
+    "正在根据当前番剧与 Bangumi 标签缓存生成手动轴...";
+  elements.tagKnownStatus.setAttribute("aria-busy", "true");
+  try {
+    const axes = await automaticTagAxisNames();
+    if (
+      elements.tagRadarMode.value !== "manual" ||
+      readTagAxes().length
+    ) {
+      return;
+    }
+    if (!axes.length) {
+      elements.tagKnownStatus.textContent =
+        "当前番剧还没有可用于自动填充的 Bangumi 标签缓存。";
+      return;
+    }
+    setTagAxes(axes);
+    applyAppearanceFromForm();
+    showToast(`已从自动模式填入 ${axes.length} 个标签轴`);
+  } catch (error) {
+    elements.tagKnownStatus.textContent =
+      `自动标签填充失败：${error.message}`;
+  } finally {
+    state.tagAxesPrefilling = false;
+    elements.tagKnownStatus.removeAttribute("aria-busy");
+  }
+}
+
+function activateSettingsSection(sectionName, options = {}) {
+  const section = settingsSectionByName(sectionName);
   if (!section) {
     return;
   }
 
-  state.settingsSection = sectionName;
-  for (const tab of elements.settingsNav) {
-    const active = tab.dataset.settingsNav === sectionName;
-    tab.classList.toggle("is-active", active);
-    tab.setAttribute("aria-selected", String(active));
-    tab.tabIndex = active ? 0 : -1;
-  }
-  for (const panel of elements.settingsSections) {
-    panel.hidden =
-      panel.dataset.settingsSection !== sectionName;
-  }
+  setActiveSettingsSection(sectionName);
   if (sectionName === "tags") {
     void loadKnownTagCatalog();
   }
-  if (options.focus) {
-    elements.settingsNav
-      .find((tab) => tab.dataset.settingsNav === sectionName)
-      ?.focus();
+  if (options.scroll) {
+    scrollToSettingsSection(sectionName, options);
+  } else {
+    scheduleSettingsNavigationUpdate();
   }
 }
 
@@ -2074,8 +2248,16 @@ function activateView(view, options = {}) {
     window.dispatchEvent(new CustomEvent("anime-duplicates:activate"));
   }
   if (view === "settings") {
+    const targetSection = state.settingsSection || "site";
     void loadSiteSettings();
-    activateSettingsSection(state.settingsSection || "site");
+    activateSettingsSection(targetSection);
+    window.requestAnimationFrame(() => {
+      if (state.view === "settings") {
+        scrollToSettingsSection(targetSection, {
+          instant: true,
+        });
+      }
+    });
   }
   if (view === "about") {
     renderAbout();
@@ -3191,35 +3373,28 @@ elements.siteSettingsForm.addEventListener("change", (event) => {
       event.target === elements.tagRadarMode
     ) {
       syncTagRadarControls();
+      if (
+        event.target === elements.tagRadarMode &&
+        elements.tagRadarMode.value === "manual"
+      ) {
+        void prefillManualTagAxesFromAutomatic();
+      }
     }
     applyAppearanceFromForm();
   }
 });
-for (const [index, tab] of elements.settingsNav.entries()) {
-  tab.addEventListener("click", () => {
-    activateSettingsSection(tab.dataset.settingsNav);
-  });
-  tab.addEventListener("keydown", (event) => {
-    let targetIndex = null;
-    if (["ArrowDown", "ArrowRight"].includes(event.key)) {
-      targetIndex = (index + 1) % elements.settingsNav.length;
-    } else if (["ArrowUp", "ArrowLeft"].includes(event.key)) {
-      targetIndex =
-        (index - 1 + elements.settingsNav.length) %
-        elements.settingsNav.length;
-    } else if (event.key === "Home") {
-      targetIndex = 0;
-    } else if (event.key === "End") {
-      targetIndex = elements.settingsNav.length - 1;
-    }
-    if (targetIndex === null) {
-      return;
-    }
+for (const link of elements.settingsNav) {
+  link.addEventListener("click", (event) => {
     event.preventDefault();
-    const target = elements.settingsNav[targetIndex];
-    activateSettingsSection(target.dataset.settingsNav, { focus: true });
+    scrollToSettingsSection(link.dataset.settingsNav);
   });
 }
+window.addEventListener("scroll", scheduleSettingsNavigationUpdate, {
+  passive: true,
+});
+window.addEventListener("resize", scheduleSettingsNavigationUpdate, {
+  passive: true,
+});
 elements.tagRadarMaxAxes.addEventListener("input", () => {
   setTagAxes(readTagAxes());
   applyAppearanceFromForm();

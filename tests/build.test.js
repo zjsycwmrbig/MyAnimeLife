@@ -378,6 +378,7 @@ test("ships three independently buildable templates", async () => {
       "scripts/catalog-data.mjs",
       "scripts/duplicate-data.mjs",
       "scripts/admin-data.mjs",
+      "scripts/insights-data.mjs",
       "assets/share.js",
       "assets/similar.js",
       "assets/similar.css",
