@@ -41,7 +41,7 @@ test("catalog operation log panel is wired into the batch workflow", async () =>
   assert.match(styles, /\.catalog-operation-log/u);
 });
 
-test("settings page exposes a sticky section navigation", async () => {
+test("settings page switches independent panels with a vertical tab list", async () => {
   const [html, styles, source] = await Promise.all([
     readAdminFile("index.html"),
     readAdminFile("styles.css"),
@@ -50,17 +50,24 @@ test("settings page exposes a sticky section navigation", async () => {
 
   assert.match(html, />站点设置</u);
   assert.doesNotMatch(html, />站点样式</u);
-  assert.match(html, /class="settings-nav" aria-label="设置分区"/u);
+  assert.match(html, /class="settings-nav"[\s\S]*?role="tablist"/u);
+  assert.match(html, /role="tab"/u);
+  assert.match(html, /role="tabpanel"/u);
+  assert.match(html, /id="settingsTabTags"/u);
   for (const section of ["site", "display", "share", "tags", "local-cache"]) {
     assert.match(html, new RegExp(`data-settings-nav="${section}"`, "u"));
     assert.match(html, new RegExp(`data-settings-section="${section}"`, "u"));
   }
   assert.match(styles, /\.settings-nav \{[\s\S]*?position: sticky;/u);
-  assert.match(source, /function scrollToSettingsSection\(/u);
-  assert.match(source, /function updateSettingsNavigation\(/u);
+  assert.match(styles, /\.settings-nav button/u);
+  assert.match(styles, /\.settings-section\[hidden\]/u);
+  assert.match(source, /function activateSettingsSection\(/u);
+  assert.match(source, /panel\.dataset\.settingsSection !== sectionName/u);
+  assert.doesNotMatch(source, /function scrollToSettingsSection\(/u);
+  assert.doesNotMatch(source, /function updateSettingsNavigation\(/u);
 });
 
-test("tag preference editor selects searchable known tags by heat", async () => {
+test("tag preference editor separates selected tags from a heat-ranked pool", async () => {
   const [html, styles, source] = await Promise.all([
     readAdminFile("index.html"),
     readAdminFile("styles.css"),
@@ -69,13 +76,21 @@ test("tag preference editor selects searchable known tags by heat", async () => 
 
   assert.match(html, /id="tagManualEditor"/u);
   assert.match(html, /id="tagSelectedAxes"/u);
+  assert.match(html, /class="tag-picker-group tag-picker-selected"/u);
+  assert.match(html, /class="tag-picker-group tag-pool"/u);
   assert.match(html, /id="tagKnownSearch"/u);
   assert.match(html, /id="tagKnownCatalog"/u);
+  assert.match(html, /id="tagPoolSummary"/u);
   assert.match(html, /id="tagCustomInput"/u);
-  assert.match(html, /按总热度排序/u);
+  assert.match(html, /按公共番剧索引中的总热度排序/u);
   assert.match(source, /readKnownBangumiTags/u);
   assert.match(source, /function renderKnownTagCatalog\(/u);
+  assert.match(source, /function resolveManualTagName\(/u);
+  assert.match(source, /const existingIndex = axes\.findIndex/u);
+  assert.match(source, /axes\[existingIndex\] = resolved\.name/u);
   assert.match(source, /data-tag-axis-action/u);
+  assert.match(styles, /\.tag-picker-group/u);
+  assert.match(styles, /\.tag-pool-meta/u);
   assert.match(styles, /\.known-tag-chip/u);
   assert.match(styles, /\.tag-selected-list/u);
 });

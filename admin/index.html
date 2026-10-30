@@ -845,28 +845,88 @@
           </header>
 
           <div class="settings-layout">
-            <nav class="settings-nav" aria-label="设置分区">
+            <nav
+              class="settings-nav"
+              role="tablist"
+              aria-orientation="vertical"
+              aria-label="设置分区"
+            >
               <p>SETTINGS</p>
-              <a class="is-active" href="#setting-site" data-settings-nav="site">
+              <button
+                id="settingsTabSite"
+                class="is-active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="setting-site"
+                data-settings-nav="site"
+              >
                 <span>01</span>
-                <strong>站点信息</strong>
-              </a>
-              <a href="#setting-display" data-settings-nav="display">
+                <span class="settings-nav-copy">
+                  <strong>站点信息</strong>
+                  <small>名称、简介与页脚</small>
+                </span>
+              </button>
+              <button
+                id="settingsTabDisplay"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="setting-display"
+                data-settings-nav="display"
+                tabindex="-1"
+              >
                 <span>02</span>
-                <strong>站点模板</strong>
-              </a>
-              <a href="#setting-share" data-settings-nav="share">
+                <span class="settings-nav-copy">
+                  <strong>站点模板</strong>
+                  <small>阅读页与管理页外观</small>
+                </span>
+              </button>
+              <button
+                id="settingsTabShare"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="setting-share"
+                data-settings-nav="share"
+                tabindex="-1"
+              >
                 <span>03</span>
-                <strong>分享卡片</strong>
-              </a>
-              <a href="#setting-tags" data-settings-nav="tags">
+                <span class="settings-nav-copy">
+                  <strong>分享卡片</strong>
+                  <small>导出模板与配色</small>
+                </span>
+              </button>
+              <button
+                id="settingsTabTags"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="setting-tags"
+                data-settings-nav="tags"
+                tabindex="-1"
+              >
                 <span>04</span>
-                <strong>标签偏好</strong>
-              </a>
-              <a href="#setting-local-cache" data-settings-nav="local-cache">
+                <span class="settings-nav-copy">
+                  <strong>标签偏好</strong>
+                  <small>标签池与雷达图顺序</small>
+                </span>
+              </button>
+              <button
+                id="settingsTabLocalCache"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="setting-local-cache"
+                data-settings-nav="local-cache"
+                tabindex="-1"
+              >
                 <span>05</span>
-                <strong>本机缓存</strong>
-              </a>
+                <span class="settings-nav-copy">
+                  <strong>本机缓存</strong>
+                  <small>只保存在当前浏览器</small>
+                </span>
+              </button>
             </nav>
 
             <form id="siteSettingsForm" class="site-settings-form">
@@ -874,6 +934,9 @@
                 id="setting-site"
                 class="settings-section"
                 data-settings-section="site"
+                role="tabpanel"
+                aria-labelledby="settingsTabSite"
+                tabindex="0"
               >
                 <div class="settings-section-heading">
                   <div>
@@ -905,6 +968,10 @@
                 id="setting-display"
                 class="settings-section"
                 data-settings-section="display"
+                role="tabpanel"
+                aria-labelledby="settingsTabDisplay"
+                tabindex="0"
+                hidden
               >
                 <div class="settings-section-heading">
                   <div>
@@ -953,6 +1020,10 @@
                 id="setting-share"
                 class="settings-section"
                 data-settings-section="share"
+                role="tabpanel"
+                aria-labelledby="settingsTabShare"
+                tabindex="0"
+                hidden
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1028,6 +1099,10 @@
                 id="setting-tags"
                 class="settings-section settings-tags-section"
                 data-settings-section="tags"
+                role="tabpanel"
+                aria-labelledby="settingsTabTags"
+                tabindex="0"
+                hidden
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1057,42 +1132,51 @@
                 </div>
 
                 <div id="tagManualEditor" class="tag-picker" hidden>
-                  <div class="tag-picker-heading">
-                    <div>
-                      <h3>已选标签</h3>
-                      <p>顺序就是雷达图轴的顺序。</p>
+                  <section class="tag-picker-group tag-picker-selected">
+                    <div class="tag-picker-heading">
+                      <div>
+                        <h3>已选标签</h3>
+                        <p>按当前顺序显示为雷达图轴。</p>
+                      </div>
+                      <span id="tagSelectionSummary">0 / 8</span>
                     </div>
-                    <span id="tagSelectionSummary">0 / 8</span>
-                  </div>
-                  <div id="tagSelectedAxes" class="tag-selected-list"></div>
-                  <p id="tagSelectionEmpty" class="tag-picker-empty">
-                    还没有选择标签。可以从下方热门标签添加，或输入自定义标签。
-                  </p>
+                    <div id="tagSelectedAxes" class="tag-selected-list"></div>
+                    <p id="tagSelectionEmpty" class="tag-picker-empty">
+                      还没有选择标签。请从下方标签池添加。
+                    </p>
+                  </section>
 
-                  <div class="tag-known-browser">
+                  <section class="tag-picker-group tag-pool">
                     <div class="tag-known-heading">
                       <div>
-                        <h3>已知热门标签</h3>
-                        <p>来自当前公共番剧索引，按总热度排序。</p>
+                        <h3>未选标签池</h3>
+                        <p>按公共番剧索引中的总热度排序，点击后进入已选区。</p>
                       </div>
                       <label class="tag-search-field">
                         <span>搜索标签</span>
                         <input id="tagKnownSearch" type="search" placeholder="例如：科幻、日常" />
                       </label>
                     </div>
+                    <div class="tag-pool-meta">
+                      <span id="tagPoolSummary">0 个可选</span>
+                    </div>
                     <div id="tagKnownCatalog" class="tag-known-list"></div>
                     <p id="tagKnownStatus" class="tag-known-status" role="status" aria-live="polite">
                       进入此分区后加载标签索引。
                     </p>
-                  </div>
+                  </section>
 
                   <div class="tag-custom-row">
                     <label class="field">
-                      <span>补充自定义标签</span>
-                      <input id="tagCustomInput" maxlength="40" placeholder="输入索引中没有的标签" />
+                      <span>自定义标签</span>
+                      <input
+                        id="tagCustomInput"
+                        maxlength="40"
+                        placeholder="输入标签名；同名标签会原位替换"
+                      />
                     </label>
                     <button id="tagCustomAdd" class="button button-quiet" type="button">
-                      添加标签
+                      加入 / 替换
                     </button>
                   </div>
                   <input id="tagRadarAxes" type="hidden" />
@@ -1119,6 +1203,10 @@
                 id="setting-local-cache"
                 class="settings-section"
                 data-settings-section="local-cache"
+                role="tabpanel"
+                aria-labelledby="settingsTabLocalCache"
+                tabindex="0"
+                hidden
               >
                 <div class="settings-section-heading">
                   <div>
@@ -1141,7 +1229,7 @@
                 </div>
               </section>
 
-              <div class="settings-actions">
+              <div id="settingsActions" class="settings-actions">
                 <p id="settingsStatus" class="settings-status" role="status" aria-live="polite"></p>
                 <button id="siteSettingsSave" class="button button-primary" type="submit">
                   保存并发布

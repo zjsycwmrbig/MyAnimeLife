@@ -45,6 +45,7 @@ const state = {
   view: "library",
   catalogLoaded: false,
   settingsLoaded: false,
+  settingsSection: "site",
   knownTagsLoaded: false,
   knownTagsLoading: false,
   knownTagsPromise: null,
@@ -285,6 +286,7 @@ const elements = {
   tagKnownSearch: document.querySelector("#tagKnownSearch"),
   tagKnownCatalog: document.querySelector("#tagKnownCatalog"),
   tagKnownStatus: document.querySelector("#tagKnownStatus"),
+  tagPoolSummary: document.querySelector("#tagPoolSummary"),
   tagCustomInput: document.querySelector("#tagCustomInput"),
   tagCustomAdd: document.querySelector("#tagCustomAdd"),
   tagRadarExcludedTags: document.querySelector("#tagRadarExcludedTags"),
@@ -293,6 +295,7 @@ const elements = {
   settingsSections: [
     ...document.querySelectorAll("[data-settings-section]"),
   ],
+  settingsActions: document.querySelector("#settingsActions"),
   localAppearanceBadge: document.querySelector("#localAppearanceBadge"),
   localAppearanceStatus: document.querySelector("#localAppearanceStatus"),
   siteSettingsLocalSave: document.querySelector("#siteSettingsLocalSave"),
@@ -627,6 +630,34 @@ function setTagAxes(values) {
   renderKnownTagCatalog();
 }
 
+function knownTagByName(value) {
+  const key = tagKey(value);
+  return state.knownTags.find((tag) => tagKey(tag.name) === key) ?? null;
+}
+
+function resolveManualTagName(value) {
+  const sourceName = String(value ?? "").trim().slice(0, 40);
+  if (!sourceName) {
+    return null;
+  }
+  const sourceKey = tagKey(sourceName);
+  let aliasName = "";
+  for (const group of readAliasGroups(elements.tagRadarAliasGroups.value)) {
+    if (!group.some((name) => tagKey(name) === sourceKey)) {
+      continue;
+    }
+    aliasName = group.at(-1);
+    break;
+  }
+  const resolvedKnown = knownTagByName(aliasName || sourceName);
+  const name = resolvedKnown?.name || aliasName || sourceName;
+  return {
+    key: tagKey(name),
+    name,
+    known: resolvedKnown,
+  };
+}
+
 function renderSelectedTagAxes() {
   const axes = readTagAxes();
   const limit = tagAxesLimit();
@@ -640,8 +671,16 @@ function renderSelectedTagAxes() {
     order.className = "tag-axis-order";
     order.textContent = String(index + 1).padStart(2, "0");
 
+    const copy = document.createElement("span");
+    copy.className = "tag-axis-copy";
     const label = document.createElement("strong");
     label.textContent = name;
+    const detail = document.createElement("small");
+    const known = knownTagByName(name);
+    detail.textContent = known
+      ? `${formatTagHeat(known.heat)} 热度`
+      : "自定义标签";
+    copy.append(label, detail);
 
     const actions = document.createElement("span");
     actions.className = "tag-axis-actions";
@@ -664,7 +703,7 @@ function renderSelectedTagAxes() {
         (action === "down" && index === axes.length - 1);
       actions.append(button);
     }
-    row.append(order, label, actions);
+    row.append(order, copy, actions);
     return row;
   });
   elements.tagSelectedAxes.replaceChildren(...rows);
@@ -686,7 +725,10 @@ function renderKnownTagCatalog() {
   const axes = readTagAxes();
   const selected = new Set(axes.map(tagKey));
   const query = tagKey(state.knownTagQuery);
-  const matches = state.knownTags.filter(
+  const available = state.knownTags.filter(
+    (tag) => !selected.has(tagKey(tag.name)),
+  );
+  const matches = available.filter(
     (tag) => !query || tagKey(tag.name).includes(query),
   );
   const visible = matches.slice(0, 80);
@@ -695,21 +737,27 @@ function renderKnownTagCatalog() {
     button.type = "button";
     button.className = "known-tag-chip";
     button.dataset.knownTag = tag.name;
-    const active = selected.has(tagKey(tag.name));
-    button.classList.toggle("is-selected", active);
-    button.setAttribute("aria-pressed", String(active));
-    button.title = active ? `移除 ${tag.name}` : `添加 ${tag.name}`;
-    button.disabled =
-      locked || (!active && axes.length >= tagAxesLimit());
+    button.title = `添加 ${tag.name}`;
+    button.disabled = locked || axes.length >= tagAxesLimit();
 
+    const copy = document.createElement("span");
+    copy.className = "known-tag-copy";
     const name = document.createElement("strong");
     name.textContent = tag.name;
     const heat = document.createElement("small");
     heat.textContent = `${formatTagHeat(tag.heat)} 热度 · ${tag.subjectCount} 部`;
-    button.append(name, heat);
+    copy.append(name, heat);
+
+    const add = document.createElement("span");
+    add.className = "known-tag-add";
+    add.textContent = "+";
+    add.setAttribute("aria-hidden", "true");
+    button.append(copy, add);
     return button;
   });
   elements.tagKnownCatalog.replaceChildren(...buttons);
+  elements.tagPoolSummary.textContent =
+    `${available.length} 个未选标签 · 已选 ${axes.length} / ${tagAxesLimit()}`;
 
   if (state.knownTagsLoading) {
     elements.tagKnownStatus.textContent = "正在读取公共标签热度...";
@@ -718,13 +766,17 @@ function renderKnownTagCatalog() {
       `标签索引读取失败：${state.knownTagsError}`;
   } else if (!state.knownTagsLoaded) {
     elements.tagKnownStatus.textContent = "进入此分区后加载标签索引。";
+  } else if (!available.length) {
+    elements.tagKnownStatus.textContent =
+      "已选完当前公共索引中的全部标签；仍可在下方添加自定义标签。";
   } else if (!matches.length) {
-    elements.tagKnownStatus.textContent = "没有找到匹配的已知标签，可在下方自定义添加。";
+    elements.tagKnownStatus.textContent =
+      "未选标签池中没有匹配项，可将输入内容作为自定义标签加入。";
   } else {
     elements.tagKnownStatus.textContent =
       matches.length > visible.length
         ? `显示热度最高的 ${visible.length} 个，共 ${matches.length} 个匹配项；继续输入可缩小范围。`
-        : `共 ${matches.length} 个可用标签，按公共标签热度排序。`;
+        : `共 ${matches.length} 个未选标签，按公共标签热度排序。`;
   }
 }
 
@@ -777,59 +829,33 @@ function syncTagRadarControls() {
   }
 }
 
-function activateSettingsNav(sectionName) {
-  for (const link of elements.settingsNav) {
-    const active = link.dataset.settingsNav === sectionName;
-    link.classList.toggle("is-active", active);
-    if (active) {
-      link.setAttribute("aria-current", "location");
-    } else {
-      link.removeAttribute("aria-current");
-    }
-  }
-}
-
-function scrollToSettingsSection(sectionName) {
+function activateSettingsSection(sectionName, options = {}) {
   const section = elements.settingsSections.find(
     (candidate) => candidate.dataset.settingsSection === sectionName,
   );
   if (!section) {
     return;
   }
-  activateSettingsNav(sectionName);
-  section.scrollIntoView({
-    behavior: "smooth",
-    block: "start",
-  });
+
+  state.settingsSection = sectionName;
+  for (const tab of elements.settingsNav) {
+    const active = tab.dataset.settingsNav === sectionName;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  for (const panel of elements.settingsSections) {
+    panel.hidden =
+      panel.dataset.settingsSection !== sectionName;
+  }
   if (sectionName === "tags") {
     void loadKnownTagCatalog();
   }
-}
-
-let settingsNavFrame = 0;
-function updateSettingsNavigation() {
-  settingsNavFrame = 0;
-  if (state.view !== "settings") {
-    return;
+  if (options.focus) {
+    elements.settingsNav
+      .find((tab) => tab.dataset.settingsNav === sectionName)
+      ?.focus();
   }
-  const offset =
-    (document.querySelector(".topbar")?.getBoundingClientRect().height ?? 0) + 36;
-  let active = elements.settingsSections[0]?.dataset.settingsSection;
-  for (const section of elements.settingsSections) {
-    if (section.getBoundingClientRect().top <= offset) {
-      active = section.dataset.settingsSection;
-    }
-  }
-  if (active) {
-    activateSettingsNav(active);
-  }
-}
-
-function scheduleSettingsNavigation() {
-  if (settingsNavFrame) {
-    return;
-  }
-  settingsNavFrame = window.requestAnimationFrame(updateSettingsNavigation);
 }
 
 function renderLocalAppearance() {
@@ -2049,7 +2075,7 @@ function activateView(view, options = {}) {
   }
   if (view === "settings") {
     void loadSiteSettings();
-    window.requestAnimationFrame(updateSettingsNavigation);
+    activateSettingsSection(state.settingsSection || "site");
   }
   if (view === "about") {
     renderAbout();
@@ -3169,15 +3195,31 @@ elements.siteSettingsForm.addEventListener("change", (event) => {
     applyAppearanceFromForm();
   }
 });
-for (const link of elements.settingsNav) {
-  link.addEventListener("click", (event) => {
+for (const [index, tab] of elements.settingsNav.entries()) {
+  tab.addEventListener("click", () => {
+    activateSettingsSection(tab.dataset.settingsNav);
+  });
+  tab.addEventListener("keydown", (event) => {
+    let targetIndex = null;
+    if (["ArrowDown", "ArrowRight"].includes(event.key)) {
+      targetIndex = (index + 1) % elements.settingsNav.length;
+    } else if (["ArrowUp", "ArrowLeft"].includes(event.key)) {
+      targetIndex =
+        (index - 1 + elements.settingsNav.length) %
+        elements.settingsNav.length;
+    } else if (event.key === "Home") {
+      targetIndex = 0;
+    } else if (event.key === "End") {
+      targetIndex = elements.settingsNav.length - 1;
+    }
+    if (targetIndex === null) {
+      return;
+    }
     event.preventDefault();
-    scrollToSettingsSection(link.dataset.settingsNav);
+    const target = elements.settingsNav[targetIndex];
+    activateSettingsSection(target.dataset.settingsNav, { focus: true });
   });
 }
-window.addEventListener("scroll", scheduleSettingsNavigation, {
-  passive: true,
-});
 elements.tagRadarMaxAxes.addEventListener("input", () => {
   setTagAxes(readTagAxes());
   applyAppearanceFromForm();
@@ -3191,15 +3233,16 @@ elements.tagKnownCatalog.addEventListener("click", (event) => {
   if (!button || button.disabled) {
     return;
   }
-  const name = button.dataset.knownTag;
-  const key = tagKey(name);
+  const resolved = resolveManualTagName(button.dataset.knownTag);
+  if (!resolved) {
+    return;
+  }
   const axes = readTagAxes();
-  const selected = axes.some((axis) => tagKey(axis) === key);
-  setTagAxes(
-    selected
-      ? axes.filter((axis) => tagKey(axis) !== key)
-      : [...axes, name],
-  );
+  if (axes.length >= tagAxesLimit()) {
+    showToast(`最多选择 ${tagAxesLimit()} 个标签`, { error: true });
+    return;
+  }
+  setTagAxes([...axes, resolved.name]);
   applyAppearanceFromForm();
 });
 elements.tagSelectedAxes.addEventListener("click", (event) => {
@@ -3225,16 +3268,23 @@ elements.tagSelectedAxes.addEventListener("click", (event) => {
 });
 
 function addCustomTag() {
-  const name = elements.tagCustomInput.value.trim();
-  if (!name) {
+  const resolved = resolveManualTagName(elements.tagCustomInput.value);
+  if (!resolved) {
     return;
   }
   const axes = readTagAxes();
-  if (axes.length >= tagAxesLimit()) {
+  const existingIndex = axes.findIndex(
+    (axis) => tagKey(axis) === resolved.key,
+  );
+  if (existingIndex >= 0) {
+    axes[existingIndex] = resolved.name;
+  } else if (axes.length >= tagAxesLimit()) {
     showToast(`最多选择 ${tagAxesLimit()} 个标签`, { error: true });
     return;
+  } else {
+    axes.push(resolved.name);
   }
-  setTagAxes([...axes, name]);
+  setTagAxes(axes);
   elements.tagCustomInput.value = "";
   applyAppearanceFromForm();
 }
