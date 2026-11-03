@@ -100,6 +100,7 @@
         </div>
         <nav class="insights-tabs compare-tabs" role="tablist" aria-label="对比结果模块">
           <button class="insight-tab is-active" id="compare-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="compare-panel-overview" data-compare-tab="overview">概览</button>
+          <button class="insight-tab" id="compare-tab-discovery" type="button" role="tab" aria-selected="false" aria-controls="compare-panel-discovery" data-compare-tab="discovery">片单灵感</button>
           <button class="insight-tab" id="compare-tab-overlap" type="button" role="tab" aria-selected="false" aria-controls="compare-panel-overlap" data-compare-tab="overlap">重合收藏</button>
           <button class="insight-tab" id="compare-tab-years" type="button" role="tab" aria-selected="false" aria-controls="compare-panel-years" data-compare-tab="years">年代构成</button>
           <button class="insight-tab" id="compare-tab-ratings" type="button" role="tab" aria-selected="false" aria-controls="compare-panel-ratings" data-compare-tab="ratings">评分习惯</button>
@@ -109,43 +110,73 @@
       </div>
 
       <section class="compare-tab-panel is-active" id="compare-panel-overview" role="tabpanel" aria-labelledby="compare-tab-overview" data-compare-panel="overview">
-        <div class="compare-metric-grid">
-          <article><span>仅你收藏</span><strong id="currentOnlyMetric">0</strong><small>部独有作品</small></article>
-          <article><span>仅对方收藏</span><strong id="peerOnlyMetric">0</strong><small>部待发现作品</small></article>
-          <article><span>共同评分</span><strong id="sharedRatedMetric">0</strong><small>部可比较评分</small></article>
-          <article class="is-accent"><span>平均分差</span><strong id="ratingGapMetric">—</strong><small>共同评分作品</small></article>
+        <div class="compare-panel-intro">
+          <div><p class="section-index">TASTE PROFILE</p><h3>从收藏结构读懂彼此</h3></div>
+          <p>图表直接比较双方的收藏重合、年代、评分、标签和档案覆盖，不再用长表逐项罗列。</p>
         </div>
-        <div class="compare-overview-grid">
-          <article class="compare-data-panel">
-            <div class="compare-list-heading"><h3>档案速览</h3><span>当前 / 对方</span></div>
-            <div id="compareOverviewPairs" class="compare-pair-list"></div>
+        <div class="compare-visual-grid">
+          <article class="compare-chart-card compare-chart-card-wide">
+            <div class="compare-chart-heading"><div><span>COLLECTION OVERLAP</span><h3>收藏重合结构</h3></div><small>按双方作品并集计算</small></div>
+            <div id="compareOverviewOverlapChart" class="compare-overview-chart"></div>
           </article>
-          <article class="compare-data-panel compare-discovery-card">
-            <div class="compare-list-heading"><h3>最值得交换的收藏</h3><span>按评分优先</span></div>
-            <div id="compareDiscoveryList" class="compare-discovery-list"></div>
+          <article class="compare-chart-card">
+            <div class="compare-chart-heading"><div><span>RATING SIGNAL</span><h3>评分分布</h3></div><small id="compareOverviewRatingMeta">—</small></div>
+            <div id="compareOverviewRatingChart" class="compare-overview-chart"></div>
+          </article>
+          <article class="compare-chart-card">
+            <div class="compare-chart-heading"><div><span>DECADE SIGNAL</span><h3>年代偏好</h3></div><small id="compareOverviewYearMeta">—</small></div>
+            <div id="compareOverviewYearChart" class="compare-overview-chart"></div>
+          </article>
+          <article class="compare-chart-card compare-chart-card-wide">
+            <div class="compare-chart-heading"><div><span>TAG IDENTITY</span><h3>标签画像</h3></div><small id="compareOverviewTagMeta">—</small></div>
+            <div id="compareOverviewTagChart" class="compare-overview-chart"></div>
+          </article>
+          <article class="compare-chart-card compare-chart-card-wide">
+            <div class="compare-chart-heading"><div><span>ARCHIVE COVERAGE</span><h3>档案覆盖</h3></div><small>当前 / 对方</small></div>
+            <div id="compareOverviewCoverageChart" class="compare-overview-chart"></div>
           </article>
         </div>
       </section>
 
+      <section class="compare-tab-panel" id="compare-panel-discovery" role="tabpanel" aria-labelledby="compare-tab-discovery" data-compare-panel="discovery" hidden>
+        <div class="compare-panel-intro">
+          <div><p class="section-index">DISCOVERY QUEUE</p><h3>片单灵感</h3></div>
+          <p>对方已经收藏、你还没有的作品。默认按评分从高到低整理，适合直接寻找下一部想看的东西。</p>
+        </div>
+        <div class="compare-collection-toolbar">
+          <label class="compare-toolbar-search"><span class="visually-hidden">搜索片单灵感</span><input id="discoverySearch" type="search" placeholder="搜索标题或年份" autocomplete="off" /></label>
+          <label><span>评分</span><select id="discoveryRatingFilter"><option value="all">全部评分</option><option value="rated">只看已评分</option><option value="high">8 分以上</option><option value="unrated">未评分</option></select></label>
+          <label><span>排序</span><select id="discoverySort"><option value="rating-desc">评分从高到低</option><option value="rating-asc">评分从低到高</option><option value="year-desc">年代从新到旧</option><option value="year-asc">年代从旧到新</option><option value="title">标题</option></select></label>
+          <div class="compare-view-switch" data-view-control="discovery" role="group" aria-label="片单灵感展示方式">
+            <button class="is-active" type="button" data-view-mode="card" aria-pressed="true" title="卡片视图">{{ icon("grid") }}<span class="visually-hidden">卡片视图</span></button>
+            <button type="button" data-view-mode="list" aria-pressed="false" title="列表视图">{{ icon("list") }}<span class="visually-hidden">列表视图</span></button>
+          </div>
+        </div>
+        <p id="discoveryResultSummary" class="compare-result-summary">等待对比结果</p>
+        <div id="discoveryCollection" class="compare-collection"></div>
+      </section>
+
       <section class="compare-tab-panel" id="compare-panel-overlap" role="tabpanel" aria-labelledby="compare-tab-overlap" data-compare-panel="overlap" hidden>
         <div class="compare-panel-intro">
-          <div><p class="section-index">COLLECTION CHEMISTRY</p><h3>共同收藏与各自发现</h3></div>
-          <p>作品先按记录 ID，再按 Bangumi、Bilibili、AniList、MAL 等稳定外部 ID 匹配。</p>
+          <div><p class="section-index">COLLECTION CHEMISTRY</p><h3>三个角度看收藏重合</h3></div>
+          <p>在共同收藏、仅当前档案和仅对方档案之间切换，再通过筛选、排序和视图切换查看完整列表。</p>
         </div>
-        <div class="compare-lists">
-          <article>
-            <div class="compare-list-heading"><h3>共同收录</h3><span id="sharedCount">0</span></div>
-            <div id="sharedList" class="compare-list"></div>
-          </article>
-          <article>
-            <div class="compare-list-heading"><h3>仅当前档案</h3><span id="currentOnlyCount">0</span></div>
-            <div id="currentOnlyList" class="compare-list"></div>
-          </article>
-          <article>
-            <div class="compare-list-heading"><h3>仅对方档案</h3><span id="peerOnlyCount">0</span></div>
-            <div id="peerOnlyList" class="compare-list"></div>
-          </article>
+        <div class="compare-subtabs" role="tablist" aria-label="收藏重合范围" data-overlap-tabs>
+          <button class="is-active" type="button" role="tab" aria-selected="true" data-overlap-scope="shared">共同收藏 <span data-overlap-count="shared">0</span></button>
+          <button type="button" role="tab" aria-selected="false" data-overlap-scope="currentOnly">仅当前档案 <span data-overlap-count="currentOnly">0</span></button>
+          <button type="button" role="tab" aria-selected="false" data-overlap-scope="peerOnly">仅对方档案 <span data-overlap-count="peerOnly">0</span></button>
         </div>
+        <div class="compare-collection-toolbar">
+          <label class="compare-toolbar-search"><span class="visually-hidden">搜索收藏</span><input id="overlapSearch" type="search" placeholder="搜索标题或年份" autocomplete="off" /></label>
+          <label><span>评分</span><select id="overlapRatingFilter"><option value="all">全部评分</option><option value="rated">只看已评分</option><option value="high">8 分以上</option><option value="unrated">未评分</option></select></label>
+          <label><span>排序</span><select id="overlapSort"><option value="rating-desc">评分从高到低</option><option value="rating-asc">评分从低到高</option><option value="year-desc">年代从新到旧</option><option value="year-asc">年代从旧到新</option><option value="title">标题</option></select></label>
+          <div class="compare-view-switch" data-view-control="overlap" role="group" aria-label="收藏展示方式">
+            <button class="is-active" type="button" data-view-mode="card" aria-pressed="true" title="卡片视图">{{ icon("grid") }}<span class="visually-hidden">卡片视图</span></button>
+            <button type="button" data-view-mode="list" aria-pressed="false" title="列表视图">{{ icon("list") }}<span class="visually-hidden">列表视图</span></button>
+          </div>
+        </div>
+        <p id="overlapResultSummary" class="compare-result-summary">等待对比结果</p>
+        <div id="overlapCollection" class="compare-collection"></div>
       </section>
 
       <section class="compare-tab-panel" id="compare-panel-years" role="tabpanel" aria-labelledby="compare-tab-years" data-compare-panel="years" hidden>
@@ -165,29 +196,45 @@
       </section>
 
       <section class="compare-tab-panel" id="compare-panel-ratings" role="tabpanel" aria-labelledby="compare-tab-ratings" data-compare-panel="ratings" hidden>
-        <article class="compare-extreme-diff">
-          <div><span>最大单作评分差</span><strong id="maxRatingDifference">—</strong></div>
-          <div><h3 id="maxRatingDifferenceTitle">还没有可比较的共同评分</h3><p id="maxRatingDifferenceCopy">双方都评分后，这里会显示分歧最大的共同作品。</p></div>
-        </article>
-        <div class="compare-rating-summary">
-          <article><span>你的均分</span><strong id="ratingCurrentAverage">—</strong></article>
-          <article><span>对方均分</span><strong id="ratingPeerAverage">—</strong></article>
-          <article class="is-current"><span>你评分更高</span><strong id="currentHigherCount">0</strong></article>
-          <article class="is-peer"><span>对方评分更高</span><strong id="peerHigherCount">0</strong></article>
-          <article><span>评分相同</span><strong id="tiedRatingCount">0</strong></article>
+        <div class="compare-subtabs" role="tablist" aria-label="评分习惯视图" data-rating-tabs>
+          <button class="is-active" type="button" role="tab" aria-selected="true" data-rating-view="overview">评分概览</button>
+          <button type="button" role="tab" aria-selected="false" data-rating-view="differences">共同评分差异 <span id="ratingDifferenceTabCount">0</span></button>
         </div>
-        <div class="compare-insight-grid">
-          <section class="compare-data-panel" aria-labelledby="compare-ratings-title">
-            <div class="compare-list-heading"><h3 id="compare-ratings-title">评分区间</h3><span>包含未评分</span></div>
-            <div id="compareRatings" class="compare-bars"></div>
-          </section>
-          <section class="compare-data-panel rating-differences">
-            <div class="compare-list-heading">
-              <h3>共同作品评分差</h3>
-              <span id="ratingDifferenceSummary">只计入双方都已评分</span>
+        <div data-rating-panel="overview">
+          <div class="compare-rating-summary">
+            <article><span>你的均分</span><strong id="ratingCurrentAverage">—</strong></article>
+            <article><span>对方均分</span><strong id="ratingPeerAverage">—</strong></article>
+            <article class="is-current"><span>你评分更高</span><strong id="currentHigherCount">0</strong></article>
+            <article class="is-peer"><span>对方评分更高</span><strong id="peerHigherCount">0</strong></article>
+            <article><span>评分相同</span><strong id="tiedRatingCount">0</strong></article>
+          </div>
+          <div class="compare-insight-grid">
+            <section class="compare-data-panel" aria-labelledby="compare-ratings-title">
+              <div class="compare-list-heading"><h3 id="compare-ratings-title">评分区间</h3><span>包含未评分</span></div>
+              <div id="compareRatings" class="compare-bars"></div>
+            </section>
+            <section class="compare-data-panel">
+              <div class="compare-list-heading"><h3>共同评分倾向</h3><span>只计入双方都已评分</span></div>
+              <div id="compareRatingBalance" class="compare-rating-balance"></div>
+            </section>
+          </div>
+        </div>
+        <div data-rating-panel="differences" hidden>
+          <article class="compare-extreme-diff">
+            <div><span>最大单作评分差</span><strong id="maxRatingDifference">—</strong></div>
+            <div><h3 id="maxRatingDifferenceTitle">还没有可比较的共同评分</h3><p id="maxRatingDifferenceCopy">双方都评分后，这里会显示分歧最大的共同作品。</p></div>
+          </article>
+          <div class="compare-collection-toolbar">
+            <label class="compare-toolbar-search"><span class="visually-hidden">搜索共同评分作品</span><input id="ratingDifferenceSearch" type="search" placeholder="搜索标题或年份" autocomplete="off" /></label>
+            <label><span>最小分差</span><select id="ratingDifferenceFilter"><option value="all">全部分差</option><option value="2">2 分以上</option><option value="1">1 分以上</option><option value="0.5">0.5 分以上</option><option value="0">只看评分相同</option></select></label>
+            <label><span>排序</span><select id="ratingDifferenceSort"><option value="difference-desc">分差从大到小</option><option value="current-higher">你评分更高优先</option><option value="peer-higher">对方评分更高优先</option><option value="title">标题</option></select></label>
+            <div class="compare-view-switch" data-view-control="rating-difference" role="group" aria-label="评分差异展示方式">
+              <button class="is-active" type="button" data-view-mode="list" aria-pressed="true" title="列表视图">{{ icon("list") }}<span class="visually-hidden">列表视图</span></button>
+              <button type="button" data-view-mode="card" aria-pressed="false" title="卡片视图">{{ icon("grid") }}<span class="visually-hidden">卡片视图</span></button>
             </div>
-            <div id="ratingDifferenceList" class="rating-difference-list"></div>
-          </section>
+          </div>
+          <p id="ratingDifferenceSummary" class="compare-result-summary">只计入双方都已评分</p>
+          <div id="ratingDifferenceList" class="compare-collection"></div>
         </div>
       </section>
 

@@ -55,6 +55,18 @@
     <path d="M4 18h8"></path>
     <path d="M16 18h4"></path>
     <circle cx="14" cy="18" r="2"></circle>
+  {% elif name == "grid" %}
+    <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+    <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+    <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+    <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+  {% elif name == "list" %}
+    <path d="M8 6h13"></path>
+    <path d="M8 12h13"></path>
+    <path d="M8 18h13"></path>
+    <path d="M3 6h.01"></path>
+    <path d="M3 12h.01"></path>
+    <path d="M3 18h.01"></path>
   {% endif %}
 </svg>
 {%- endmacro %}

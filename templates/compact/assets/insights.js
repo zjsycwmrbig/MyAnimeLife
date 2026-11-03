@@ -558,21 +558,33 @@
   const sharedTotal = document.querySelector("#sharedTotal");
   const overlapPercent = document.querySelector("#overlapPercent");
   const overlapBar = document.querySelector("#overlapBar");
-  const sharedCount = document.querySelector("#sharedCount");
-  const currentOnlyCount = document.querySelector("#currentOnlyCount");
-  const peerOnlyCount = document.querySelector("#peerOnlyCount");
-  const sharedList = document.querySelector("#sharedList");
-  const currentOnlyList = document.querySelector("#currentOnlyList");
-  const peerOnlyList = document.querySelector("#peerOnlyList");
+  const compareOverviewOverlapChart = document.querySelector("#compareOverviewOverlapChart");
+  const compareOverviewRatingChart = document.querySelector("#compareOverviewRatingChart");
+  const compareOverviewRatingMeta = document.querySelector("#compareOverviewRatingMeta");
+  const compareOverviewYearChart = document.querySelector("#compareOverviewYearChart");
+  const compareOverviewYearMeta = document.querySelector("#compareOverviewYearMeta");
+  const compareOverviewTagChart = document.querySelector("#compareOverviewTagChart");
+  const compareOverviewTagMeta = document.querySelector("#compareOverviewTagMeta");
+  const compareOverviewCoverageChart = document.querySelector("#compareOverviewCoverageChart");
+  const discoverySearch = document.querySelector("#discoverySearch");
+  const discoveryRatingFilter = document.querySelector("#discoveryRatingFilter");
+  const discoverySort = document.querySelector("#discoverySort");
+  const discoveryResultSummary = document.querySelector("#discoveryResultSummary");
+  const discoveryCollection = document.querySelector("#discoveryCollection");
+  const overlapTabs = document.querySelector("[data-overlap-tabs]");
+  const overlapSearch = document.querySelector("#overlapSearch");
+  const overlapRatingFilter = document.querySelector("#overlapRatingFilter");
+  const overlapSort = document.querySelector("#overlapSort");
+  const overlapResultSummary = document.querySelector("#overlapResultSummary");
+  const overlapCollection = document.querySelector("#overlapCollection");
   const ratingDifferenceList = document.querySelector("#ratingDifferenceList");
+  const ratingDifferenceTabCount = document.querySelector("#ratingDifferenceTabCount");
+  const ratingDifferenceSearch = document.querySelector("#ratingDifferenceSearch");
+  const ratingDifferenceFilter = document.querySelector("#ratingDifferenceFilter");
+  const ratingDifferenceSort = document.querySelector("#ratingDifferenceSort");
   const compareDecades = document.querySelector("#compareDecades");
   const compareRatings = document.querySelector("#compareRatings");
-  const currentOnlyMetric = document.querySelector("#currentOnlyMetric");
-  const peerOnlyMetric = document.querySelector("#peerOnlyMetric");
-  const sharedRatedMetric = document.querySelector("#sharedRatedMetric");
-  const ratingGapMetric = document.querySelector("#ratingGapMetric");
-  const compareOverviewPairs = document.querySelector("#compareOverviewPairs");
-  const compareDiscoveryList = document.querySelector("#compareDiscoveryList");
+  const compareRatingBalance = document.querySelector("#compareRatingBalance");
   const currentPreferredDecade = document.querySelector("#currentPreferredDecade");
   const currentPreferredDecadeMeta = document.querySelector("#currentPreferredDecadeMeta");
   const peerPreferredDecade = document.querySelector("#peerPreferredDecade");
@@ -602,6 +614,11 @@
   const maximumCachePayloadLength = 24 * 1024 * 1024;
   const listLimit = 12;
   const ratingDifferenceLimit = 10;
+  let comparisonModel = null;
+  let discoveryView = "card";
+  let overlapView = "card";
+  let overlapScope = "shared";
+  let ratingDifferenceView = "list";
   let busy = false;
 
   function setStatus(message, state = "") {
@@ -1072,6 +1089,9 @@
         similarity: null,
         currentTagged: 0,
         peerTagged: 0,
+        currentUniqueTags: 0,
+        peerUniqueTags: 0,
+        sharedTagCount: 0,
       };
     }
 
@@ -1114,6 +1134,11 @@
       currentAverage: group.currentRatings.length ? average(group.currentRatings.map((rating) => ({ rating }))) : null,
       peerAverage: group.peerRatings.length ? average(group.peerRatings.map((rating) => ({ rating }))) : null,
     }));
+    const currentUniqueTags = allGroups.filter((group) => group.currentCount > 0).length;
+    const peerUniqueTags = allGroups.filter((group) => group.peerCount > 0).length;
+    const sharedTagCount = allGroups.filter(
+      (group) => group.currentCount > 0 && group.peerCount > 0,
+    ).length;
     const topTags = [...allGroups]
       .sort(
         (left, right) =>
@@ -1161,6 +1186,9 @@
           : null,
       currentTagged,
       peerTagged,
+      currentUniqueTags,
+      peerUniqueTags,
+      sharedTagCount,
     };
   }
 
@@ -1257,62 +1285,212 @@
     draw();
   }
 
-  function renderSimpleList(container, items, mode, ariaLabel) {
+  function itemYear(item) {
+    const value = Number(item.season?.year);
+    return Number.isInteger(value) && value >= 1900 ? value : null;
+  }
+
+  function itemRating(item, side = "current") {
+    if (side === "peer") {
+      return Number.isFinite(item.peerRating) ? item.peerRating : item.rating;
+    }
+    return Number.isFinite(item.rating) ? item.rating : null;
+  }
+
+  function normalizeCollectionText(value) {
+    return String(value ?? "").normalize("NFKC").toLocaleLowerCase("zh-CN");
+  }
+
+  function filterAndSortCollection(items, options) {
+    const needle = normalizeCollectionText(options.search).trim();
+    const filtered = items.filter((item) => {
+      const rating = itemRating(item, options.ratingSide);
+      if (options.ratingFilter === "rated" && !Number.isFinite(rating)) return false;
+      if (options.ratingFilter === "high" && (!Number.isFinite(rating) || rating < 8)) return false;
+      if (options.ratingFilter === "unrated" && Number.isFinite(rating)) return false;
+      if (!needle) return true;
+      return normalizeCollectionText([
+        item.title,
+        item.peerTitle,
+        seasonLabel(item.season),
+        itemYear(item),
+      ].filter(Boolean).join(" ")).includes(needle);
+    });
+    const sorted = [...filtered];
+    const ratingValue = (item) => {
+      const rating = itemRating(item, options.ratingSide);
+      return Number.isFinite(rating) ? rating : null;
+    };
+    sorted.sort((left, right) => {
+      const leftRating = ratingValue(left);
+      const rightRating = ratingValue(right);
+      const leftYear = itemYear(left);
+      const rightYear = itemYear(right);
+      if (options.sort === "rating-desc") {
+        return (rightRating ?? -Infinity) - (leftRating ?? -Infinity) ||
+          left.title.localeCompare(right.title, "zh-CN");
+      }
+      if (options.sort === "rating-asc") {
+        return (leftRating ?? Infinity) - (rightRating ?? Infinity) ||
+          left.title.localeCompare(right.title, "zh-CN");
+      }
+      if (options.sort === "year-desc") {
+        return (rightYear ?? -Infinity) - (leftYear ?? -Infinity) ||
+          left.title.localeCompare(right.title, "zh-CN");
+      }
+      if (options.sort === "year-asc") {
+        return (leftYear ?? Infinity) - (rightYear ?? Infinity) ||
+          left.title.localeCompare(right.title, "zh-CN");
+      }
+      return left.title.localeCompare(right.title, "zh-CN");
+    });
+    return sorted;
+  }
+
+  function coverUrl(value) {
+    const candidate = String(value ?? "").trim();
+    if (candidate.startsWith("//")) return `https:${candidate}`;
+    if (/^http:\/\//iu.test(candidate)) return candidate.replace(/^http:\/\//iu, "https://");
+    return /^https:\/\//iu.test(candidate) ? candidate : "";
+  }
+
+  function createCompareCover(item) {
+    const frame = document.createElement("div");
+    frame.className = "compare-anime-cover";
+    const source = coverUrl(item.coverUrl);
+    if (!source) {
+      frame.classList.add("is-missing");
+      frame.append(createTextElement("span", "", "NO COVER"));
+      return frame;
+    }
+    const image = document.createElement("img");
+    image.src = source;
+    image.alt = `${item.title}封面`;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => {
+      image.remove();
+      frame.classList.add("is-missing");
+      frame.append(createTextElement("span", "", "NO COVER"));
+    }, { once: true });
+    frame.append(image);
+    return frame;
+  }
+
+  function createRatingBlock(item, side, label) {
+    const rating = itemRating(item, side);
+    const block = document.createElement("span");
+    block.className = `compare-anime-rating is-${side}`;
+    block.append(
+      createTextElement("small", "", label),
+      createTextElement("strong", "", ratingLabel(rating)),
+    );
+    return block;
+  }
+
+  function ratingBlocks(item, side) {
+    const host = document.createElement("div");
+    host.className = "compare-anime-rating-row";
+    if (side === "both") {
+      host.append(
+        createRatingBlock(item, "current", "你"),
+        createRatingBlock(item, "peer", "对方"),
+      );
+    } else {
+      host.append(createRatingBlock(item, side, side === "peer" ? "对方" : "评分"));
+    }
+    return host;
+  }
+
+  function createAnimeCard(item, side) {
+    const card = document.createElement("article");
+    card.className = "compare-anime-card";
+    const body = document.createElement("div");
+    body.className = "compare-anime-card-body";
+    body.append(
+      createTextElement("span", "compare-anime-year", itemYear(item) ? `${itemYear(item)} · ${seasonLabel(item.season)}` : seasonLabel(item.season) || "年代未标注"),
+      createTextElement("h4", "", item.title),
+      ratingBlocks(item, side),
+    );
+    card.append(createCompareCover(item), body);
+    return card;
+  }
+
+  function createAnimeRow(item, side) {
+    const row = document.createElement("article");
+    row.className = "compare-anime-row";
+    const copy = document.createElement("div");
+    copy.className = "compare-anime-row-copy";
+    copy.append(
+      createTextElement("strong", "", item.title),
+      createTextElement("span", "", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
+    );
+    row.append(copy, ratingBlocks(item, side));
+    return row;
+  }
+
+  function renderLibraryCollection(container, items, view, side, options = {}) {
+    const cardView = view === "card";
     renderPaginatedCollection(container, items, {
-      pageSize: listLimit,
+      pageSize: cardView ? 12 : listLimit,
       unit: "部",
-      ariaLabel,
-      bodyClass: "compare-page-list",
-      emptyText: "暂无作品",
-      renderItem(item) {
-        const row = document.createElement("div");
-        row.className = "compare-item";
-        row.append(createTextElement("strong", "", item.title));
-        const meta = [
-          seasonLabel(item.season),
-          `评分 ${ratingLabel(item.rating)}`,
-          mode === "shared"
-            ? `对方 ${ratingLabel(item.peerRating)}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" · ");
-        row.append(createTextElement("span", "", meta));
-        return row;
-      },
+      ariaLabel: options.ariaLabel,
+      bodyClass: cardView ? "compare-anime-card-grid" : "compare-anime-list",
+      emptyText: options.emptyText || "没有符合条件的作品",
+      renderItem: (item) => cardView ? createAnimeCard(item, side) : createAnimeRow(item, side),
     });
   }
 
-  function renderRatingDifferences(items) {
-    renderPaginatedCollection(ratingDifferenceList, items, {
-      pageSize: ratingDifferenceLimit,
-      unit: "部",
-      ariaLabel: "分页查看共同作品评分差",
-      bodyClass: "compare-page-list is-rating-differences",
-      emptyText: "共同作品中还没有双方都已评分的条目",
-      renderItem(item) {
-        const row = document.createElement("div");
-        row.className = "rating-difference-item";
-        const copy = document.createElement("div");
-        copy.append(createTextElement("strong", "", item.title));
-        copy.append(
-          createTextElement(
-            "span",
-            "",
-            `当前 ${ratingLabel(item.rating)} · 对方 ${ratingLabel(item.peerRating)}`,
-          ),
-        );
-        const difference = item.ratingDifference;
-        const value = createTextElement(
-          "span",
-          `rating-difference-value ${
-            difference > 0 ? "is-positive" : "is-negative"
-          }`,
-          `${difference > 0 ? "+" : ""}${difference.toFixed(1)}`,
-        );
-        row.append(copy, value);
-        return row;
-      },
+  function bindViewControl(name, onChange) {
+    const control = section.querySelector(`[data-view-control="${name}"]`);
+    if (!control) return;
+    const buttons = [...control.querySelectorAll("[data-view-mode]")];
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        for (const candidate of buttons) {
+          const active = candidate === button;
+          candidate.classList.toggle("is-active", active);
+          candidate.setAttribute("aria-pressed", String(active));
+        }
+        onChange(button.dataset.viewMode);
+      });
+    });
+  }
+
+  function renderDiscoveryCollection() {
+    if (!comparisonModel) return;
+    const items = filterAndSortCollection(comparisonModel.peerOnly, {
+      search: discoverySearch.value,
+      ratingFilter: discoveryRatingFilter.value,
+      sort: discoverySort.value,
+      ratingSide: "peer",
+    });
+    discoveryResultSummary.textContent = `共 ${items.length} 部符合条件 · ${discoveryView === "card" ? "卡片视图" : "列表视图"}`;
+    renderLibraryCollection(discoveryCollection, items, discoveryView, "peer", {
+      ariaLabel: "分页查看片单灵感",
+      emptyText: "没有符合条件的对方独有收藏",
+    });
+  }
+
+  function renderOverlapCollection() {
+    if (!comparisonModel) return;
+    const sources = {
+      shared: { items: comparisonModel.shared, side: "both", label: "共同收藏" },
+      currentOnly: { items: comparisonModel.currentOnly, side: "current", label: "仅当前档案" },
+      peerOnly: { items: comparisonModel.peerOnly, side: "peer", label: "仅对方档案" },
+    };
+    const source = sources[overlapScope] || sources.shared;
+    const items = filterAndSortCollection(source.items, {
+      search: overlapSearch.value,
+      ratingFilter: overlapRatingFilter.value,
+      sort: overlapSort.value,
+      ratingSide: source.side === "peer" ? "peer" : "current",
+    });
+    overlapResultSummary.textContent = `${source.label} · 共 ${items.length} 部符合条件 · ${overlapView === "card" ? "卡片视图" : "列表视图"}`;
+    renderLibraryCollection(overlapCollection, items, overlapView, source.side, {
+      ariaLabel: `分页查看${source.label}`,
+      emptyText: `${source.label}中没有符合条件的作品`,
     });
   }
 
@@ -1352,50 +1530,279 @@
     return `${value > 0 ? "+" : ""}${value.toFixed(1)}${suffix}`;
   }
 
-  function renderOverviewPairs(comparison) {
-    compareOverviewPairs.replaceChildren();
-    const rows = [
-      ["收藏总量", comparison.currentProfile.total, comparison.peerProfile.total, " 部"],
-      ["已评分", comparison.currentProfile.rated, comparison.peerProfile.rated, " 部"],
-      ["平均评分", ratingLabel(comparison.currentProfile.averageRating), ratingLabel(comparison.peerProfile.averageRating), ""],
-      ["评分波动", ratingLabel(comparison.currentProfile.ratingDeviation), ratingLabel(comparison.peerProfile.ratingDeviation), ""],
-      ["短评覆盖", comparison.currentProfile.coverage.review, comparison.peerProfile.coverage.review, "%"],
-      ["近 30 天新增", comparison.currentProfile.recent30, comparison.peerProfile.recent30, " 部"],
-      ["近一年新增", comparison.currentProfile.recent365, comparison.peerProfile.recent365, " 部"],
-    ];
-    for (const [label, current, peer, suffix] of rows) {
-      const row = document.createElement("div");
-      row.className = "compare-pair-row";
-      row.append(createTextElement("span", "compare-pair-name", label));
-      row.append(createTextElement("strong", "is-current", `${current}${suffix}`));
-      row.append(createTextElement("strong", "is-peer", `${peer}${suffix}`));
-      compareOverviewPairs.append(row);
+  function appendChartLegend(container, entries) {
+    const legend = document.createElement("div");
+    legend.className = "compare-chart-legend";
+    for (const [label, value, className] of entries) {
+      const item = document.createElement("div");
+      item.className = `compare-chart-legend-item ${className}`;
+      item.append(
+        createTextElement("i", "", ""),
+        createTextElement("span", "", label),
+        createTextElement("strong", "", String(value)),
+      );
+      legend.append(item);
     }
+    container.append(legend);
   }
 
-  function renderDiscoveryList(comparison) {
-    const discoveries = [...comparison.peerOnly]
+  function renderOverviewOverlap(comparison) {
+    compareOverviewOverlapChart.replaceChildren();
+    const currentOnly = comparison.currentOnly.length;
+    const peerOnly = comparison.peerOnly.length;
+    const shared = comparison.shared.length;
+    const total = currentOnly + peerOnly + shared;
+    const currentPercent = percent(currentOnly, total);
+    const sharedPercent = percent(shared, total);
+    const peerEnd = Math.min(100, currentPercent + sharedPercent);
+    const layout = document.createElement("div");
+    layout.className = "compare-overlap-visual";
+    const donut = document.createElement("div");
+    donut.className = "compare-overlap-donut";
+    donut.style.background = `conic-gradient(var(--teal) 0 ${currentPercent}%, var(--dark) ${currentPercent}% ${peerEnd}%, var(--accent) ${peerEnd}% 100%)`;
+    const center = document.createElement("div");
+    center.className = "compare-overlap-center";
+    center.append(
+      createTextElement("strong", "", `${comparison.overlapPercent}%`),
+      createTextElement("span", "", "重合率"),
+    );
+    donut.append(center);
+    layout.append(donut);
+    appendChartLegend(layout, [
+      ["仅当前档案", `${currentOnly} 部`, "is-current"],
+      ["共同收藏", `${shared} 部`, "is-shared"],
+      ["仅对方档案", `${peerOnly} 部`, "is-peer"],
+    ]);
+    compareOverviewOverlapChart.append(layout);
+  }
+
+  function renderOverviewCharts(comparison) {
+    renderOverviewOverlap(comparison);
+    compareOverviewRatingMeta.textContent = `均分 ${ratingLabel(comparison.currentProfile.averageRating)} / ${ratingLabel(comparison.peerProfile.averageRating)}`;
+    renderComparisonBars(
+      compareOverviewRatingChart,
+      comparison.currentProfile.ratings,
+      comparison.peerProfile.ratings,
+    );
+    const preferences = decadePreferences(comparison);
+    const overviewDecades = [...preferences.rows]
       .sort(
         (left, right) =>
-          (Number.isFinite(right.rating) ? right.rating : -1) -
-            (Number.isFinite(left.rating) ? left.rating : -1) ||
-          left.title.localeCompare(right.title, "zh-CN"),
+          right.currentCount + right.peerCount - left.currentCount - left.peerCount,
+      )
+      .slice(0, 6);
+    compareOverviewYearMeta.textContent = `${preferences.currentPreferred?.label ?? "—"} / ${preferences.peerPreferred?.label ?? "—"}`;
+    renderComparisonBars(
+      compareOverviewYearChart,
+      overviewDecades.map((item) => ({ label: item.label, count: item.currentCount })),
+      overviewDecades.map((item) => ({ label: item.label, count: item.peerCount })),
+    );
+    renderOverviewTags(comparison);
+    renderOverviewCoverage(comparison);
+  }
+
+  function renderOverviewTags(comparison) {
+    compareOverviewTagChart.replaceChildren();
+    const tags = comparison.tagComparison;
+    if (!tags.available) {
+      compareOverviewTagMeta.textContent = "公开标签缓存不足";
+      compareOverviewTagChart.append(
+        createTextElement("p", "compare-empty", tags.status),
       );
-    renderPaginatedCollection(compareDiscoveryList, discoveries, {
-      pageSize: 6,
+      return;
+    }
+    const currentCoverage = percent(tags.currentTagged, comparison.currentProfile.total);
+    const peerCoverage = percent(tags.peerTagged, comparison.peerProfile.total);
+    compareOverviewTagMeta.textContent = `共同标签 ${tags.sharedTagCount} 个`;
+    const stats = document.createElement("div");
+    stats.className = "compare-tag-overview-stats";
+    for (const [label, current, peer] of [
+      ["标签种类", tags.currentUniqueTags, tags.peerUniqueTags],
+      ["标签覆盖", `${currentCoverage}%`, `${peerCoverage}%`],
+      ["已标注作品", `${tags.currentTagged} 部`, `${tags.peerTagged} 部`],
+    ]) {
+      const card = document.createElement("div");
+      card.append(
+        createTextElement("span", "", label),
+        createTextElement("strong", "is-current", String(current)),
+        createTextElement("strong", "is-peer", String(peer)),
+      );
+      stats.append(card);
+    }
+    const cloud = document.createElement("div");
+    cloud.className = "compare-tag-cloud";
+    for (const tag of tags.topTags) {
+      cloud.append(
+        createTextElement(
+          "span",
+          "",
+          `${tag.name} ${tag.currentCount} / ${tag.peerCount}`,
+        ),
+      );
+    }
+    compareOverviewTagChart.append(stats, cloud);
+  }
+
+  function renderOverviewCoverage(comparison) {
+    compareOverviewCoverageChart.replaceChildren();
+    const metrics = [
+      ["评分", comparison.currentProfile.ratedPercent, comparison.peerProfile.ratedPercent],
+      ["短评", comparison.currentProfile.coverage.review, comparison.peerProfile.coverage.review],
+      ["封面", comparison.currentProfile.coverage.cover, comparison.peerProfile.coverage.cover],
+      ["年代", comparison.currentProfile.coverage.year, comparison.peerProfile.coverage.year],
+      ["季度", comparison.currentProfile.coverage.season, comparison.peerProfile.coverage.season],
+      ["外部 ID", comparison.currentProfile.coverage.externalId, comparison.peerProfile.coverage.externalId],
+      ["Bangumi ID", comparison.currentProfile.coverage.bangumiId, comparison.peerProfile.coverage.bangumiId],
+    ];
+    const list = document.createElement("div");
+    list.className = "compare-coverage-chart";
+    for (const [label, current, peer] of metrics) {
+      const row = document.createElement("div");
+      row.className = "compare-coverage-row";
+      row.append(createTextElement("strong", "", label));
+      for (const [side, value] of [["current", current], ["peer", peer]]) {
+        const metric = document.createElement("div");
+        metric.className = `compare-coverage-line is-${side}`;
+        const track = document.createElement("span");
+        const fill = document.createElement("i");
+        fill.style.width = `${value}%`;
+        track.append(fill);
+        metric.append(
+          track,
+          createTextElement("b", "", `${value}%`),
+        );
+        row.append(metric);
+      }
+      list.append(row);
+    }
+    compareOverviewCoverageChart.append(list);
+  }
+
+  function renderRatingBalance(rating) {
+    compareRatingBalance.replaceChildren();
+    const total = rating.higher + rating.lower + rating.tied;
+    if (!total) {
+      compareRatingBalance.append(
+        createTextElement("p", "compare-empty", "还没有双方都已评分的共同作品。"),
+      );
+      return;
+    }
+    const higher = percent(rating.higher, total);
+    const tied = percent(rating.tied, total);
+    const peerEnd = Math.min(100, higher + tied);
+    const track = document.createElement("div");
+    track.className = "compare-balance-track";
+    track.style.background = `linear-gradient(90deg, var(--teal) 0 ${higher}%, var(--line-strong) ${higher}% ${peerEnd}%, var(--accent) ${peerEnd}% 100%)`;
+    const labels = document.createElement("div");
+    labels.className = "compare-balance-labels";
+    labels.append(
+      createTextElement("span", "is-current", `你更高 ${rating.higher}`),
+      createTextElement("span", "is-tied", `同分 ${rating.tied}`),
+      createTextElement("span", "is-peer", `对方更高 ${rating.lower}`),
+    );
+    compareRatingBalance.append(track, labels);
+  }
+
+  function ratingDifferenceBadge(item, compact = false) {
+    const difference = item.ratingDifference;
+    const direction = difference > 0 ? "current" : difference < 0 ? "peer" : "tied";
+    const label = difference > 0 ? "你更高" : difference < 0 ? "对方更高" : "同分";
+    const badge = document.createElement("div");
+    badge.className = `compare-rating-difference is-${direction}${compact ? " is-compact" : ""}`;
+    badge.append(
+      createTextElement(
+        "strong",
+        "",
+        difference === 0 ? "0.0" : `${difference > 0 ? "+" : ""}${difference.toFixed(1)}`,
+      ),
+      createTextElement("span", "", label),
+    );
+    return badge;
+  }
+
+  function createRatingDifferenceCard(item) {
+    const card = document.createElement("article");
+    card.className = "compare-rating-diff-card";
+    const body = document.createElement("div");
+    body.className = "compare-rating-diff-body";
+    body.append(
+      createTextElement("span", "compare-anime-year", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
+      createTextElement("h4", "", item.title),
+      ratingBlocks(item, "both"),
+      ratingDifferenceBadge(item),
+    );
+    card.append(createCompareCover(item), body);
+    return card;
+  }
+
+  function createRatingDifferenceRow(item) {
+    const row = document.createElement("article");
+    row.className = "compare-rating-diff-row";
+    const copy = document.createElement("div");
+    copy.className = "compare-rating-diff-copy";
+    copy.append(
+      createTextElement("strong", "", item.title),
+      createTextElement("span", "", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
+    );
+    const scores = document.createElement("div");
+    scores.className = "compare-rating-diff-scores";
+    scores.append(
+      createRatingBlock(item, "current", "你"),
+      ratingDifferenceBadge(item, true),
+      createRatingBlock(item, "peer", "对方"),
+    );
+    row.append(copy, scores);
+    return row;
+  }
+
+  function filterRatingDifferences(items) {
+    const needle = normalizeCollectionText(ratingDifferenceSearch.value).trim();
+    const minimum = ratingDifferenceFilter.value;
+    const filtered = items.filter((item) => {
+      if (minimum === "0" && item.ratingDifference !== 0) return false;
+      if (minimum !== "all" && minimum !== "0" && Math.abs(item.ratingDifference) < Number(minimum)) return false;
+      if (!needle) return true;
+      return normalizeCollectionText([
+        item.title,
+        itemYear(item),
+        seasonLabel(item.season),
+      ].filter(Boolean).join(" ")).includes(needle);
+    });
+    const sorted = [...filtered];
+    sorted.sort((left, right) => {
+      if (ratingDifferenceSort.value === "current-higher") {
+        return (right.ratingDifference > 0) - (left.ratingDifference > 0) ||
+          Math.abs(right.ratingDifference) - Math.abs(left.ratingDifference);
+      }
+      if (ratingDifferenceSort.value === "peer-higher") {
+        return Number(right.ratingDifference < 0) - Number(left.ratingDifference < 0) ||
+          Math.abs(right.ratingDifference) - Math.abs(left.ratingDifference);
+      }
+      if (ratingDifferenceSort.value === "title") {
+        return left.title.localeCompare(right.title, "zh-CN");
+      }
+      return Math.abs(right.ratingDifference) - Math.abs(left.ratingDifference);
+    });
+    return sorted;
+  }
+
+  function renderRatingDifferences(items) {
+    const filtered = filterRatingDifferences(items);
+    const averageGap = comparisonModel?.ratingComparison.averageGap;
+    ratingDifferenceSummary.textContent = [
+      `共 ${filtered.length} 部符合条件`,
+      Number.isFinite(averageGap) ? `平均绝对分差 ${averageGap.toFixed(1)}` : "",
+      ratingDifferenceView === "card" ? "卡片视图" : "列表视图",
+    ].filter(Boolean).join(" · ");
+    renderPaginatedCollection(ratingDifferenceList, filtered, {
+      pageSize: ratingDifferenceView === "card" ? 8 : ratingDifferenceLimit,
       unit: "部",
-      ariaLabel: "分页查看对方独有收藏",
-      bodyClass: "compare-page-list",
-      emptyText: "对方的收藏已经全部被你发现。",
-      renderItem(item) {
-        const row = document.createElement("div");
-        row.className = "compare-discovery-item";
-        const copy = document.createElement("div");
-        copy.append(createTextElement("strong", "", item.title));
-        copy.append(createTextElement("span", "", seasonLabel(item.season) || "年代未标注"));
-        row.append(copy, createTextElement("b", "", ratingLabel(item.rating)));
-        return row;
-      },
+      ariaLabel: "分页查看共同作品评分差",
+      bodyClass: ratingDifferenceView === "card" ? "compare-rating-diff-grid" : "compare-rating-diff-list",
+      emptyText: "没有符合条件的共同评分作品",
+      renderItem: (item) => ratingDifferenceView === "card"
+        ? createRatingDifferenceCard(item)
+        : createRatingDifferenceRow(item),
     });
   }
 
@@ -1532,9 +1939,7 @@
     currentHigherCount.textContent = String(rating.higher);
     peerHigherCount.textContent = String(rating.lower);
     tiedRatingCount.textContent = String(rating.tied);
-    ratingDifferenceSummary.textContent = rating.averageGap === null
-      ? "只计入双方都已评分"
-      : `平均绝对分差 ${rating.averageGap.toFixed(1)}`;
+    ratingDifferenceTabCount.textContent = String(comparison.ratingDifferences.length);
     const maximum = rating.maximumDifference;
     if (maximum) {
       maxRatingDifference.textContent = Math.abs(maximum.ratingDifference).toFixed(1);
@@ -1547,6 +1952,7 @@
       maxRatingDifferenceTitle.textContent = "还没有可比较的共同评分";
       maxRatingDifferenceCopy.textContent = "双方都评分后，这里会显示分歧最大的共同作品。";
     }
+    renderRatingBalance(rating);
     renderRatingDifferences(comparison.ratingDifferences);
     renderComparisonBars(
       compareRatings,
@@ -1735,6 +2141,30 @@
     }
   }
 
+  function activateOverlapScope(scope) {
+    overlapScope = ["shared", "currentOnly", "peerOnly"].includes(scope)
+      ? scope
+      : "shared";
+    for (const button of overlapTabs.querySelectorAll("[data-overlap-scope]")) {
+      const active = button.dataset.overlapScope === overlapScope;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+    }
+    renderOverlapCollection();
+  }
+
+  function activateRatingPanel(view) {
+    const valid = view === "differences" ? "differences" : "overview";
+    for (const button of section.querySelectorAll("[data-rating-view]")) {
+      const active = button.dataset.ratingView === valid;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+    }
+    for (const panel of section.querySelectorAll("[data-rating-panel]")) {
+      panel.hidden = panel.dataset.ratingPanel !== valid;
+    }
+  }
+
   function createComparisonShareData(comparison, peer) {
     const decades = decadePreferences(comparison);
     return {
@@ -1816,6 +2246,7 @@
   }
 
   function renderComparison(comparison, peer) {
+    comparisonModel = comparison;
     currentTotal.textContent = comparison.currentProfile.total.toLocaleString("zh-CN");
     peerTotal.textContent = comparison.peerProfile.total.toLocaleString("zh-CN");
     sharedTotal.textContent = comparison.shared.length.toLocaleString("zh-CN");
@@ -1829,35 +2260,12 @@
     peerCoverage.textContent = `评分覆盖 ${comparison.peerProfile.ratedPercent}%`;
     overlapPercent.textContent = `重合率 ${comparison.overlapPercent}%`;
     overlapBar.style.width = `${comparison.overlapPercent}%`;
-    sharedCount.textContent = String(comparison.shared.length);
-    currentOnlyCount.textContent = String(comparison.currentOnly.length);
-    peerOnlyCount.textContent = String(comparison.peerOnly.length);
-    renderSimpleList(
-      sharedList,
-      comparison.shared,
-      "shared",
-      "分页查看共同收录",
-    );
-    renderSimpleList(
-      currentOnlyList,
-      comparison.currentOnly,
-      "only",
-      "分页查看仅当前档案收录",
-    );
-    renderSimpleList(
-      peerOnlyList,
-      comparison.peerOnly,
-      "only",
-      "分页查看仅对方档案收录",
-    );
-    currentOnlyMetric.textContent = String(comparison.currentOnly.length);
-    peerOnlyMetric.textContent = String(comparison.peerOnly.length);
-    sharedRatedMetric.textContent = String(comparison.ratingDifferences.length);
-    ratingGapMetric.textContent = comparison.ratingComparison.averageGap === null
-      ? "—"
-      : comparison.ratingComparison.averageGap.toFixed(1);
-    renderOverviewPairs(comparison);
-    renderDiscoveryList(comparison);
+    for (const item of section.querySelectorAll("[data-overlap-count]")) {
+      item.textContent = String(comparison[item.dataset.overlapCount]?.length ?? 0);
+    }
+    renderOverviewCharts(comparison);
+    renderDiscoveryCollection();
+    renderOverlapCollection();
     renderYearComparison(comparison);
     renderRatingComparison(comparison);
     renderCompleteness(comparison);
@@ -1977,6 +2385,42 @@
       next.focus();
     });
   });
+  discoverySearch.addEventListener("input", renderDiscoveryCollection);
+  discoveryRatingFilter.addEventListener("change", renderDiscoveryCollection);
+  discoverySort.addEventListener("change", renderDiscoveryCollection);
+  bindViewControl("discovery", (view) => {
+    discoveryView = view;
+    renderDiscoveryCollection();
+  });
+  overlapTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-overlap-scope]");
+    if (button) activateOverlapScope(button.dataset.overlapScope);
+  });
+  overlapSearch.addEventListener("input", renderOverlapCollection);
+  overlapRatingFilter.addEventListener("change", renderOverlapCollection);
+  overlapSort.addEventListener("change", renderOverlapCollection);
+  bindViewControl("overlap", (view) => {
+    overlapView = view;
+    renderOverlapCollection();
+  });
+  section.querySelector("[data-rating-tabs]").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-rating-view]");
+    if (button) activateRatingPanel(button.dataset.ratingView);
+  });
+  ratingDifferenceSearch.addEventListener("input", () => {
+    if (comparisonModel) renderRatingDifferences(comparisonModel.ratingDifferences);
+  });
+  ratingDifferenceFilter.addEventListener("change", () => {
+    if (comparisonModel) renderRatingDifferences(comparisonModel.ratingDifferences);
+  });
+  ratingDifferenceSort.addEventListener("change", () => {
+    if (comparisonModel) renderRatingDifferences(comparisonModel.ratingDifferences);
+  });
+  bindViewControl("rating-difference", (view) => {
+    ratingDifferenceView = view;
+    if (comparisonModel) renderRatingDifferences(comparisonModel.ratingDifferences);
+  });
+  activateRatingPanel("overview");
   form.addEventListener("submit", compare);
   activateCompareTab("overview", false);
 

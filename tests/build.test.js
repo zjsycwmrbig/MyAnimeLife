@@ -344,6 +344,11 @@ test("ships three independently buildable templates", async () => {
     assert.match(compareHtml, /compare-year-preference-summary/u);
     assert.doesNotMatch(compareHtml, /年代中位数/u);
     assert.match(compareHtml, /id="compareRatings"/u);
+    assert.match(compareHtml, /data-compare-tab="discovery"/u);
+    assert.match(compareHtml, /id="compareOverviewOverlapChart"/u);
+    assert.match(compareHtml, /data-overlap-tabs/u);
+    assert.match(compareHtml, /data-rating-tabs/u);
+    assert.match(compareHtml, /id="ratingDifferenceList"/u);
     assert.match(compareHtml, /data-compare-tab="taste"/u);
     assert.match(compareHtml, /id="share-comparison-data"/u);
     assert.match(compareHtml, /share\.js\?v=20261025T120000000Z/u);
@@ -362,6 +367,9 @@ test("ships three independently buildable templates", async () => {
       "utf8",
     );
     assert.match(compareScript, /renderPaginatedCollection/u);
+    assert.match(compareScript, /renderOverviewCharts/u);
+    assert.match(compareScript, /renderDiscoveryCollection/u);
+    assert.match(compareScript, /createRatingDifferenceCard/u);
     assert.doesNotMatch(compareScript, /部未展开/u);
     const pagesWorkflow = await fs.readFile(
       path.join(root, ".github", "workflows", "pages.yml"),
