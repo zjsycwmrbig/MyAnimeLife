@@ -2604,11 +2604,38 @@
   margin: 0;
   margin-left: auto;
 }
+.compare-tabs .insight-tab {
+  font-size: 12px;
+}
 .compare-tab-panel {
   padding: 24px 28px 30px;
 }
 .compare-tab-panel[hidden] {
   display: none;
+}
+.compare-overview-summary {
+  overflow: hidden;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.compare-overview-summary > div {
+  min-height: 136px;
+  padding: 22px 26px;
+}
+.compare-overview-summary span,
+.compare-overview-summary small {
+  font-size: 11px;
+}
+.compare-overview-summary strong {
+  margin: 8px 0 5px;
+  font-size: 40px;
+}
+.compare-tab-panel .compare-list-heading h3 {
+  font-size: 14px;
+}
+.compare-tab-panel .compare-list-heading span {
+  font-size: 11px;
 }
 .compare-subtabs {
   display: flex;
@@ -2633,7 +2660,7 @@
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -2644,7 +2671,7 @@
   border-radius: 10px;
   background: var(--line);
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -2682,19 +2709,19 @@
 }
 .compare-chart-heading span {
   color: var(--accent-dark);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 800;
   letter-spacing: 1.4px;
 }
 .compare-chart-heading h3 {
   margin: 4px 0 0;
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: 24px;
   font-weight: 650;
 }
 .compare-chart-heading small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   text-align: right;
 }
 .compare-overview-chart {
@@ -2729,7 +2756,7 @@
 .compare-overlap-center span {
   margin-top: 5px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-chart-legend {
   display: grid;
@@ -2761,10 +2788,10 @@
 }
 .compare-chart-legend-item span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-chart-legend-item strong {
-  font-size: 11px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .compare-tag-overview-stats {
@@ -2783,11 +2810,11 @@
 }
 .compare-tag-overview-stats span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-tag-overview-stats strong {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 21px;
   font-variant-numeric: tabular-nums;
 }
 .compare-tag-overview-stats strong.is-current {
@@ -2807,7 +2834,7 @@
   border-radius: 14px;
   background: var(--surface-strong);
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-coverage-chart {
   display: grid;
@@ -2823,7 +2850,7 @@
 }
 .compare-coverage-row > strong {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 .compare-coverage-line {
   display: grid;
@@ -2850,7 +2877,7 @@
 }
 .compare-coverage-line b {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -2870,7 +2897,7 @@
   gap: 5px;
   min-width: 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 750;
 }
 .compare-collection-toolbar input,
@@ -2884,7 +2911,7 @@
   background: var(--surface);
   color: var(--ink);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
 }
 .compare-collection-toolbar input:focus,
 .compare-collection-toolbar select:focus {
@@ -2922,7 +2949,7 @@
   min-height: 22px;
   margin: 0 0 10px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .compare-anime-card-grid {
@@ -2936,6 +2963,12 @@
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+.compare-anime-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: 0 10px 24px rgb(23 32 27 / 10%);
 }
 .compare-anime-cover {
   position: relative;
@@ -2944,26 +2977,72 @@
   place-items: center;
   overflow: hidden;
   background: var(--paper);
+  color: inherit;
+  text-decoration: none;
 }
 .compare-anime-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 260ms ease;
 }
-.compare-anime-cover.is-missing span {
-  color: var(--muted);
+.compare-anime-cover:hover img {
+  transform: scale(1.025);
+}
+.compare-cover-scores {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  pointer-events: none;
+}
+.compare-cover-score {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: baseline;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 4px;
+  background: rgb(23 32 27 / 84%);
+  color: #fff;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(7px);
+}
+.compare-cover-score small {
+  color: rgb(255 255 255 / 72%);
   font-size: 8px;
+  font-weight: 750;
+}
+.compare-cover-score strong {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.compare-cover-score.is-current {
+  border-bottom: 2px solid var(--teal);
+}
+.compare-cover-score.is-peer {
+  border-bottom: 2px solid var(--accent);
+}
+.compare-anime-cover.is-missing > span {
+  color: var(--muted);
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 1.6px;
 }
 .compare-anime-card-body {
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 5px;
+  padding: 12px 13px 14px;
 }
 .compare-anime-year {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 .compare-anime-card h4,
 .compare-rating-diff-card h4 {
@@ -2971,11 +3050,26 @@
   min-height: 2.8em;
   overflow: hidden;
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 750;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+.compare-item-link {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.compare-item-link:hover,
+.compare-item-link:focus-visible {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+.compare-item-link[target="_blank"]::after {
+  content: " ↗";
+  font-size: 0.78em;
+  font-weight: 650;
 }
 .compare-anime-rating-row {
   display: flex;
@@ -2991,11 +3085,11 @@
 }
 .compare-anime-rating small {
   color: var(--muted);
-  font-size: 7px;
+  font-size: 9px;
 }
 .compare-anime-rating strong {
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 20px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -3026,12 +3120,12 @@
   white-space: nowrap;
 }
 .compare-anime-row-copy strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .compare-anime-row-copy span {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 .compare-rating-balance {
   display: grid;
@@ -3069,8 +3163,8 @@
 }
 .compare-rating-diff-body {
   display: grid;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px;
+  padding: 12px 13px 14px;
 }
 .compare-rating-difference {
   display: flex;
@@ -3088,7 +3182,7 @@
   font-variant-numeric: tabular-nums;
 }
 .compare-rating-difference span {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
 }
 .compare-rating-difference.is-current {
@@ -3133,12 +3227,12 @@
   white-space: nowrap;
 }
 .compare-rating-diff-copy strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .compare-rating-diff-copy span {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
 }
 .compare-rating-diff-scores {
   display: grid;
@@ -3173,7 +3267,7 @@
 .compare-rating-summary span {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .compare-metric-grid article.is-accent span,
 .compare-metric-grid article.is-accent small {
@@ -3219,11 +3313,11 @@
 }
 .compare-pair-name {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .compare-pair-row strong {
   text-align: right;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .compare-pair-row strong.is-current {
@@ -3255,12 +3349,12 @@
   white-space: nowrap;
 }
 .compare-discovery-item strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .compare-discovery-item span {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-discovery-item b {
   min-width: 38px;
@@ -3280,14 +3374,14 @@
 .compare-panel-intro h3 {
   margin: 4px 0 0;
   font-family: var(--font-display);
-  font-size: 25px;
+  font-size: 27px;
   font-weight: 600;
 }
 .compare-panel-intro > p {
   max-width: 560px;
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.7;
   text-align: right;
 }
@@ -3310,7 +3404,7 @@
 .compare-extreme-diff > div:first-child span {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .compare-extreme-diff > div:first-child strong {
   display: block;
@@ -3329,7 +3423,7 @@
 .compare-extreme-diff p {
   margin: 7px 0 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .compare-year-preference-summary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3352,7 +3446,7 @@
 .compare-decade-panel .compare-list-heading p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-preference-bars {
   display: grid;
@@ -3377,7 +3471,7 @@
   font-weight: 650;
 }
 .compare-preference-row > header span {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
@@ -3399,7 +3493,7 @@
 }
 .compare-preference-line em {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-style: normal;
 }
 .compare-preference-line > span {
@@ -3424,7 +3518,7 @@
 }
 .compare-preference-line b,
 .compare-preference-line small {
-  font-size: 9px;
+  font-size: 11px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -3496,7 +3590,7 @@
   justify-content: center;
   gap: 20px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .compare-radar-legend span::before {
   display: inline-block;
@@ -3542,12 +3636,12 @@
   white-space: nowrap;
 }
 .compare-tag-deviation-row strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 .compare-tag-deviation-row span {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 .compare-tag-deviation-row b {
   text-align: right;
@@ -3579,7 +3673,7 @@
   border-bottom: 0;
 }
 .compare-completeness-name {
-  font-size: 11px;
+  font-size: 12px;
 }
 .compare-completeness-metric {
   display: grid;
@@ -3606,14 +3700,14 @@
 }
 .compare-completeness-metric b {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .compare-footnote {
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.65;
 }
 @media (max-width: 980px) {
@@ -3634,6 +3728,18 @@
   .compare-taste-grid {
     grid-template-columns: 1fr;
   }
+  .compare-visual-grid {
+    grid-template-columns: 1fr;
+  }
+  .compare-chart-card-wide {
+    grid-column: auto;
+  }
+  .compare-anime-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .compare-rating-diff-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 760px) {
   .compare-result-toolbar {
@@ -3641,6 +3747,21 @@
   }
   .compare-tab-panel {
     padding: 18px 16px 22px;
+  }
+  .compare-collection-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .compare-toolbar-search {
+    grid-column: 1 / -1;
+  }
+  .compare-view-switch {
+    justify-self: end;
+  }
+  .compare-anime-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .compare-rating-diff-grid {
+    grid-template-columns: 1fr;
   }
   .compare-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3695,5 +3816,26 @@
   }
   .compare-tag-radar {
     min-height: 280px;
+  }
+  .compare-anime-card-grid {
+    gap: 9px;
+  }
+  .compare-cover-scores {
+    right: 6px;
+    bottom: 6px;
+    left: 6px;
+    gap: 4px;
+  }
+  .compare-cover-score {
+    min-height: 25px;
+    flex: 1;
+    justify-content: center;
+    padding: 4px 5px;
+  }
+  .compare-cover-score small {
+    font-size: 7px;
+  }
+  .compare-cover-score strong {
+    font-size: 14px;
   }
 }

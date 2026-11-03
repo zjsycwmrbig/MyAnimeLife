@@ -1354,13 +1354,86 @@
     return /^https:\/\//iu.test(candidate) ? candidate : "";
   }
 
-  function createCompareCover(item) {
-    const frame = document.createElement("div");
+  function itemLinkUrl(item, side = "current") {
+    if (side !== "peer" && item.id) {
+      return `../anime/${encodeURIComponent(item.id)}/`;
+    }
+    const externalIds = item.externalIds ?? {};
+    if (externalIds.bangumi) {
+      return `https://bgm.tv/subject/${encodeURIComponent(externalIds.bangumi)}`;
+    }
+    if (externalIds.bilibiliMedia) {
+      return `https://www.bilibili.com/bangumi/media/md${encodeURIComponent(externalIds.bilibiliMedia)}`;
+    }
+    if (externalIds.bilibiliSeason) {
+      return `https://www.bilibili.com/bangumi/play/ss${encodeURIComponent(externalIds.bilibiliSeason)}`;
+    }
+    if (externalIds.anilist) {
+      return `https://anilist.co/anime/${encodeURIComponent(externalIds.anilist)}`;
+    }
+    if (externalIds.mal) {
+      return `https://myanimelist.net/anime/${encodeURIComponent(externalIds.mal)}`;
+    }
+    const title = String(item.title ?? "").trim();
+    return title
+      ? `https://bgm.tv/subject_search/${encodeURIComponent(title)}?cat=all`
+      : "";
+  }
+
+  function applyItemLink(link, url) {
+    link.href = url;
+    if (/^https?:\/\//iu.test(url)) {
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+    }
+  }
+
+  function createItemTitle(item, side, tagName = "strong") {
+    const heading = document.createElement(tagName);
+    const url = itemLinkUrl(item, side);
+    if (!url) {
+      heading.textContent = item.title;
+      return heading;
+    }
+    const link = document.createElement("a");
+    link.className = "compare-item-link";
+    link.textContent = item.title;
+    applyItemLink(link, url);
+    heading.append(link);
+    return heading;
+  }
+
+  function appendCoverScores(frame, item, side) {
+    const sides = side === "both"
+      ? [["current", "你"], ["peer", "对方"]]
+      : [[side, side === "peer" ? "对方" : "评分"]];
+    const scores = document.createElement("div");
+    scores.className = "compare-cover-scores";
+    for (const [ratingSide, label] of sides) {
+      const score = document.createElement("span");
+      score.className = `compare-cover-score is-${ratingSide}`;
+      score.append(
+        createTextElement("small", "", label),
+        createTextElement("strong", "", ratingLabel(itemRating(item, ratingSide))),
+      );
+      scores.append(score);
+    }
+    frame.append(scores);
+  }
+
+  function createCompareCover(item, side = "current") {
+    const url = itemLinkUrl(item, side);
+    const frame = document.createElement(url ? "a" : "div");
     frame.className = "compare-anime-cover";
+    if (url) {
+      applyItemLink(frame, url);
+      frame.setAttribute("aria-label", `查看《${item.title}》`);
+    }
     const source = coverUrl(item.coverUrl);
     if (!source) {
       frame.classList.add("is-missing");
       frame.append(createTextElement("span", "", "NO COVER"));
+      appendCoverScores(frame, item, side);
       return frame;
     }
     const image = document.createElement("img");
@@ -1375,6 +1448,7 @@
       frame.append(createTextElement("span", "", "NO COVER"));
     }, { once: true });
     frame.append(image);
+    appendCoverScores(frame, item, side);
     return frame;
   }
 
@@ -1410,10 +1484,9 @@
     body.className = "compare-anime-card-body";
     body.append(
       createTextElement("span", "compare-anime-year", itemYear(item) ? `${itemYear(item)} · ${seasonLabel(item.season)}` : seasonLabel(item.season) || "年代未标注"),
-      createTextElement("h4", "", item.title),
-      ratingBlocks(item, side),
+      createItemTitle(item, side, "h4"),
     );
-    card.append(createCompareCover(item), body);
+    card.append(createCompareCover(item, side), body);
     return card;
   }
 
@@ -1423,7 +1496,7 @@
     const copy = document.createElement("div");
     copy.className = "compare-anime-row-copy";
     copy.append(
-      createTextElement("strong", "", item.title),
+      createItemTitle(item, side, "strong"),
       createTextElement("span", "", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
     );
     row.append(copy, ratingBlocks(item, side));
@@ -1727,11 +1800,10 @@
     body.className = "compare-rating-diff-body";
     body.append(
       createTextElement("span", "compare-anime-year", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
-      createTextElement("h4", "", item.title),
-      ratingBlocks(item, "both"),
+      createItemTitle(item, "current", "h4"),
       ratingDifferenceBadge(item),
     );
-    card.append(createCompareCover(item), body);
+    card.append(createCompareCover(item, "both"), body);
     return card;
   }
 
@@ -1741,7 +1813,7 @@
     const copy = document.createElement("div");
     copy.className = "compare-rating-diff-copy";
     copy.append(
-      createTextElement("strong", "", item.title),
+      createItemTitle(item, "current", "strong"),
       createTextElement("span", "", [itemYear(item), seasonLabel(item.season)].filter(Boolean).join(" · ") || "年代未标注"),
     );
     const scores = document.createElement("div");

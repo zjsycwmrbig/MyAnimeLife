@@ -72,27 +72,6 @@
     <p id="compareStatus" class="compare-status" role="status" aria-live="polite">输入公开仓库地址后读取对方的轻量索引。</p>
 
     <div id="compareResults" class="compare-results" hidden>
-      <div class="compare-scoreboard">
-        <div>
-          <span>当前档案</span>
-          <strong id="currentTotal">0</strong>
-          <small id="currentAverage">均分 —</small>
-          <small id="currentCoverage">评分覆盖 —</small>
-        </div>
-        <div class="overlap-score">
-          <span>共同收藏</span>
-          <strong id="sharedTotal">0</strong>
-          <small id="overlapPercent">重合率 0%</small>
-          <span class="overlap-track" aria-hidden="true"><span id="overlapBar"></span></span>
-        </div>
-        <div>
-          <span>对方档案</span>
-          <strong id="peerTotal">0</strong>
-          <small id="peerAverage">均分 —</small>
-          <small id="peerCoverage">评分覆盖 —</small>
-        </div>
-      </div>
-
       <div class="compare-result-toolbar">
         <div>
           <p class="section-index">02 / MATCH REPORT</p>
@@ -113,6 +92,26 @@
         <div class="compare-panel-intro">
           <div><p class="section-index">TASTE PROFILE</p><h3>从收藏结构读懂彼此</h3></div>
           <p>图表直接比较双方的收藏重合、年代、评分、标签和档案覆盖，不再用长表逐项罗列。</p>
+        </div>
+        <div class="compare-scoreboard compare-overview-summary" aria-label="双方档案摘要">
+          <div>
+            <span>当前档案</span>
+            <strong id="currentTotal">0</strong>
+            <small id="currentAverage">均分 —</small>
+            <small id="currentCoverage">评分覆盖 —</small>
+          </div>
+          <div class="overlap-score">
+            <span>共同收藏</span>
+            <strong id="sharedTotal">0</strong>
+            <small id="overlapPercent">重合率 0%</small>
+            <span class="overlap-track" aria-hidden="true"><span id="overlapBar"></span></span>
+          </div>
+          <div>
+            <span>对方档案</span>
+            <strong id="peerTotal">0</strong>
+            <small id="peerAverage">均分 —</small>
+            <small id="peerCoverage">评分覆盖 —</small>
+          </div>
         </div>
         <div class="compare-visual-grid">
           <article class="compare-chart-card compare-chart-card-wide">
