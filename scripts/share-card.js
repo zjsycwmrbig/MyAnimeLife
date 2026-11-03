@@ -1041,6 +1041,27 @@
     }).join("");
   }
 
+  function comparisonPreferenceBars(rows = [], x, y, width, height, palette, limit = 7) {
+    const visible = rows.slice(0, limit);
+    const trackWidth = width - 178;
+    return visible.map((row, index) => {
+      const rowY = y + index * 38;
+      const currentPercent = Math.max(0, Math.min(100, Number(row.currentPercent) || 0));
+      const peerPercent = Math.max(0, Math.min(100, Number(row.peerPercent) || 0));
+      const difference = Number(row.difference) || 0;
+      const differenceLabel = difference === 0
+        ? "持平"
+        : `${difference > 0 ? "你 +" : "对方 +"}${Math.abs(difference).toFixed(1)}pp`;
+      return `<text x="${x}" y="${rowY + 12}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="13" font-weight="700">${escapeXml(row.label ?? "未知")}</text>
+        <rect x="${x + 88}" y="${rowY}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+        <rect x="${x + 88}" y="${rowY}" width="${Math.max(2, trackWidth * currentPercent / 100)}" height="7" rx="4" fill="${palette.ink}" opacity=".78" />
+        <rect x="${x + 88}" y="${rowY + 11}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+        <rect x="${x + 88}" y="${rowY + 11}" width="${Math.max(2, trackWidth * peerPercent / 100)}" height="7" rx="4" fill="${palette.accent}" />
+        <text x="${x + width}" y="${rowY + 14}" text-anchor="end" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="12">${currentPercent.toFixed(1)}% / ${peerPercent.toFixed(1)}%</text>
+        <text x="${x + width}" y="${rowY + 30}" text-anchor="end" fill="${difference === 0 ? palette.muted : difference > 0 ? palette.ink : palette.accent}" font-family="${FONT_STACK}" font-size="11" font-weight="700">${differenceLabel}</text>`;
+    }).join("");
+  }
+
   function comparisonTagRadar(taste, x, y, width, height, palette) {
     const tags = (taste?.tags ?? []).slice(0, 8);
     if (!taste?.available || tags.length < 3) {
@@ -1108,10 +1129,10 @@
           { label: "仅对方档案", value: `${Number(overview.peerOnlyTotal) || 0}` },
         ], contentX + 210, contentY + 58, contentWidth - 210, Math.max(80, contentHeight - 58), palette)}`;
     } else if (id === "years") {
-      const currentStats = years.currentStats ?? {};
-      const peerStats = years.peerStats ?? {};
-      content = `<text x="${contentX}" y="${contentY + 22}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="15">最早 / 中位 / 最新 · 当前 ${currentStats.oldest ?? "—"} / ${currentStats.median ?? "—"} / ${currentStats.newest ?? "—"} · 对方 ${peerStats.oldest ?? "—"} / ${peerStats.median ?? "—"} / ${peerStats.newest ?? "—"}</text>
-        ${comparisonBars(years.current, years.peer, contentX, contentY + 48, contentWidth, contentHeight - 48, palette)}`;
+      const currentPreferred = years.currentPreferred ?? {};
+      const peerPreferred = years.peerPreferred ?? {};
+      content = `<text x="${contentX}" y="${contentY + 22}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="15">你偏爱 ${escapeXml(currentPreferred.label ?? "—")}（${Number(currentPreferred.share) || 0}%） · 对方偏爱 ${escapeXml(peerPreferred.label ?? "—")}（${Number(peerPreferred.share) || 0}%） · 按年代占比差异排序</text>
+        ${comparisonPreferenceBars(years.rows, contentX, contentY + 48, contentWidth, contentHeight - 48, palette)}`;
     } else if (id === "ratings") {
       content = comparisonTiles([
         { label: "平均绝对分差", value: ratings.averageGap ?? "—" },

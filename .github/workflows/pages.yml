@@ -5,6 +5,13 @@ on:
   # Pages deployment on the repository's actual default branch. This also
   # supports template users who renamed the default branch.
   push:
+    paths-ignore:
+      - "**/*.md"
+      - "data/backups/**"
+      - "tests/**"
+      - "userscript/**"
+      - ".github/workflows/bangumi-public-data.yml"
+      - ".github/workflows/userscript.yml"
   workflow_dispatch:
 
 permissions:
@@ -31,7 +38,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Ensure the public template is empty
         if: github.repository == 'zjsycwmrbig/MyAnimeLife'

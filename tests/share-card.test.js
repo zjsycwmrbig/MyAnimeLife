@@ -187,7 +187,18 @@ test("builds selectable comparison share images from structured results", () => 
         peerOnlyTotal: 48,
         overlapPercent: 28.6,
       },
-      years: { current: [], peer: [], currentStats: {}, peerStats: {} },
+      years: {
+        rows: [
+          {
+            label: "2020s",
+            currentPercent: 38.2,
+            peerPercent: 24.1,
+            difference: 14.1,
+          },
+        ],
+        currentPreferred: { label: "2020s", share: 38.2 },
+        peerPreferred: { label: "2010s", share: 31.4 },
+      },
       ratings: {
         averageGap: 1.2,
         currentHigher: 14,
@@ -205,7 +216,7 @@ test("builds selectable comparison share images from structured results", () => 
       modules: {
         summary: true,
         overlap: true,
-        years: false,
+        years: true,
         ratings: true,
         differences: false,
         taste: false,
@@ -219,5 +230,7 @@ test("builds selectable comparison share images from structured results", () => 
   assert.match(result.svg, /TASTE MATCH/u);
   assert.match(result.svg, /owner\/main-anime/u);
   assert.match(result.svg, /收藏重合/u);
+  assert.match(result.svg, /你偏爱 2020s/u);
+  assert.doesNotMatch(result.svg, /最早 \/ 中位 \/ 最新/u);
   assert.doesNotMatch(result.svg, /共同评分差/u);
 });

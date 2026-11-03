@@ -340,7 +340,9 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(compareHtml, /同好对比/u);
     assert.match(compareHtml, /id="compareForm"/u);
-    assert.match(compareHtml, /id="compareYears"/u);
+    assert.match(compareHtml, /id="compareDecades"/u);
+    assert.match(compareHtml, /compare-year-preference-summary/u);
+    assert.doesNotMatch(compareHtml, /年代中位数/u);
     assert.match(compareHtml, /id="compareRatings"/u);
     assert.match(compareHtml, /data-compare-tab="taste"/u);
     assert.match(compareHtml, /id="share-comparison-data"/u);
@@ -355,6 +357,18 @@ test("ships three independently buildable templates", async () => {
     assert.match(shareScript, /share-module/u);
     assert.match(shareScript, /longOverviewSvg/u);
     assert.match(shareScript, /cardOverviewSvg/u);
+    const compareScript = await fs.readFile(
+      path.join(fixtureRoot, "dist", "assets", "insights.js"),
+      "utf8",
+    );
+    assert.match(compareScript, /renderPaginatedCollection/u);
+    assert.doesNotMatch(compareScript, /部未展开/u);
+    const pagesWorkflow = await fs.readFile(
+      path.join(root, ".github", "workflows", "pages.yml"),
+      "utf8",
+    );
+    assert.match(pagesWorkflow, /paths-ignore:/u);
+    assert.match(pagesWorkflow, /npm ci --prefer-offline --no-audit --no-fund --ignore-scripts/u);
     const shareStyles = await fs.readFile(
       path.join(fixtureRoot, "dist", "assets", "styles.css"),
       "utf8",

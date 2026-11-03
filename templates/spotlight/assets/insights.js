@@ -565,7 +565,6 @@
   const currentOnlyList = document.querySelector("#currentOnlyList");
   const peerOnlyList = document.querySelector("#peerOnlyList");
   const ratingDifferenceList = document.querySelector("#ratingDifferenceList");
-  const compareYears = document.querySelector("#compareYears");
   const compareDecades = document.querySelector("#compareDecades");
   const compareRatings = document.querySelector("#compareRatings");
   const currentOnlyMetric = document.querySelector("#currentOnlyMetric");
@@ -574,13 +573,12 @@
   const ratingGapMetric = document.querySelector("#ratingGapMetric");
   const compareOverviewPairs = document.querySelector("#compareOverviewPairs");
   const compareDiscoveryList = document.querySelector("#compareDiscoveryList");
-  const currentOldestYear = document.querySelector("#currentOldestYear");
-  const peerOldestYear = document.querySelector("#peerOldestYear");
-  const currentNewestYear = document.querySelector("#currentNewestYear");
-  const peerNewestYear = document.querySelector("#peerNewestYear");
-  const currentMedianYear = document.querySelector("#currentMedianYear");
-  const peerMedianYear = document.querySelector("#peerMedianYear");
-  const yearGapMetric = document.querySelector("#yearGapMetric");
+  const currentPreferredDecade = document.querySelector("#currentPreferredDecade");
+  const currentPreferredDecadeMeta = document.querySelector("#currentPreferredDecadeMeta");
+  const peerPreferredDecade = document.querySelector("#peerPreferredDecade");
+  const peerPreferredDecadeMeta = document.querySelector("#peerPreferredDecadeMeta");
+  const decadePreferenceGap = document.querySelector("#decadePreferenceGap");
+  const decadePreferenceGapMeta = document.querySelector("#decadePreferenceGapMeta");
   const ratingCurrentAverage = document.querySelector("#ratingCurrentAverage");
   const ratingPeerAverage = document.querySelector("#ratingPeerAverage");
   const currentHigherCount = document.querySelector("#currentHigherCount");
@@ -850,15 +848,6 @@
       .map(([key, count]) => ({ key, label: labelFor(key), count }));
   }
 
-  function median(values) {
-    const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
-    if (!sorted.length) return null;
-    const middle = Math.floor(sorted.length / 2);
-    return sorted.length % 2
-      ? sorted[middle]
-      : Math.round(((sorted[middle - 1] + sorted[middle]) / 2) * 10) / 10;
-  }
-
   function standardDeviation(values) {
     const finite = values.filter(Number.isFinite);
     if (!finite.length) return null;
@@ -911,10 +900,6 @@
       },
       (key) => (key === null ? "年代未知" : `${key}s`),
     );
-    const years = items
-      .map((item) => Number(item.season?.year))
-      .filter((year) => Number.isInteger(year) && year >= 1900)
-      .sort((left, right) => left - right);
     const now = Date.now();
     const createdValues = items
       .map((item) => timestamp(item.createdAt))
@@ -936,11 +921,6 @@
       years: yearDistribution,
       decades: decadeDistribution,
       ratings: ratingDistribution,
-      yearStats: {
-        oldest: years[0] ?? null,
-        newest: years.at(-1) ?? null,
-        median: median(years),
-      },
       recent30: recent(30),
       recent365: recent(365),
       coverage: {
@@ -1205,73 +1185,135 @@
     return element;
   }
 
-  function renderSimpleList(container, items, total, mode) {
-    container.replaceChildren();
-    for (const item of items.slice(0, listLimit)) {
-      const row = document.createElement("div");
-      row.className = "compare-item";
-      row.append(createTextElement("strong", "", item.title));
-      const meta = [
-        seasonLabel(item.season),
-        `评分 ${ratingLabel(item.rating)}`,
-        mode === "shared"
-          ? `对方 ${ratingLabel(item.peerRating)}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      row.append(createTextElement("span", "", meta));
-      container.append(row);
-    }
-    if (!items.length) {
-      container.append(
-        createTextElement("p", "compare-empty", "暂无作品"),
-      );
-    } else if (total > items.slice(0, listLimit).length) {
-      container.append(
+  function createPageButton(label, disabled, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "compare-page-button";
+    button.textContent = label;
+    button.disabled = disabled;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function renderPaginatedCollection(container, items, options) {
+    if (!container) return;
+    const pageSize = options.pageSize || listLimit;
+    let page = 0;
+
+    function draw() {
+      container.replaceChildren();
+      const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+      page = Math.min(Math.max(page, 0), totalPages - 1);
+      const start = page * pageSize;
+      const visible = items.slice(start, start + pageSize);
+      const body = document.createElement("div");
+      body.className = options.bodyClass || "compare-page-list";
+      if (!visible.length) {
+        body.append(
+          createTextElement("p", "compare-empty", options.emptyText),
+        );
+      } else {
+        visible.forEach((item, index) => {
+          body.append(options.renderItem(item, start + index));
+        });
+      }
+      container.append(body);
+
+      if (items.length <= pageSize) return;
+      const pagination = document.createElement("nav");
+      pagination.className = "compare-pagination";
+      pagination.setAttribute("aria-label", options.ariaLabel || "分页查看全部");
+      pagination.append(
         createTextElement(
-          "p",
-          "compare-more",
-          `另有 ${total - listLimit} 部未展开`,
+          "span",
+          "compare-pagination-summary",
+          `第 ${page + 1} / ${totalPages} 页 · 共 ${items.length} ${options.unit || "项"}`,
         ),
       );
+      const actions = document.createElement("div");
+      actions.className = "compare-pagination-actions";
+      actions.append(
+        createPageButton("首页", page === 0, () => {
+          page = 0;
+          draw();
+        }),
+        createPageButton("上一页", page === 0, () => {
+          page -= 1;
+          draw();
+        }),
+        createPageButton("下一页", page >= totalPages - 1, () => {
+          page += 1;
+          draw();
+        }),
+        createPageButton("末页", page >= totalPages - 1, () => {
+          page = totalPages - 1;
+          draw();
+        }),
+      );
+      pagination.append(actions);
+      container.append(pagination);
     }
+
+    draw();
+  }
+
+  function renderSimpleList(container, items, mode, ariaLabel) {
+    renderPaginatedCollection(container, items, {
+      pageSize: listLimit,
+      unit: "部",
+      ariaLabel,
+      bodyClass: "compare-page-list",
+      emptyText: "暂无作品",
+      renderItem(item) {
+        const row = document.createElement("div");
+        row.className = "compare-item";
+        row.append(createTextElement("strong", "", item.title));
+        const meta = [
+          seasonLabel(item.season),
+          `评分 ${ratingLabel(item.rating)}`,
+          mode === "shared"
+            ? `对方 ${ratingLabel(item.peerRating)}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        row.append(createTextElement("span", "", meta));
+        return row;
+      },
+    });
   }
 
   function renderRatingDifferences(items) {
-    ratingDifferenceList.replaceChildren();
-    for (const item of items.slice(0, ratingDifferenceLimit)) {
-      const row = document.createElement("div");
-      row.className = "rating-difference-item";
-      const copy = document.createElement("div");
-      copy.append(createTextElement("strong", "", item.title));
-      copy.append(
-        createTextElement(
+    renderPaginatedCollection(ratingDifferenceList, items, {
+      pageSize: ratingDifferenceLimit,
+      unit: "部",
+      ariaLabel: "分页查看共同作品评分差",
+      bodyClass: "compare-page-list is-rating-differences",
+      emptyText: "共同作品中还没有双方都已评分的条目",
+      renderItem(item) {
+        const row = document.createElement("div");
+        row.className = "rating-difference-item";
+        const copy = document.createElement("div");
+        copy.append(createTextElement("strong", "", item.title));
+        copy.append(
+          createTextElement(
+            "span",
+            "",
+            `当前 ${ratingLabel(item.rating)} · 对方 ${ratingLabel(item.peerRating)}`,
+          ),
+        );
+        const difference = item.ratingDifference;
+        const value = createTextElement(
           "span",
-          "",
-          `当前 ${ratingLabel(item.rating)} · 对方 ${ratingLabel(item.peerRating)}`,
-        ),
-      );
-      const difference = item.ratingDifference;
-      const value = createTextElement(
-        "span",
-        `rating-difference-value ${
-          difference > 0 ? "is-positive" : "is-negative"
-        }`,
-        `${difference > 0 ? "+" : ""}${difference.toFixed(1)}`,
-      );
-      row.append(copy, value);
-      ratingDifferenceList.append(row);
-    }
-    if (!items.length) {
-      ratingDifferenceList.append(
-        createTextElement(
-          "p",
-          "compare-empty",
-          "共同作品中还没有双方都已评分的条目",
-        ),
-      );
-    }
+          `rating-difference-value ${
+            difference > 0 ? "is-positive" : "is-negative"
+          }`,
+          `${difference > 0 ? "+" : ""}${difference.toFixed(1)}`,
+        );
+        row.append(copy, value);
+        return row;
+      },
+    });
   }
 
   function renderComparisonBars(container, currentItems, peerItems) {
@@ -1332,54 +1374,155 @@
   }
 
   function renderDiscoveryList(comparison) {
-    compareDiscoveryList.replaceChildren();
     const discoveries = [...comparison.peerOnly]
       .sort(
         (left, right) =>
           (Number.isFinite(right.rating) ? right.rating : -1) -
             (Number.isFinite(left.rating) ? left.rating : -1) ||
           left.title.localeCompare(right.title, "zh-CN"),
-      )
-      .slice(0, 6);
-    for (const item of discoveries) {
-      const row = document.createElement("div");
-      row.className = "compare-discovery-item";
-      const copy = document.createElement("div");
-      copy.append(createTextElement("strong", "", item.title));
-      copy.append(createTextElement("span", "", seasonLabel(item.season) || "年代未标注"));
-      row.append(copy, createTextElement("b", "", ratingLabel(item.rating)));
-      compareDiscoveryList.append(row);
-    }
-    if (!discoveries.length) {
-      compareDiscoveryList.append(
-        createTextElement("p", "compare-empty", "对方的收藏已经全部被你发现。"),
       );
+    renderPaginatedCollection(compareDiscoveryList, discoveries, {
+      pageSize: 6,
+      unit: "部",
+      ariaLabel: "分页查看对方独有收藏",
+      bodyClass: "compare-page-list",
+      emptyText: "对方的收藏已经全部被你发现。",
+      renderItem(item) {
+        const row = document.createElement("div");
+        row.className = "compare-discovery-item";
+        const copy = document.createElement("div");
+        copy.append(createTextElement("strong", "", item.title));
+        copy.append(createTextElement("span", "", seasonLabel(item.season) || "年代未标注"));
+        row.append(copy, createTextElement("b", "", ratingLabel(item.rating)));
+        return row;
+      },
+    });
+  }
+
+  function decadePreferences(comparison) {
+    const current = comparison.currentProfile.decades.filter(
+      (item) => item.key !== null,
+    );
+    const peer = comparison.peerProfile.decades.filter(
+      (item) => item.key !== null,
+    );
+    const currentTotal = current.reduce((total, item) => total + item.count, 0);
+    const peerTotal = peer.reduce((total, item) => total + item.count, 0);
+    const currentByLabel = new Map(current.map((item) => [item.label, item]));
+    const peerByLabel = new Map(peer.map((item) => [item.label, item]));
+    const labels = [...new Set([
+      ...current.map((item) => item.label),
+      ...peer.map((item) => item.label),
+    ])];
+    const rows = labels.map((label) => {
+      const currentCount = currentByLabel.get(label)?.count || 0;
+      const peerCount = peerByLabel.get(label)?.count || 0;
+      const currentPercent = percent(currentCount, currentTotal);
+      const peerPercent = percent(peerCount, peerTotal);
+      return {
+        label,
+        currentCount,
+        peerCount,
+        currentPercent,
+        peerPercent,
+        difference: Math.round((currentPercent - peerPercent) * 10) / 10,
+      };
+    }).sort(
+      (left, right) =>
+        Math.abs(right.difference) - Math.abs(left.difference) ||
+        right.currentCount + right.peerCount - left.currentCount - left.peerCount ||
+        Number.parseInt(right.label, 10) - Number.parseInt(left.label, 10),
+    );
+    const preferred = (items, total) => [...items]
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          Number.parseInt(right.label, 10) - Number.parseInt(left.label, 10),
+      )
+      .map((item) => ({
+        ...item,
+        share: percent(item.count, total),
+      }))[0] ?? null;
+    return {
+      rows,
+      currentPreferred: preferred(current, currentTotal),
+      peerPreferred: preferred(peer, peerTotal),
+      currentTotal,
+      peerTotal,
+    };
+  }
+
+  function renderDecadePreferences(preferences) {
+    compareDecades.replaceChildren();
+    if (!preferences.rows.length) {
+      compareDecades.append(
+        createTextElement(
+          "p",
+          "compare-empty",
+          "双方索引中还没有可用于比较的作品年代。",
+        ),
+      );
+      return;
+    }
+    for (const item of preferences.rows) {
+      const row = document.createElement("article");
+      row.className = "compare-preference-row";
+      const heading = document.createElement("header");
+      heading.append(createTextElement("strong", "", item.label));
+      heading.append(
+        createTextElement(
+          "span",
+          item.difference > 0
+            ? "is-current"
+            : item.difference < 0
+              ? "is-peer"
+              : "is-tied",
+          item.difference === 0
+            ? "占比相同"
+            : `${item.difference > 0 ? "你高" : "对方高"} ${Math.abs(item.difference).toFixed(1)}pp`,
+        ),
+      );
+      row.append(heading);
+      for (const [side, label, value, count] of [
+        ["current", "你", item.currentPercent, item.currentCount],
+        ["peer", "对方", item.peerPercent, item.peerCount],
+      ]) {
+        const line = document.createElement("div");
+        line.className = `compare-preference-line is-${side}`;
+        const track = document.createElement("span");
+        const fill = document.createElement("i");
+        fill.style.width = `${value}%`;
+        track.append(fill);
+        line.append(
+          createTextElement("em", "", label),
+          track,
+          createTextElement("b", "", `${value.toFixed(1)}%`),
+          createTextElement("small", "", `${count} 部`),
+        );
+        row.append(line);
+      }
+      compareDecades.append(row);
     }
   }
 
   function renderYearComparison(comparison) {
-    const currentYears = comparison.currentProfile.yearStats;
-    const peerYears = comparison.peerProfile.yearStats;
-    currentOldestYear.textContent = currentYears.oldest ?? "—";
-    peerOldestYear.textContent = `对方 ${peerYears.oldest ?? "—"}`;
-    currentNewestYear.textContent = currentYears.newest ?? "—";
-    peerNewestYear.textContent = `对方 ${peerYears.newest ?? "—"}`;
-    currentMedianYear.textContent = currentYears.median ?? "—";
-    peerMedianYear.textContent = `对方 ${peerYears.median ?? "—"}`;
-    yearGapMetric.textContent =
-      currentYears.median !== null && peerYears.median !== null
-        ? formatDifference(currentYears.median - peerYears.median, " 年")
-        : "—";
-    renderComparisonBars(
-      compareYears,
-      comparison.currentProfile.years,
-      comparison.peerProfile.years,
-    );
-    renderComparisonBars(
-      compareDecades,
-      comparison.currentProfile.decades,
-      comparison.peerProfile.decades,
-    );
+    const preferences = decadePreferences(comparison);
+    currentPreferredDecade.textContent = preferences.currentPreferred?.label ?? "—";
+    currentPreferredDecadeMeta.textContent = preferences.currentPreferred
+      ? `占 ${preferences.currentPreferred.share.toFixed(1)}% · ${preferences.currentPreferred.count} 部`
+      : "暂无可统计年代";
+    peerPreferredDecade.textContent = preferences.peerPreferred?.label ?? "—";
+    peerPreferredDecadeMeta.textContent = preferences.peerPreferred
+      ? `占 ${preferences.peerPreferred.share.toFixed(1)}% · ${preferences.peerPreferred.count} 部`
+      : "暂无可统计年代";
+    const maximumGap = preferences.rows[0] ?? null;
+    decadePreferenceGap.textContent = maximumGap
+      ? `${maximumGap.difference > 0 ? "+" : ""}${maximumGap.difference.toFixed(1)}pp`
+      : "—";
+    decadePreferenceGapMeta.textContent = maximumGap
+      ? `${maximumGap.label} · 当前 ${maximumGap.currentPercent.toFixed(1)}% / 对方 ${maximumGap.peerPercent.toFixed(1)}%`
+      : "比较双方年代占比";
+    renderDecadePreferences(preferences);
   }
 
   function renderRatingComparison(comparison) {
@@ -1536,39 +1679,35 @@
       ? `${tagComparison.status}${tagComparison.similarity !== null ? `标签偏好相似度 ${tagComparison.similarity}%` : ""}`
       : tagComparison.status;
     renderTagRadar(tagComparison);
-    compareTagDeviations.replaceChildren();
-    const deviations = tagComparison.deviations.slice(0, 8);
-    deviations.forEach((tag, index) => {
-      const row = document.createElement("div");
-      row.className = `compare-tag-deviation-row${index === 0 ? " is-max" : ""}`;
-      const copy = document.createElement("div");
-      copy.append(createTextElement("strong", "", tag.name));
-      copy.append(
-        createTextElement(
-          "span",
-          "",
-          `当前 ${tag.currentAverage.toFixed(1)}（${tag.currentRatings.length}） · 对方 ${tag.peerAverage.toFixed(1)}（${tag.peerRatings.length}）`,
-        ),
-      );
-      row.append(
-        copy,
-        createTextElement(
-          "b",
-          tag.difference > 0 ? "is-current" : tag.difference < 0 ? "is-peer" : "",
-          formatDifference(tag.difference),
-        ),
-      );
-      compareTagDeviations.append(row);
+    renderPaginatedCollection(compareTagDeviations, tagComparison.deviations, {
+      pageSize: 8,
+      unit: "个标签",
+      ariaLabel: "分页查看同标签评分差",
+      bodyClass: "compare-page-list",
+      emptyText: "没有同时包含双方评分作品的标签。",
+      renderItem(tag, index) {
+        const row = document.createElement("div");
+        row.className = `compare-tag-deviation-row${index === 0 ? " is-max" : ""}`;
+        const copy = document.createElement("div");
+        copy.append(createTextElement("strong", "", tag.name));
+        copy.append(
+          createTextElement(
+            "span",
+            "",
+            `当前 ${tag.currentAverage.toFixed(1)}（${tag.currentRatings.length}） · 对方 ${tag.peerAverage.toFixed(1)}（${tag.peerRatings.length}）`,
+          ),
+        );
+        row.append(
+          copy,
+          createTextElement(
+            "b",
+            tag.difference > 0 ? "is-current" : tag.difference < 0 ? "is-peer" : "",
+            formatDifference(tag.difference),
+          ),
+        );
+        return row;
+      },
     });
-    if (!deviations.length) {
-      compareTagDeviations.append(
-        createTextElement(
-          "p",
-          "compare-empty",
-          "没有同时包含双方评分作品的标签。",
-        ),
-      );
-    }
   }
 
   function activateCompareTab(tabId, persist = true) {
@@ -1597,6 +1736,7 @@
   }
 
   function createComparisonShareData(comparison, peer) {
+    const decades = decadePreferences(comparison);
     return {
       schemaVersion: 1,
       currentRepository: ownRepository || "当前档案",
@@ -1638,10 +1778,11 @@
         })),
       },
       years: {
-        current: comparison.currentProfile.decades,
-        peer: comparison.peerProfile.decades,
-        currentStats: comparison.currentProfile.yearStats,
-        peerStats: comparison.peerProfile.yearStats,
+        rows: decades.rows,
+        currentPreferred: decades.currentPreferred,
+        peerPreferred: decades.peerPreferred,
+        currentDated: decades.currentTotal,
+        peerDated: decades.peerTotal,
       },
       completeness: {
         current: comparison.currentProfile.coverage,
@@ -1694,20 +1835,20 @@
     renderSimpleList(
       sharedList,
       comparison.shared,
-      comparison.shared.length,
       "shared",
+      "分页查看共同收录",
     );
     renderSimpleList(
       currentOnlyList,
       comparison.currentOnly,
-      comparison.currentOnly.length,
       "only",
+      "分页查看仅当前档案收录",
     );
     renderSimpleList(
       peerOnlyList,
       comparison.peerOnly,
-      comparison.peerOnly.length,
       "only",
+      "分页查看仅对方档案收录",
     );
     currentOnlyMetric.textContent = String(comparison.currentOnly.length);
     peerOnlyMetric.textContent = String(comparison.peerOnly.length);

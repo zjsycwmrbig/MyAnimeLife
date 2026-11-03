@@ -36,6 +36,8 @@ Settings → Pages → Build and deployment → Source → GitHub Actions
 
 Pages 使用工作流自带的 `GITHUB_TOKEN` 部署，**不需要为 Pages 额外创建个人 Token**。如果 Actions 没有自动运行，请检查仓库的 Actions 是否被允许，并确认提交到了当前默认分支。
 
+Pages 工作流会忽略 README/Markdown、测试、油猴脚本、备份文件和无关工作流等不会进入站点的改动；数据、模板、配置和构建脚本的提交仍会正常重新生成并部署静态页面。依赖安装使用 npm 离线缓存，并关闭审计、资金提示和安装脚本，以减少数据提交时的无效等待。完整测试仍建议在本地执行 `npm run check:all`。
+
 模板能够预先写入工作流所需的权限声明：`.github/workflows/pages.yml` 已声明 `contents: read`、`pages: write` 和 `id-token: write`，所以新仓库不需要手动给 Pages 配置个人 Token。模板无法替用户修改 GitHub 仓库级设置；第一次使用仍需要在 `Settings → Pages` 将来源设为 **GitHub Actions**，并确认 `Settings → Actions → General` 允许工作流运行。若你把默认分支改成了 `main` 以外的名称，工作流也会自动识别仓库默认分支部署。
 
 ### 3. 创建 GitHub Fine-grained Token
@@ -379,7 +381,7 @@ https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/<branch>/data/
 https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/<branch>/data/bangumi-cache.jsonl
 ```
 
-只支持可公开读取的仓库和分支；单个索引响应最多读取 8 MiB，Bangumi 缓存最多读取 24 MiB。作品先按记录 `id` 匹配，再按 Bangumi、Bilibili、AniList、MAL 等稳定外部 ID 匹配。不同季度应由不同记录 ID 和季度元数据表达，不会被主动合并为同一部作品。对比结果按“概览、重合收藏、年代构成、评分习惯、口味标签、档案完整度”分模块展示，包括最大单作评分差、同标签平均评分差和标签偏好雷达。任意一方没有可用公开缓存时，页面会明确提示数据不足，不会推测标签结果。
+只支持可公开读取的仓库和分支；单个索引响应最多读取 8 MiB，Bangumi 缓存最多读取 24 MiB。作品先按记录 `id` 匹配，再按 Bangumi、Bilibili、AniList、MAL 等稳定外部 ID 匹配。不同季度应由不同记录 ID 和季度元数据表达，不会被主动合并为同一部作品。对比结果按“概览、重合收藏、年代构成、评分习惯、口味标签、档案完整度”分模块展示，包括最大单作评分差、同标签平均评分差和标签偏好雷达。重合收藏、评分差、标签评分差等长列表均可在页内分页查看全部；年代模块按双方已标注年代的收藏占比展示偏好差，不再使用最早、最新或中位数代表年代口味。任意一方没有可用公开缓存时，页面会明确提示数据不足，不会推测标签结果。
 
 对比链接可以直接使用以下格式分享，对方打开后会自动填入分享者的仓库并开始比较：
 

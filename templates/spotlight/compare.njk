@@ -149,22 +149,19 @@
       </section>
 
       <section class="compare-tab-panel" id="compare-panel-years" role="tabpanel" aria-labelledby="compare-tab-years" data-compare-panel="years" hidden>
-        <div class="compare-metric-grid compare-years-summary">
-          <article><span>最早作品年代</span><strong id="currentOldestYear">—</strong><small id="peerOldestYear">对方 —</small></article>
-          <article><span>最新作品年代</span><strong id="currentNewestYear">—</strong><small id="peerNewestYear">对方 —</small></article>
-          <article><span>年代中位数</span><strong id="currentMedianYear">—</strong><small id="peerMedianYear">对方 —</small></article>
-          <article class="is-accent"><span>年代差</span><strong id="yearGapMetric">—</strong><small>中位数相差年数</small></article>
+        <div class="compare-metric-grid compare-year-preference-summary">
+          <article><span>你更偏爱</span><strong id="currentPreferredDecade">—</strong><small id="currentPreferredDecadeMeta">暂无年代数据</small></article>
+          <article><span>对方更偏爱</span><strong id="peerPreferredDecade">—</strong><small id="peerPreferredDecadeMeta">暂无年代数据</small></article>
+          <article class="is-accent"><span>最大偏好差</span><strong id="decadePreferenceGap">—</strong><small id="decadePreferenceGapMeta">比较双方年代占比</small></article>
         </div>
-        <div class="compare-insight-grid">
-          <section class="compare-data-panel" aria-labelledby="compare-years-title">
-            <div class="compare-list-heading"><h3 id="compare-years-title">逐年分布</h3><span>共同年份轴</span></div>
-            <div id="compareYears" class="compare-bars"></div>
-          </section>
-          <section class="compare-data-panel" aria-labelledby="compare-decades-title">
-            <div class="compare-list-heading"><h3 id="compare-decades-title">年代构成</h3><span>每十年分组</span></div>
-            <div id="compareDecades" class="compare-bars"></div>
-          </section>
-        </div>
+        <section class="compare-data-panel compare-decade-panel" aria-labelledby="compare-decades-title">
+          <div class="compare-list-heading">
+            <div><h3 id="compare-decades-title">年代偏好对照</h3><p>按双方年代占比差异从大到小排列</p></div>
+            <span>当前 / 对方</span>
+          </div>
+          <div id="compareDecades" class="compare-preference-bars"></div>
+        </section>
+        <p class="compare-footnote">仅统计已标注作品年代的收藏；占比按各自已标注年代的作品总数计算，不从作品数量直接推断偏好。</p>
       </section>
 
       <section class="compare-tab-panel" id="compare-panel-ratings" role="tabpanel" aria-labelledby="compare-tab-ratings" data-compare-panel="ratings" hidden>
