@@ -325,8 +325,8 @@ test("ships three independently buildable templates", async () => {
     assert.match(insightsHtml, /逐年分布/u);
     assert.match(insightsHtml, /精确到 0.1 分/u);
     assert.match(insightsHtml, /id="insights-year-sort"/u);
-    assert.doesNotMatch(insightsHtml, /进入仓库 PK/u);
-    assert.doesNotMatch(insightsHtml, /去仓库 PK/u);
+    assert.doesNotMatch(insightsHtml, /进入同好对比/u);
+    assert.doesNotMatch(insightsHtml, /去同好对比/u);
     assert.match(insightsHtml, /分享洞察图/u);
     assert.match(insightsHtml, /aria-haspopup="dialog"/u);
     assert.match(
@@ -338,10 +338,13 @@ test("ships three independently buildable templates", async () => {
       path.join(fixtureRoot, "dist", "compare", "index.html"),
       "utf8",
     );
-    assert.match(compareHtml, /仓库 PK/u);
+    assert.match(compareHtml, /同好对比/u);
     assert.match(compareHtml, /id="compareForm"/u);
     assert.match(compareHtml, /id="compareYears"/u);
     assert.match(compareHtml, /id="compareRatings"/u);
+    assert.match(compareHtml, /data-compare-tab="taste"/u);
+    assert.match(compareHtml, /id="share-comparison-data"/u);
+    assert.match(compareHtml, /share\.js\?v=20261025T120000000Z/u);
     assert.match(compareHtml, /insights\.js\?v=20261025T120000000Z/u);
 
     const shareScript = await fs.readFile(

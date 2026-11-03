@@ -174,3 +174,50 @@ test("uses the CORS image proxy first for Bangumi covers", async () => {
     /lain\.bgm\.tv\/pic\/cover\/l\/example\.jpg/u,
   );
 });
+
+test("builds selectable comparison share images from structured results", () => {
+  const runtime = createShareRuntime();
+  const result = runtime.api.createComparisonShareImage(
+    {
+      overview: {
+        currentTotal: 120,
+        peerTotal: 96,
+        sharedTotal: 48,
+        currentOnlyTotal: 72,
+        peerOnlyTotal: 48,
+        overlapPercent: 28.6,
+      },
+      years: { current: [], peer: [], currentStats: {}, peerStats: {} },
+      ratings: {
+        averageGap: 1.2,
+        currentHigher: 14,
+        peerHigher: 9,
+        tied: 4,
+        items: [],
+      },
+      completeness: { current: {}, peer: {} },
+      taste: { available: false, tags: [], deviations: [] },
+    },
+    {
+      format: "long",
+      currentRepository: "owner/main-anime",
+      peerRepository: "friend/anime",
+      modules: {
+        summary: true,
+        overlap: true,
+        years: false,
+        ratings: true,
+        differences: false,
+        taste: false,
+        completeness: false,
+      },
+    },
+  );
+
+  assert.ok(result.width > 0);
+  assert.ok(result.height > 0);
+  assert.match(result.svg, /TASTE MATCH/u);
+  assert.match(result.svg, /owner\/main-anime/u);
+  assert.match(result.svg, /收藏重合/u);
+  assert.doesNotMatch(result.svg, /共同评分差/u);
+});

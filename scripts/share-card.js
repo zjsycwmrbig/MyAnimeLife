@@ -58,6 +58,24 @@
     tags: "标签偏好",
     sources: "索引覆盖",
   };
+  const COMPARISON_MODULE_IDS = [
+    "summary",
+    "overlap",
+    "years",
+    "ratings",
+    "differences",
+    "taste",
+    "completeness",
+  ];
+  const COMPARISON_MODULE_LABELS = {
+    summary: "对比总览",
+    overlap: "收藏重合",
+    years: "年代构成",
+    ratings: "评分习惯",
+    differences: "共同评分差",
+    taste: "标签口味",
+    completeness: "档案完整度",
+  };
 
   function clean(value) {
     return String(value ?? "").replace(/\s+/gu, " ").trim();
@@ -155,6 +173,20 @@
       );
     }
     return defaults;
+  }
+
+  function normalizeComparisonModules(value) {
+    if (Array.isArray(value)) {
+      return Object.fromEntries(
+        COMPARISON_MODULE_IDS.map((id) => [id, value.includes(id)]),
+      );
+    }
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        COMPARISON_MODULE_IDS.map((id) => [id, Boolean(value[id])]),
+      );
+    }
+    return Object.fromEntries(COMPARISON_MODULE_IDS.map((id) => [id, true]));
   }
 
   function wrapText(value, maximum, limit = 5) {
@@ -958,6 +990,271 @@
     return { svg: svgDocument(width, height, body), width, height };
   }
 
+  function comparisonHeader(options, palette, compact) {
+    const current = clean(options.currentRepository || "当前档案").slice(0, 34);
+    const peer = clean(options.peerRepository || "对方档案").slice(0, 34);
+    return `<rect x="0" y="0" width="1600" height="16" fill="${palette.accent}" />
+      <text x="72" y="66" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16" font-weight="800" letter-spacing="2">MYANIMELIFE / TASTE MATCH</text>
+      <text x="72" y="${compact ? 132 : 148}" fill="${palette.ink}" font-family="${DISPLAY_FONT}" font-size="${compact ? 44 : 54}" font-weight="700">看看你们的看番品味有多接近</text>
+      <text x="72" y="${compact ? 174 : 192}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="18">${escapeXml(current)}  ×  ${escapeXml(peer)}</text>`;
+  }
+
+  function comparisonFooter(height, options, palette) {
+    return `<text x="72" y="${height - 34}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">${escapeXml(options.siteTitle || "MyAnimeLife")}</text>
+      <text x="1528" y="${height - 34}" text-anchor="end" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="16" font-weight="700">同好对比</text>`;
+  }
+
+  function comparisonTiles(items, x, y, width, height, palette) {
+    const gap = 12;
+    const tileWidth = (width - gap * (items.length - 1)) / items.length;
+    return items.map((item, index) => {
+      const tileX = x + index * (tileWidth + gap);
+      const dark = index === items.length - 1;
+      return `<g transform="translate(${tileX} ${y})">
+        <rect width="${tileWidth}" height="${height}" rx="14" fill="${dark ? palette.ink : palette.soft}" />
+        <text x="20" y="32" fill="${dark ? "#c7d0ca" : palette.muted}" font-family="${FONT_STACK}" font-size="14" font-weight="700">${escapeXml(item.label)}</text>
+        <text x="20" y="${Math.min(height - 18, 84)}" fill="${dark ? "#fff" : palette.ink}" font-family="${DISPLAY_FONT}" font-size="36" font-weight="700">${escapeXml(item.value)}</text>
+      </g>`;
+    }).join("");
+  }
+
+  function comparisonBars(current = [], peer = [], x, y, width, height, palette, limit = 7) {
+    const labels = [...new Set([
+      ...current.map((item) => item.label),
+      ...peer.map((item) => item.label),
+    ])].slice(0, limit);
+    const maximum = Math.max(1, ...labels.flatMap((label) => [
+      Number(current.find((item) => item.label === label)?.count) || 0,
+      Number(peer.find((item) => item.label === label)?.count) || 0,
+    ]));
+    return labels.map((label, index) => {
+      const rowY = y + index * 38;
+      const currentValue = Number(current.find((item) => item.label === label)?.count) || 0;
+      const peerValue = Number(peer.find((item) => item.label === label)?.count) || 0;
+      const trackWidth = width - 150;
+      return `<text x="${x}" y="${rowY + 12}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="13" font-weight="700">${escapeXml(label)}</text>
+        <rect x="${x + 88}" y="${rowY}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+        <rect x="${x + 88}" y="${rowY}" width="${Math.max(2, trackWidth * currentValue / maximum)}" height="7" rx="4" fill="${palette.ink}" opacity=".78" />
+        <rect x="${x + 88}" y="${rowY + 11}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+        <rect x="${x + 88}" y="${rowY + 11}" width="${Math.max(2, trackWidth * peerValue / maximum)}" height="7" rx="4" fill="${palette.accent}" />
+        <text x="${x + width}" y="${rowY + 14}" text-anchor="end" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="12">${currentValue} / ${peerValue}</text>`;
+    }).join("");
+  }
+
+  function comparisonTagRadar(taste, x, y, width, height, palette) {
+    const tags = (taste?.tags ?? []).slice(0, 8);
+    if (!taste?.available || tags.length < 3) {
+      const status = taste?.status || "双方公开缓存中没有足够的标签数据。";
+      return textBlock(wrapText(status, 34, 4), x + 12, y + 36, 28, {
+        fill: palette.muted,
+        "font-family": FONT_STACK,
+        "font-size": 16,
+      });
+    }
+    const centerX = x + width / 2;
+    const centerY = y + height / 2 + 8;
+    const radius = Math.min(width, height) * 0.3;
+    const maximum = Math.max(1, ...tags.flatMap((tag) => [tag.currentCount, tag.peerCount]));
+    const pointFor = (index, ratio) => {
+      const angle = -Math.PI / 2 + (index / tags.length) * Math.PI * 2;
+      return `${centerX + Math.cos(angle) * radius * ratio},${centerY + Math.sin(angle) * radius * ratio}`;
+    };
+    const grid = [0.25, 0.5, 0.75, 1].map((level) =>
+      `<polygon points="${tags.map((_, index) => pointFor(index, level)).join(" ")}" fill="none" stroke="${palette.ink}" stroke-opacity=".14" />`,
+    ).join("");
+    const axes = tags.map((_, index) =>
+      `<line x1="${centerX}" y1="${centerY}" x2="${pointFor(index, 1).split(",")[0]}" y2="${pointFor(index, 1).split(",")[1]}" stroke="${palette.ink}" stroke-opacity=".14" />`,
+    ).join("");
+    const polygon = (key) => tags.map((tag, index) =>
+      pointFor(index, tag[key] / maximum),
+    ).join(" ");
+    const labels = tags.map((tag, index) => {
+      const angle = -Math.PI / 2 + (index / tags.length) * Math.PI * 2;
+      const labelX = centerX + Math.cos(angle) * (radius + 35);
+      const labelY = centerY + Math.sin(angle) * (radius + 28);
+      const anchor = Math.cos(angle) > 0.35 ? "start" : Math.cos(angle) < -0.35 ? "end" : "middle";
+      return `<text x="${labelX}" y="${labelY}" text-anchor="${anchor}" dominant-baseline="middle" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="13">${escapeXml(tag.name.slice(0, 9))}</text>`;
+    }).join("");
+    return `${grid}${axes}
+      <polygon points="${polygon("currentCount")}" fill="${palette.ink}" fill-opacity=".18" stroke="${palette.ink}" stroke-width="3" />
+      <polygon points="${polygon("peerCount")}" fill="${palette.accent}" fill-opacity=".18" stroke="${palette.accent}" stroke-width="3" />
+      ${labels}`;
+  }
+
+  function comparisonPanel(id, comparison, index, x, y, width, height, palette) {
+    const overview = comparison.overview ?? {};
+    const years = comparison.years ?? {};
+    const ratings = comparison.ratings ?? {};
+    const completeness = comparison.completeness ?? {};
+    const contentX = x + 26;
+    const contentY = y + 66;
+    const contentWidth = width - 52;
+    const contentHeight = height - 88;
+    let content = "";
+    if (id === "summary") {
+      content = comparisonTiles([
+        { label: "当前档案", value: `${Number(overview.currentTotal) || 0} 部` },
+        { label: "对方档案", value: `${Number(overview.peerTotal) || 0} 部` },
+        { label: "共同收藏", value: `${Number(overview.sharedTotal) || 0} 部` },
+        { label: "重合率", value: `${Number(overview.overlapPercent) || 0}%` },
+        { label: "共同评分", value: `${Number(ratings.currentHigher || 0) + Number(ratings.peerHigher || 0) + Number(ratings.tied || 0)} 部` },
+      ], contentX, contentY, contentWidth, Math.max(90, contentHeight), palette);
+    } else if (id === "overlap") {
+      content = `<text x="${contentX}" y="${contentY + 54}" fill="${palette.ink}" font-family="${DISPLAY_FONT}" font-size="64" font-weight="700">${Number(overview.overlapPercent) || 0}%</text>
+        <text x="${contentX + 210}" y="${contentY + 34}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">共同收藏占双方作品并集的比例</text>
+        ${comparisonTiles([
+          { label: "共同收藏", value: `${Number(overview.sharedTotal) || 0}` },
+          { label: "仅当前档案", value: `${Number(overview.currentOnlyTotal) || 0}` },
+          { label: "仅对方档案", value: `${Number(overview.peerOnlyTotal) || 0}` },
+        ], contentX + 210, contentY + 58, contentWidth - 210, Math.max(80, contentHeight - 58), palette)}`;
+    } else if (id === "years") {
+      const currentStats = years.currentStats ?? {};
+      const peerStats = years.peerStats ?? {};
+      content = `<text x="${contentX}" y="${contentY + 22}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="15">最早 / 中位 / 最新 · 当前 ${currentStats.oldest ?? "—"} / ${currentStats.median ?? "—"} / ${currentStats.newest ?? "—"} · 对方 ${peerStats.oldest ?? "—"} / ${peerStats.median ?? "—"} / ${peerStats.newest ?? "—"}</text>
+        ${comparisonBars(years.current, years.peer, contentX, contentY + 48, contentWidth, contentHeight - 48, palette)}`;
+    } else if (id === "ratings") {
+      content = comparisonTiles([
+        { label: "平均绝对分差", value: ratings.averageGap ?? "—" },
+        { label: "你评分更高", value: `${Number(ratings.currentHigher) || 0} 部` },
+        { label: "对方更高", value: `${Number(ratings.peerHigher) || 0} 部` },
+        { label: "评分相同", value: `${Number(ratings.tied) || 0} 部` },
+      ], contentX, contentY, contentWidth, Math.max(90, contentHeight), palette);
+    } else if (id === "differences") {
+      const rows = (ratings.items ?? []).slice(0, Math.max(1, Math.floor(contentHeight / 38)));
+      content = rows.length
+        ? rows.map((item, rowIndex) => {
+            const rowY = contentY + rowIndex * 38;
+            return `<text x="${contentX}" y="${rowY + 14}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="14" font-weight="700">${escapeXml(clean(item.title).slice(0, 34))}</text>
+              <text x="${contentX + 650}" y="${rowY + 14}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="13">当前 ${escapeXml(item.currentRating)} · 对方 ${escapeXml(item.peerRating)}</text>
+              <text x="${contentX + contentWidth}" y="${rowY + 14}" text-anchor="end" fill="${Number(item.difference) >= 0 ? palette.ink : palette.accent}" font-family="${FONT_STACK}" font-size="15" font-weight="800">${Number(item.difference) > 0 ? "+" : ""}${escapeXml(item.difference)}</text>`;
+          }).join("")
+        : `<text x="${contentX}" y="${contentY + 26}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="16">双方还没有可比较的共同评分。</text>`;
+    } else if (id === "taste") {
+      const radarWidth = Math.min(contentWidth * 0.58, 620);
+      const radar = comparisonTagRadar(comparison.taste, contentX, contentY, radarWidth, contentHeight, palette);
+      const deviations = (comparison.taste?.deviations ?? []).slice(0, 5);
+      const deviationRows = deviations.length
+        ? deviations.map((tag, rowIndex) => {
+            const rowY = contentY + 24 + rowIndex * 42;
+            return `<text x="${contentX + radarWidth + 28}" y="${rowY}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="14" font-weight="700">${escapeXml(tag.name.slice(0, 16))}</text>
+              <text x="${contentX + radarWidth + 28}" y="${rowY + 18}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="12">当前 ${Number(tag.currentAverage).toFixed(1)}（${tag.currentCount}） · 对方 ${Number(tag.peerAverage).toFixed(1)}（${tag.peerCount}）</text>
+              <text x="${contentX + contentWidth}" y="${rowY + 8}" text-anchor="end" fill="${Number(tag.difference) >= 0 ? palette.ink : palette.accent}" font-family="${FONT_STACK}" font-size="16" font-weight="800">${Number(tag.difference) > 0 ? "+" : ""}${escapeXml(tag.difference)}</text>`;
+          }).join("")
+        : `<text x="${contentX + radarWidth + 28}" y="${contentY + 32}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="15">没有双方都有评分的同标签作品。</text>`;
+      content = `${radar}${deviationRows}`;
+    } else if (id === "completeness") {
+      const metrics = [
+        ["评分覆盖", completeness.currentRatedPercent, completeness.peerRatedPercent],
+        ["短评摘要", completeness.current?.review, completeness.peer?.review],
+        ["封面地址", completeness.current?.cover, completeness.peer?.cover],
+        ["作品年代", completeness.current?.year, completeness.peer?.year],
+        ["季度编号", completeness.current?.season, completeness.peer?.season],
+        ["外部站点 ID", completeness.current?.externalId, completeness.peer?.externalId],
+        ["Bangumi ID", completeness.current?.bangumiId, completeness.peer?.bangumiId],
+        ["收录时间", completeness.current?.createdAt, completeness.peer?.createdAt],
+      ];
+      content = metrics.map(([label, current, peer], rowIndex) => {
+        const rowY = contentY + rowIndex * 35;
+        const trackWidth = contentWidth - 360;
+        return `<text x="${contentX}" y="${rowY + 12}" fill="${palette.ink}" font-family="${FONT_STACK}" font-size="13" font-weight="700">${escapeXml(label)}</text>
+          <rect x="${contentX + 150}" y="${rowY}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+          <rect x="${contentX + 150}" y="${rowY}" width="${Math.max(2, trackWidth * (Number(current) || 0) / 100)}" height="7" rx="4" fill="${palette.ink}" opacity=".78" />
+          <text x="${contentX + 150 + trackWidth + 12}" y="${rowY + 8}" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="12">${Number(current) || 0}%</text>
+          <rect x="${contentX + 150}" y="${rowY + 14}" width="${trackWidth}" height="7" rx="4" fill="${palette.soft}" />
+          <rect x="${contentX + 150}" y="${rowY + 14}" width="${Math.max(2, trackWidth * (Number(peer) || 0) / 100)}" height="7" rx="4" fill="${palette.accent}" />
+          <text x="${contentX + 150 + trackWidth + 12}" y="${rowY + 22}" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="12">${Number(peer) || 0}%</text>`;
+      }).join("");
+    }
+    return `<g>
+      <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="20" fill="${palette.soft}" opacity=".34" />
+      <text x="${x + 26}" y="${y + 30}" fill="${palette.accentDark}" font-family="${FONT_STACK}" font-size="13" font-weight="800" letter-spacing="2">MODULE ${String(index + 1).padStart(2, "0")}</text>
+      <text x="${x + 26}" y="${y + 54}" fill="${palette.ink}" font-family="${DISPLAY_FONT}" font-size="22" font-weight="700">${escapeXml(COMPARISON_MODULE_LABELS[id])}</text>
+      ${content}
+    </g>`;
+  }
+
+  function comparisonModuleHeight(id) {
+    if (id === "summary") return 214;
+    if (id === "overlap") return 220;
+    if (id === "years") return 390;
+    if (id === "ratings") return 214;
+    if (id === "differences") return 330;
+    if (id === "taste") return 420;
+    if (id === "completeness") return 390;
+    return 240;
+  }
+
+  function longComparisonSvg(comparison, options, palette, modules) {
+    const width = 1600;
+    const selected = COMPARISON_MODULE_IDS.filter((id) => modules[id]);
+    let y = 224;
+    let body = comparisonHeader(options, palette, false);
+    selected.forEach((id, index) => {
+      const height = comparisonModuleHeight(id);
+      body += comparisonPanel(id, comparison, index, 72, y, 1456, height, palette);
+      y += height + 22;
+    });
+    if (!selected.length) {
+      body += `<text x="72" y="286" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="20">请至少选择一个分享模块。</text>`;
+    }
+    const height = Math.max(520, y + 68);
+    body = `<rect width="${width}" height="${height}" fill="${palette.paper}" />${body}${comparisonFooter(height, options, palette)}`;
+    return { svg: svgDocument(width, height, body), width, height };
+  }
+
+  function cardComparisonSvg(comparison, options, palette, modules) {
+    const width = 1600;
+    const selected = COMPARISON_MODULE_IDS.filter((id) => modules[id]);
+    const gap = 20;
+    const rows = Array.from({ length: Math.ceil(selected.length / 2) }, (_, index) =>
+      selected.slice(index * 2, index * 2 + 2),
+    );
+    const rowHeights = rows.map((items) =>
+      Math.max(...items.map((id) => comparisonModuleHeight(id))),
+    );
+    const top = 206;
+    const height = Math.max(
+      520,
+      top + rowHeights.reduce((sum, value) => sum + value + gap, 0) + 42,
+    );
+    let body = `<rect width="${width}" height="${height}" fill="${palette.paper}" />${comparisonHeader(options, palette, true)}`;
+    rows.forEach((items, rowIndex) => {
+      const rowTop = top + rowHeights.slice(0, rowIndex).reduce((sum, value) => sum + value + gap, 0);
+      items.forEach((id, columnIndex) => {
+        const full = items.length === 1;
+        const panelWidth = full ? 1456 : (1456 - gap) / 2;
+        const panelX = 72 + columnIndex * (panelWidth + gap);
+        body += comparisonPanel(
+          id,
+          comparison,
+          selected.indexOf(id),
+          panelX,
+          rowTop,
+          panelWidth,
+          rowHeights[rowIndex],
+          palette,
+        );
+      });
+    });
+    if (!selected.length) {
+      body += `<text x="72" y="280" fill="${palette.muted}" font-family="${FONT_STACK}" font-size="20">请至少选择一个分享模块。</text>`;
+    }
+    body += comparisonFooter(height, options, palette);
+    return { svg: svgDocument(width, height, body), width, height };
+  }
+
+  function createComparisonShareImage(comparison = {}, options = {}) {
+    const config = { ...readShareConfig(), ...options };
+    config.currentRepository ??= comparison.currentRepository;
+    config.peerRepository ??= comparison.peerRepository;
+    const palette = PALETTES[config.accent] ?? PALETTES.coral;
+    const modules = normalizeComparisonModules(config.modules);
+    const format = config.format === "card" ? "card" : "long";
+    return format === "card"
+      ? cardComparisonSvg(comparison, config, palette, modules)
+      : longComparisonSvg(comparison, config, palette, modules);
+  }
+
   async function createOverviewShareSvg(insights = {}, options = {}) {
     return createOverviewShareImage(insights, options).svg;
   }
@@ -1120,20 +1417,12 @@
   }
 
   function readComparison() {
-    const results = document.querySelector("#compareResults");
-    if (!results || results.hidden) {
+    const data = document.querySelector("#share-comparison-data")?.textContent;
+    try {
+      return data ? JSON.parse(data) : null;
+    } catch {
       return null;
     }
-    const numberFrom = (selector) => {
-      const text = document.querySelector(selector)?.textContent || "";
-      return Number(text.replace(/[^\d.-]/gu, "")) || 0;
-    };
-    return {
-      currentTotal: numberFrom("#currentTotal"),
-      peerTotal: numberFrom("#peerTotal"),
-      sharedTotal: numberFrom("#sharedTotal"),
-      overlapPercent: numberFrom("#overlapPercent"),
-    };
   }
 
   function actionIcon(action) {
@@ -1150,6 +1439,45 @@
   }
 
   let shareDialogState = null;
+
+  function shareModuleDefinitions(kind) {
+    if (kind === "overview") {
+      return OVERVIEW_MODULE_IDS.map((id) => [
+        id,
+        OVERVIEW_MODULE_LABELS[id],
+        "加入档案分享图片",
+      ]);
+    }
+    if (kind === "comparison") {
+      return COMPARISON_MODULE_IDS.map((id) => [
+        id,
+        COMPARISON_MODULE_LABELS[id],
+        "加入同好对比图片",
+      ]);
+    }
+    return [];
+  }
+
+  function populateShareModules(dialog, kind) {
+    const moduleContainer = dialog.querySelector(".share-dialog-modules");
+    moduleContainer.replaceChildren();
+    for (const [id, labelText, noteText] of shareModuleDefinitions(kind)) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "share-module";
+      input.value = id;
+      input.checked = true;
+      const copy = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = labelText;
+      const note = document.createElement("small");
+      note.textContent = noteText;
+      copy.append(title, note);
+      label.append(input, copy);
+      moduleContainer.append(label);
+    }
+  }
 
   function ensureShareDialog() {
     let dialog = document.querySelector(".share-dialog");
@@ -1210,24 +1538,6 @@
       </footer>
     </div>`;
     document.body.append(dialog);
-
-    const moduleContainer = dialog.querySelector(".share-dialog-modules");
-    for (const id of OVERVIEW_MODULE_IDS) {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.name = "share-module";
-      input.value = id;
-      input.checked = true;
-      const copy = document.createElement("span");
-      const title = document.createElement("strong");
-      title.textContent = OVERVIEW_MODULE_LABELS[id];
-      const note = document.createElement("small");
-      note.textContent = "加入分享图片";
-      copy.append(title, note);
-      label.append(input, copy);
-      moduleContainer.append(label);
-    }
 
     dialog.querySelector("[data-share-close]").addEventListener("click", () => {
       dialog.close();
@@ -1343,7 +1653,18 @@
           format:
             dialog.querySelector('input[name="share-format"]:checked')?.value ||
             "long",
-          modules: selectedDialogModules(dialog),
+            modules: selectedDialogModules(dialog),
+          },
+        );
+      } else if (state.kind === "comparison") {
+        result = createComparisonShareImage(
+          readComparison() ?? {},
+          {
+            format:
+              dialog.querySelector('input[name="share-format"]:checked')?.value ||
+              "long",
+            modules: selectedDialogModules(dialog),
+            siteTitle: shareSiteTitle(),
           },
         );
       } else {
@@ -1365,10 +1686,18 @@
       svgPreview.innerHTML = result.svg;
       svgPreview.querySelector("svg")?.setAttribute(
         "aria-label",
-        state.kind === "overview" ? "档案分享图片预览" : "番剧分享卡片预览",
+        state.kind === "overview"
+          ? "档案分享图片预览"
+          : state.kind === "comparison"
+            ? "同好对比分享图片预览"
+            : "番剧分享卡片预览",
       );
       const image = dialog.querySelector(".share-dialog-image");
-      image.alt = state.kind === "overview" ? "档案分享图片预览" : "番剧分享卡片预览";
+      image.alt = state.kind === "overview"
+        ? "档案分享图片预览"
+        : state.kind === "comparison"
+          ? "同好对比分享图片预览"
+          : "番剧分享卡片预览";
       setDialogPreviewState("ready");
       setDialogStatus("预览已生成，正在准备复制与下载图片…");
       let exportError = null;
@@ -1405,8 +1734,12 @@
 
   function openShareDialog(trigger) {
     const dialog = ensureShareDialog();
-    const kind = trigger.dataset.shareKind === "overview" ? "overview" : "record";
+    const requestedKind = trigger.dataset.shareKind;
+    const kind = ["overview", "comparison"].includes(requestedKind)
+      ? requestedKind
+      : "record";
     let record = null;
+    let comparison = null;
     if (kind === "record") {
       const recordElement = trigger.closest("[data-share-record]");
       if (!recordElement) {
@@ -1414,31 +1747,41 @@
         return;
       }
       record = recordFromElement(recordElement);
+    } else if (kind === "comparison") {
+      comparison = readComparison();
+      if (!comparison) {
+        showStatus("请先完成一次对比，再生成分享图片", "error");
+        return;
+      }
     }
     if (dialog.open) {
       dialog.close();
     }
 
-    dialog.querySelectorAll('input[name="share-module"]').forEach((input) => {
-      input.checked = true;
-    });
+    populateShareModules(dialog, kind);
     dialog.querySelector(
       'input[name="share-format"][value="long"]',
     ).checked = true;
     const options = dialog.querySelector(".share-dialog-options");
-    options.hidden = kind !== "overview";
+    options.hidden = kind === "record";
     dialog.classList.toggle("is-record", kind === "record");
-    dialog.querySelector("#share-dialog-title").textContent =
-      kind === "overview" ? "分享档案洞察" : "分享番剧卡片";
+    dialog.querySelector("#share-dialog-title").textContent = kind === "overview"
+      ? "分享档案洞察"
+      : kind === "comparison"
+        ? "分享同好对比"
+        : "分享番剧卡片";
     setDialogStatus(
       kind === "overview"
         ? "勾选模块或切换版式，预览会立即更新。"
-        : "图片在本地生成，不会上传数据。",
+        : kind === "comparison"
+          ? "选择想展示的对比模块，预览会立即更新。"
+          : "图片在本地生成，不会上传数据。",
     );
     shareDialogState = {
       kind,
       trigger,
       record,
+      comparison,
       svg: null,
       image: null,
       width: 0,
@@ -1448,7 +1791,9 @@
       filename:
         kind === "overview"
           ? "my-anime-life-insights"
-          : `anime-${clean(record.id).replace(/[^\w.-]+/gu, "-") || "record"}`,
+          : kind === "comparison"
+            ? "my-anime-life-taste-match"
+            : `anime-${clean(record.id).replace(/[^\w.-]+/gu, "-") || "record"}`,
     };
     dialog.showModal();
     refreshShareDialog();
@@ -1522,6 +1867,7 @@
     createRecordShareSvg,
     createOverviewShareSvg,
     createOverviewShareImage,
+    createComparisonShareImage,
     createImage,
     copyImage,
     download,

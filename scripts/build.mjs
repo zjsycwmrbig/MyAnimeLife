@@ -783,8 +783,8 @@ export async function buildSite(options = {}) {
 
   const compareContext = {
     ...common,
-    pageTitle: `仓库 PK | ${config.site.title}`,
-    pageDescription: `比较 ${config.site.title} 与另一个公开番剧档案的收录、年份与评分。`,
+    pageTitle: `同好对比 | ${config.site.title}`,
+    pageDescription: `比较 ${config.site.title} 与另一位同好的收藏重合、年代偏好、评分习惯和标签口味。`,
     homeUrl: "../",
     assetRoot: "../assets/",
     currentDataUrl: "../data/library.json",

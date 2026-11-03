@@ -566,12 +566,42 @@
   const peerOnlyList = document.querySelector("#peerOnlyList");
   const ratingDifferenceList = document.querySelector("#ratingDifferenceList");
   const compareYears = document.querySelector("#compareYears");
+  const compareDecades = document.querySelector("#compareDecades");
   const compareRatings = document.querySelector("#compareRatings");
+  const currentOnlyMetric = document.querySelector("#currentOnlyMetric");
+  const peerOnlyMetric = document.querySelector("#peerOnlyMetric");
+  const sharedRatedMetric = document.querySelector("#sharedRatedMetric");
+  const ratingGapMetric = document.querySelector("#ratingGapMetric");
+  const compareOverviewPairs = document.querySelector("#compareOverviewPairs");
+  const compareDiscoveryList = document.querySelector("#compareDiscoveryList");
+  const currentOldestYear = document.querySelector("#currentOldestYear");
+  const peerOldestYear = document.querySelector("#peerOldestYear");
+  const currentNewestYear = document.querySelector("#currentNewestYear");
+  const peerNewestYear = document.querySelector("#peerNewestYear");
+  const currentMedianYear = document.querySelector("#currentMedianYear");
+  const peerMedianYear = document.querySelector("#peerMedianYear");
+  const yearGapMetric = document.querySelector("#yearGapMetric");
+  const ratingCurrentAverage = document.querySelector("#ratingCurrentAverage");
+  const ratingPeerAverage = document.querySelector("#ratingPeerAverage");
+  const currentHigherCount = document.querySelector("#currentHigherCount");
+  const peerHigherCount = document.querySelector("#peerHigherCount");
+  const tiedRatingCount = document.querySelector("#tiedRatingCount");
+  const ratingDifferenceSummary = document.querySelector("#ratingDifferenceSummary");
+  const maxRatingDifference = document.querySelector("#maxRatingDifference");
+  const maxRatingDifferenceTitle = document.querySelector("#maxRatingDifferenceTitle");
+  const maxRatingDifferenceCopy = document.querySelector("#maxRatingDifferenceCopy");
+  const compareCompleteness = document.querySelector("#compareCompleteness");
+  const compareTasteStatus = document.querySelector("#compareTasteStatus");
+  const compareTagRadar = document.querySelector("#compareTagRadar");
+  const compareTagDeviations = document.querySelector("#compareTagDeviations");
+  const shareComparisonData = document.querySelector("#share-comparison-data");
   const ownRepository = section.dataset.ownRepository.trim();
   const ownBranch = section.dataset.ownBranch.trim() || "main";
   const currentDataUrl = section.dataset.currentDataUrl;
   const storageKey = "anime-records:repository-peers";
+  const tabStorageKey = "anime-records:comparison-tab";
   const maximumPayloadLength = 8 * 1024 * 1024;
+  const maximumCachePayloadLength = 24 * 1024 * 1024;
   const listLimit = 12;
   const ratingDifferenceLimit = 10;
   let busy = false;
@@ -649,7 +679,13 @@
     return `https://raw.githubusercontent.com/${owner}/${repo}/refs/heads/${branchPath}/data/anime-index.jsonl`;
   }
 
-  async function fetchText(url, label) {
+  function rawCacheUrl(repository, branch) {
+    const [owner, repo] = repository.split("/").map(encodeURIComponent);
+    const branchPath = branch.split("/").map(encodeURIComponent).join("/");
+    return `https://raw.githubusercontent.com/${owner}/${repo}/refs/heads/${branchPath}/data/bangumi-cache.jsonl`;
+  }
+
+  async function fetchText(url, label, maximumLength = maximumPayloadLength) {
     const response = await fetch(url, {
       cache: "no-store",
       headers: { Accept: "application/json, text/plain;q=0.9" },
@@ -658,12 +694,12 @@
       throw new Error(`${label}读取失败（HTTP ${response.status}）`);
     }
     const declaredLength = Number(response.headers.get("content-length"));
-    if (declaredLength > maximumPayloadLength) {
-      throw new Error(`${label}超过 8 MiB，已停止读取`);
+    if (declaredLength > maximumLength) {
+      throw new Error(`${label}超过 ${Math.round(maximumLength / 1024 / 1024)} MiB，已停止读取`);
     }
     const text = await response.text();
-    if (text.length > maximumPayloadLength) {
-      throw new Error(`${label}超过 8 MiB，已停止读取`);
+    if (text.length > maximumLength) {
+      throw new Error(`${label}超过 ${Math.round(maximumLength / 1024 / 1024)} MiB，已停止读取`);
     }
     return text;
   }
@@ -712,6 +748,47 @@
     return items;
   }
 
+  async function loadBangumiCache(repository, branch, label) {
+    if (!repository) {
+      return {
+        available: false,
+        entries: new Map(),
+        error: `${label}没有可读取的公开仓库地址`,
+      };
+    }
+    try {
+      const text = await fetchText(
+        rawCacheUrl(repository, branch),
+        `${label} Bangumi 缓存`,
+        maximumCachePayloadLength,
+      );
+      const entries = new Map();
+      for (const line of text.split(/\r?\n/u)) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let entry;
+        try {
+          entry = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        const subjectId = String(entry?.subjectId ?? "").trim();
+        if (!subjectId) continue;
+        const tags = (Array.isArray(entry.tags) ? entry.tags : [])
+          .map((tag) => String(tag?.name ?? tag?.[0] ?? "").trim())
+          .filter(Boolean);
+        entries.set(subjectId, { tags });
+      }
+      return { available: entries.size > 0, entries, error: entries.size ? "" : `${label} Bangumi 缓存为空` };
+    } catch (error) {
+      return {
+        available: false,
+        entries: new Map(),
+        error: error.message || `${label} Bangumi 缓存读取失败`,
+      };
+    }
+  }
+
   function itemKeys(item) {
     const keys = new Set();
     if (item?.id) {
@@ -729,12 +806,17 @@
     return {
       id: item.id,
       title: item.title || item.id || "未命名作品",
+      reviewExcerpt: String(item.reviewExcerpt ?? "").trim(),
+      coverUrl: String(item.coverUrl ?? "").trim(),
       rating:
         item.rating === null || item.rating === undefined
           ? null
           : Number(item.rating),
       season: item.season ?? null,
       externalIds: item.externalIds ?? {},
+      match: item.match ?? null,
+      createdAt: item.createdAt ?? null,
+      updatedAt: item.updatedAt ?? null,
     };
   }
 
@@ -768,8 +850,37 @@
       .map(([key, count]) => ({ key, label: labelFor(key), count }));
   }
 
+  function median(values) {
+    const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+    if (!sorted.length) return null;
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2
+      ? sorted[middle]
+      : Math.round(((sorted[middle - 1] + sorted[middle]) / 2) * 10) / 10;
+  }
+
+  function standardDeviation(values) {
+    const finite = values.filter(Number.isFinite);
+    if (!finite.length) return null;
+    const mean = finite.reduce((total, value) => total + value, 0) / finite.length;
+    const variance =
+      finite.reduce((total, value) => total + (value - mean) ** 2, 0) /
+      finite.length;
+    return Math.round(Math.sqrt(variance) * 10) / 10;
+  }
+
+  function timestamp(value) {
+    const parsed = new Date(value ?? "").getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function percent(count, total) {
+    return total ? Math.round((count / total) * 1000) / 10 : 0;
+  }
+
   function profile(items) {
     const rated = items.filter((item) => Number.isFinite(item.rating)).length;
+    const ratedValues = items.map((item) => item.rating).filter(Number.isFinite);
     const yearDistribution = distribution(
       items,
       (item) => {
@@ -790,13 +901,57 @@
       },
       (key) => ({"0-5.9": "0 - 5.9", "6-6.9": "6 - 6.9", "7-7.9": "7 - 7.9", "8-8.9": "8 - 8.9", "9-10": "9 - 10", unrated: "未评分"}[key] || key),
     );
+    const decadeDistribution = distribution(
+      items,
+      (item) => {
+        const year = Number(item.season?.year);
+        return Number.isInteger(year) && year >= 1900
+          ? Math.floor(year / 10) * 10
+          : null;
+      },
+      (key) => (key === null ? "年代未知" : `${key}s`),
+    );
+    const years = items
+      .map((item) => Number(item.season?.year))
+      .filter((year) => Number.isInteger(year) && year >= 1900)
+      .sort((left, right) => left - right);
+    const now = Date.now();
+    const createdValues = items
+      .map((item) => timestamp(item.createdAt))
+      .filter((value) => value !== null);
+    const recent = (days) =>
+      createdValues.filter((value) => now - value <= days * 86400000).length;
+    const reviewCount = items.filter((item) => item.reviewExcerpt).length;
+    const coverCount = items.filter((item) => item.coverUrl).length;
+    const seasonCount = items.filter((item) => Number.isInteger(Number(item.season?.year))).length;
+    const seasonNumberCount = items.filter((item) => Number.isInteger(Number(item.season?.number))).length;
+    const externalIdCount = items.filter((item) => Object.values(item.externalIds ?? {}).some(Boolean)).length;
+    const bangumiIdCount = items.filter((item) => item.externalIds?.bangumi).length;
     return {
       total: items.length,
       rated,
-      ratedPercent: items.length ? Math.round((rated / items.length) * 1000) / 10 : 0,
+      ratedPercent: percent(rated, items.length),
       averageRating: average(items),
+      ratingDeviation: standardDeviation(ratedValues),
       years: yearDistribution,
+      decades: decadeDistribution,
       ratings: ratingDistribution,
+      yearStats: {
+        oldest: years[0] ?? null,
+        newest: years.at(-1) ?? null,
+        median: median(years),
+      },
+      recent30: recent(30),
+      recent365: recent(365),
+      coverage: {
+        review: percent(reviewCount, items.length),
+        cover: percent(coverCount, items.length),
+        year: percent(seasonCount, items.length),
+        season: percent(seasonNumberCount, items.length),
+        externalId: percent(externalIdCount, items.length),
+        bangumiId: percent(bangumiIdCount, items.length),
+        createdAt: percent(createdValues.length, items.length),
+      },
     };
   }
 
@@ -851,19 +1006,181 @@
           Math.abs(right.ratingDifference) -
           Math.abs(left.ratingDifference),
       );
+    const currentProfile = profile(current);
+    const peerProfile = profile(peer);
+    const higher = ratingDifferences.filter((item) => item.ratingDifference > 0).length;
+    const lower = ratingDifferences.filter((item) => item.ratingDifference < 0).length;
+    const tied = ratingDifferences.filter((item) => item.ratingDifference === 0).length;
+    const averageGap = ratingDifferences.length
+      ? Math.round(
+          (ratingDifferences.reduce(
+            (total, item) => total + Math.abs(item.ratingDifference),
+            0,
+          ) /
+            ratingDifferences.length) *
+            10,
+        ) / 10
+      : null;
 
     return {
       current,
       peer,
-      currentProfile: profile(current),
-      peerProfile: profile(peer),
+      currentProfile,
+      peerProfile,
       shared,
       currentOnly,
       peerOnly,
       ratingDifferences,
+      ratingComparison: {
+        higher,
+        lower,
+        tied,
+        averageGap,
+        maximumDifference: ratingDifferences[0] ?? null,
+      },
       overlapPercent: unionSize
         ? Math.round((shared.length / unionSize) * 1000) / 10
         : 0,
+    };
+  }
+
+  const ignoredTagKeys = new Set([
+    "tv",
+    "web",
+    "ova",
+    "剧场版",
+    "动画",
+    "日本",
+    "日本动画",
+    "tv动画",
+  ]);
+
+  function tagKey(value) {
+    return String(value ?? "").normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
+  }
+
+  function tagsForItem(item, cache) {
+    const subjectId = String(item.externalIds?.bangumi ?? "").trim();
+    const tags = subjectId ? cache.entries.get(subjectId)?.tags ?? [] : [];
+    const unique = new Map();
+    for (const rawTag of tags) {
+      const name = String(rawTag ?? "").trim();
+      const key = tagKey(name);
+      if (
+        !key ||
+        ignoredTagKeys.has(key) ||
+        /^(?:19|20)\d{2}(?:年|\/|-|$)/u.test(key)
+      ) {
+        continue;
+      }
+      if (!unique.has(key)) unique.set(key, name);
+    }
+    return [...unique.values()];
+  }
+
+  function compareTags(current, peer, currentCache, peerCache) {
+    if (!currentCache.available || !peerCache.available) {
+      const missing = [
+        !currentCache.available ? `当前档案：${currentCache.error || "缓存不可用"}` : "",
+        !peerCache.available ? `对方档案：${peerCache.error || "缓存不可用"}` : "",
+      ].filter(Boolean);
+      return {
+        available: false,
+        status: `标签数据不足。${missing.join("；")}`,
+        topTags: [],
+        deviations: [],
+        similarity: null,
+        currentTagged: 0,
+        peerTagged: 0,
+      };
+    }
+
+    const groups = new Map();
+    let currentTagged = 0;
+    let peerTagged = 0;
+    function addItems(items, side, cache) {
+      for (const item of items) {
+        const tags = tagsForItem(item, cache);
+        if (tags.length) {
+          if (side === "current") currentTagged += 1;
+          else peerTagged += 1;
+        }
+        for (const name of tags) {
+          const key = tagKey(name);
+          const group = groups.get(key) ?? {
+            key,
+            name,
+            currentCount: 0,
+            peerCount: 0,
+            currentRatings: [],
+            peerRatings: [],
+          };
+          if (side === "current") {
+            group.currentCount += 1;
+            if (Number.isFinite(item.rating)) group.currentRatings.push(item.rating);
+          } else {
+            group.peerCount += 1;
+            if (Number.isFinite(item.rating)) group.peerRatings.push(item.rating);
+          }
+          groups.set(key, group);
+        }
+      }
+    }
+    addItems(current, "current", currentCache);
+    addItems(peer, "peer", peerCache);
+
+    const allGroups = [...groups.values()].map((group) => ({
+      ...group,
+      currentAverage: group.currentRatings.length ? average(group.currentRatings.map((rating) => ({ rating }))) : null,
+      peerAverage: group.peerRatings.length ? average(group.peerRatings.map((rating) => ({ rating }))) : null,
+    }));
+    const topTags = [...allGroups]
+      .sort(
+        (left, right) =>
+          right.currentCount + right.peerCount - left.currentCount - left.peerCount ||
+          left.name.localeCompare(right.name, "zh-CN"),
+      )
+      .slice(0, 8);
+    const deviations = allGroups
+      .filter(
+        (group) =>
+          group.currentAverage !== null &&
+          group.peerAverage !== null &&
+          group.currentRatings.length > 0 &&
+          group.peerRatings.length > 0,
+      )
+      .map((group) => ({
+        ...group,
+        difference: Math.round((group.currentAverage - group.peerAverage) * 10) / 10,
+      }))
+      .sort(
+        (left, right) =>
+          Math.abs(right.difference) - Math.abs(left.difference) ||
+          right.currentCount + right.peerCount - left.currentCount - left.peerCount,
+      );
+    const dot = topTags.reduce(
+      (total, tag) => total + tag.currentCount * tag.peerCount,
+      0,
+    );
+    const currentMagnitude = Math.sqrt(
+      topTags.reduce((total, tag) => total + tag.currentCount ** 2, 0),
+    );
+    const peerMagnitude = Math.sqrt(
+      topTags.reduce((total, tag) => total + tag.peerCount ** 2, 0),
+    );
+    return {
+      available: topTags.length > 0,
+      status: topTags.length
+        ? `已从公开缓存读取标签：当前 ${currentTagged} 部，对方 ${peerTagged} 部。`
+        : "双方公开缓存中还没有可用于对比的共同标签。",
+      topTags,
+      deviations,
+      similarity:
+        currentMagnitude && peerMagnitude
+          ? Math.round((dot / (currentMagnitude * peerMagnitude)) * 1000) / 10
+          : null,
+      currentTagged,
+      peerTagged,
     };
   }
 
@@ -988,7 +1305,376 @@
     }
   }
 
-  function renderComparison(comparison) {
+  function formatDifference(value, suffix = "") {
+    if (!Number.isFinite(value)) return "—";
+    return `${value > 0 ? "+" : ""}${value.toFixed(1)}${suffix}`;
+  }
+
+  function renderOverviewPairs(comparison) {
+    compareOverviewPairs.replaceChildren();
+    const rows = [
+      ["收藏总量", comparison.currentProfile.total, comparison.peerProfile.total, " 部"],
+      ["已评分", comparison.currentProfile.rated, comparison.peerProfile.rated, " 部"],
+      ["平均评分", ratingLabel(comparison.currentProfile.averageRating), ratingLabel(comparison.peerProfile.averageRating), ""],
+      ["评分波动", ratingLabel(comparison.currentProfile.ratingDeviation), ratingLabel(comparison.peerProfile.ratingDeviation), ""],
+      ["短评覆盖", comparison.currentProfile.coverage.review, comparison.peerProfile.coverage.review, "%"],
+      ["近 30 天新增", comparison.currentProfile.recent30, comparison.peerProfile.recent30, " 部"],
+      ["近一年新增", comparison.currentProfile.recent365, comparison.peerProfile.recent365, " 部"],
+    ];
+    for (const [label, current, peer, suffix] of rows) {
+      const row = document.createElement("div");
+      row.className = "compare-pair-row";
+      row.append(createTextElement("span", "compare-pair-name", label));
+      row.append(createTextElement("strong", "is-current", `${current}${suffix}`));
+      row.append(createTextElement("strong", "is-peer", `${peer}${suffix}`));
+      compareOverviewPairs.append(row);
+    }
+  }
+
+  function renderDiscoveryList(comparison) {
+    compareDiscoveryList.replaceChildren();
+    const discoveries = [...comparison.peerOnly]
+      .sort(
+        (left, right) =>
+          (Number.isFinite(right.rating) ? right.rating : -1) -
+            (Number.isFinite(left.rating) ? left.rating : -1) ||
+          left.title.localeCompare(right.title, "zh-CN"),
+      )
+      .slice(0, 6);
+    for (const item of discoveries) {
+      const row = document.createElement("div");
+      row.className = "compare-discovery-item";
+      const copy = document.createElement("div");
+      copy.append(createTextElement("strong", "", item.title));
+      copy.append(createTextElement("span", "", seasonLabel(item.season) || "年代未标注"));
+      row.append(copy, createTextElement("b", "", ratingLabel(item.rating)));
+      compareDiscoveryList.append(row);
+    }
+    if (!discoveries.length) {
+      compareDiscoveryList.append(
+        createTextElement("p", "compare-empty", "对方的收藏已经全部被你发现。"),
+      );
+    }
+  }
+
+  function renderYearComparison(comparison) {
+    const currentYears = comparison.currentProfile.yearStats;
+    const peerYears = comparison.peerProfile.yearStats;
+    currentOldestYear.textContent = currentYears.oldest ?? "—";
+    peerOldestYear.textContent = `对方 ${peerYears.oldest ?? "—"}`;
+    currentNewestYear.textContent = currentYears.newest ?? "—";
+    peerNewestYear.textContent = `对方 ${peerYears.newest ?? "—"}`;
+    currentMedianYear.textContent = currentYears.median ?? "—";
+    peerMedianYear.textContent = `对方 ${peerYears.median ?? "—"}`;
+    yearGapMetric.textContent =
+      currentYears.median !== null && peerYears.median !== null
+        ? formatDifference(currentYears.median - peerYears.median, " 年")
+        : "—";
+    renderComparisonBars(
+      compareYears,
+      comparison.currentProfile.years,
+      comparison.peerProfile.years,
+    );
+    renderComparisonBars(
+      compareDecades,
+      comparison.currentProfile.decades,
+      comparison.peerProfile.decades,
+    );
+  }
+
+  function renderRatingComparison(comparison) {
+    const rating = comparison.ratingComparison;
+    ratingCurrentAverage.textContent = ratingLabel(comparison.currentProfile.averageRating);
+    ratingPeerAverage.textContent = ratingLabel(comparison.peerProfile.averageRating);
+    currentHigherCount.textContent = String(rating.higher);
+    peerHigherCount.textContent = String(rating.lower);
+    tiedRatingCount.textContent = String(rating.tied);
+    ratingDifferenceSummary.textContent = rating.averageGap === null
+      ? "只计入双方都已评分"
+      : `平均绝对分差 ${rating.averageGap.toFixed(1)}`;
+    const maximum = rating.maximumDifference;
+    if (maximum) {
+      maxRatingDifference.textContent = Math.abs(maximum.ratingDifference).toFixed(1);
+      maxRatingDifferenceTitle.textContent = maximum.title;
+      maxRatingDifferenceCopy.textContent = `当前 ${ratingLabel(maximum.rating)} · 对方 ${ratingLabel(maximum.peerRating)} · ${
+        maximum.ratingDifference > 0 ? "你更偏爱" : maximum.ratingDifference < 0 ? "对方更偏爱" : "评分相同"
+      }`;
+    } else {
+      maxRatingDifference.textContent = "—";
+      maxRatingDifferenceTitle.textContent = "还没有可比较的共同评分";
+      maxRatingDifferenceCopy.textContent = "双方都评分后，这里会显示分歧最大的共同作品。";
+    }
+    renderRatingDifferences(comparison.ratingDifferences);
+    renderComparisonBars(
+      compareRatings,
+      comparison.currentProfile.ratings,
+      comparison.peerProfile.ratings,
+    );
+  }
+
+  function renderCompleteness(comparison) {
+    compareCompleteness.replaceChildren();
+    const metrics = [
+      ["评分覆盖", "ratedPercent"],
+      ["短评摘要", "review"],
+      ["封面地址", "cover"],
+      ["作品年代", "year"],
+      ["季度编号", "season"],
+      ["外部站点 ID", "externalId"],
+      ["Bangumi ID", "bangumiId"],
+      ["收录时间", "createdAt"],
+    ];
+    for (const [label, key] of metrics) {
+      const current =
+        key === "ratedPercent"
+          ? comparison.currentProfile.ratedPercent
+          : comparison.currentProfile.coverage[key];
+      const peer =
+        key === "ratedPercent"
+          ? comparison.peerProfile.ratedPercent
+          : comparison.peerProfile.coverage[key];
+      const row = document.createElement("div");
+      row.className = "compare-completeness-row";
+      row.append(createTextElement("strong", "compare-completeness-name", label));
+      for (const [side, value] of [["current", current], ["peer", peer]]) {
+        const metric = document.createElement("div");
+        metric.className = `compare-completeness-metric is-${side}`;
+        const track = document.createElement("span");
+        const fill = document.createElement("i");
+        fill.style.width = `${value}%`;
+        track.append(fill);
+        metric.append(track, createTextElement("b", "", `${value}%`));
+        row.append(metric);
+      }
+      compareCompleteness.append(row);
+    }
+  }
+
+  function svgElement(tag, attributes = {}) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attributes)) {
+      element.setAttribute(name, String(value));
+    }
+    return element;
+  }
+
+  function radarPoints(tags, side, centerX, centerY, radius, maximum) {
+    return tags.map((tag, index) => {
+      const angle = -Math.PI / 2 + (index / tags.length) * Math.PI * 2;
+      const count = side === "current" ? tag.currentCount : tag.peerCount;
+      const ratio = maximum ? count / maximum : 0;
+      return `${centerX + Math.cos(angle) * radius * ratio},${centerY + Math.sin(angle) * radius * ratio}`;
+    }).join(" ");
+  }
+
+  function renderTagRadar(tagComparison) {
+    compareTagRadar.replaceChildren();
+    if (!tagComparison.available) {
+      compareTagRadar.append(
+        createTextElement("p", "compare-empty", tagComparison.status),
+      );
+      return;
+    }
+    const tags = tagComparison.topTags;
+    const width = 620;
+    const height = 440;
+    const centerX = width / 2;
+    const centerY = height / 2 + 4;
+    const radius = 142;
+    const maximum = Math.max(1, ...tags.flatMap((tag) => [tag.currentCount, tag.peerCount]));
+    const svg = svgElement("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      class: "compare-radar-svg",
+      role: "img",
+      "aria-label": "双方标签偏好雷达图",
+    });
+    for (const level of [0.25, 0.5, 0.75, 1]) {
+      svg.append(
+        svgElement("polygon", {
+          points: tags.map((_, index) => {
+            const angle = -Math.PI / 2 + (index / tags.length) * Math.PI * 2;
+            return `${centerX + Math.cos(angle) * radius * level},${centerY + Math.sin(angle) * radius * level}`;
+          }).join(" "),
+          class: "compare-radar-grid",
+        }),
+      );
+    }
+    tags.forEach((tag, index) => {
+      const angle = -Math.PI / 2 + (index / tags.length) * Math.PI * 2;
+      svg.append(svgElement("line", {
+        x1: centerX,
+        y1: centerY,
+        x2: centerX + Math.cos(angle) * radius,
+        y2: centerY + Math.sin(angle) * radius,
+        class: "compare-radar-axis",
+      }));
+      const labelX = centerX + Math.cos(angle) * (radius + 42);
+      const labelY = centerY + Math.sin(angle) * (radius + 35);
+      const label = svgElement("text", {
+        x: labelX,
+        y: labelY,
+        class: "compare-radar-label",
+        "text-anchor": Math.cos(angle) > 0.35 ? "start" : Math.cos(angle) < -0.35 ? "end" : "middle",
+        "dominant-baseline": "middle",
+      });
+      label.textContent = tag.name.length > 9 ? `${tag.name.slice(0, 8)}…` : tag.name;
+      svg.append(label);
+    });
+    svg.append(svgElement("polygon", {
+      points: radarPoints(tags, "current", centerX, centerY, radius, maximum),
+      class: "compare-radar-area is-current",
+    }));
+    svg.append(svgElement("polygon", {
+      points: radarPoints(tags, "peer", centerX, centerY, radius, maximum),
+      class: "compare-radar-area is-peer",
+    }));
+    compareTagRadar.append(svg);
+  }
+
+  function renderTagComparison(tagComparison) {
+    compareTasteStatus.textContent = tagComparison.available
+      ? `${tagComparison.status}${tagComparison.similarity !== null ? `标签偏好相似度 ${tagComparison.similarity}%` : ""}`
+      : tagComparison.status;
+    renderTagRadar(tagComparison);
+    compareTagDeviations.replaceChildren();
+    const deviations = tagComparison.deviations.slice(0, 8);
+    deviations.forEach((tag, index) => {
+      const row = document.createElement("div");
+      row.className = `compare-tag-deviation-row${index === 0 ? " is-max" : ""}`;
+      const copy = document.createElement("div");
+      copy.append(createTextElement("strong", "", tag.name));
+      copy.append(
+        createTextElement(
+          "span",
+          "",
+          `当前 ${tag.currentAverage.toFixed(1)}（${tag.currentRatings.length}） · 对方 ${tag.peerAverage.toFixed(1)}（${tag.peerRatings.length}）`,
+        ),
+      );
+      row.append(
+        copy,
+        createTextElement(
+          "b",
+          tag.difference > 0 ? "is-current" : tag.difference < 0 ? "is-peer" : "",
+          formatDifference(tag.difference),
+        ),
+      );
+      compareTagDeviations.append(row);
+    });
+    if (!deviations.length) {
+      compareTagDeviations.append(
+        createTextElement(
+          "p",
+          "compare-empty",
+          "没有同时包含双方评分作品的标签。",
+        ),
+      );
+    }
+  }
+
+  function activateCompareTab(tabId, persist = true) {
+    const buttons = [...section.querySelectorAll("[data-compare-tab]")];
+    const valid = buttons.some((button) => button.dataset.compareTab === tabId)
+      ? tabId
+      : "overview";
+    for (const button of buttons) {
+      const active = button.dataset.compareTab === valid;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of section.querySelectorAll("[data-compare-panel]")) {
+      const active = panel.dataset.comparePanel === valid;
+      panel.classList.toggle("is-active", active);
+      panel.hidden = !active;
+    }
+    if (persist) {
+      try {
+        window.localStorage.setItem(tabStorageKey, valid);
+      } catch {
+        // The comparison remains usable when storage is blocked.
+      }
+    }
+  }
+
+  function createComparisonShareData(comparison, peer) {
+    return {
+      schemaVersion: 1,
+      currentRepository: ownRepository || "当前档案",
+      peerRepository: peer.repository,
+      branch: peer.branch,
+      generatedAt: new Date().toISOString(),
+      overview: {
+        currentTotal: comparison.currentProfile.total,
+        peerTotal: comparison.peerProfile.total,
+        sharedTotal: comparison.shared.length,
+        currentOnlyTotal: comparison.currentOnly.length,
+        peerOnlyTotal: comparison.peerOnly.length,
+        overlapPercent: comparison.overlapPercent,
+        currentAverage: comparison.currentProfile.averageRating,
+        peerAverage: comparison.peerProfile.averageRating,
+        currentRatedPercent: comparison.currentProfile.ratedPercent,
+        peerRatedPercent: comparison.peerProfile.ratedPercent,
+      },
+      ratings: {
+        averageGap: comparison.ratingComparison.averageGap,
+        currentHigher: comparison.ratingComparison.higher,
+        peerHigher: comparison.ratingComparison.lower,
+        tied: comparison.ratingComparison.tied,
+        maximum: comparison.ratingComparison.maximumDifference
+          ? {
+              title: comparison.ratingComparison.maximumDifference.title,
+              currentRating: comparison.ratingComparison.maximumDifference.rating,
+              peerRating: comparison.ratingComparison.maximumDifference.peerRating,
+              difference: comparison.ratingComparison.maximumDifference.ratingDifference,
+            }
+          : null,
+        current: comparison.currentProfile.ratings,
+        peer: comparison.peerProfile.ratings,
+        items: comparison.ratingDifferences.slice(0, 8).map((item) => ({
+          title: item.title,
+          currentRating: item.rating,
+          peerRating: item.peerRating,
+          difference: item.ratingDifference,
+        })),
+      },
+      years: {
+        current: comparison.currentProfile.decades,
+        peer: comparison.peerProfile.decades,
+        currentStats: comparison.currentProfile.yearStats,
+        peerStats: comparison.peerProfile.yearStats,
+      },
+      completeness: {
+        current: comparison.currentProfile.coverage,
+        peer: comparison.peerProfile.coverage,
+        currentRatedPercent: comparison.currentProfile.ratedPercent,
+        peerRatedPercent: comparison.peerProfile.ratedPercent,
+        currentRecent30: comparison.currentProfile.recent30,
+        peerRecent30: comparison.peerProfile.recent30,
+      },
+      taste: {
+        available: comparison.tagComparison.available,
+        status: comparison.tagComparison.status,
+        similarity: comparison.tagComparison.similarity,
+        currentTagged: comparison.tagComparison.currentTagged,
+        peerTagged: comparison.tagComparison.peerTagged,
+        tags: comparison.tagComparison.topTags.map((tag) => ({
+          name: tag.name,
+          currentCount: tag.currentCount,
+          peerCount: tag.peerCount,
+        })),
+        deviations: comparison.tagComparison.deviations.slice(0, 8).map((tag) => ({
+          name: tag.name,
+          currentAverage: tag.currentAverage,
+          peerAverage: tag.peerAverage,
+          currentCount: tag.currentRatings.length,
+          peerCount: tag.peerRatings.length,
+          difference: tag.difference,
+        })),
+      },
+    };
+  }
+
+  function renderComparison(comparison, peer) {
     currentTotal.textContent = comparison.currentProfile.total.toLocaleString("zh-CN");
     peerTotal.textContent = comparison.peerProfile.total.toLocaleString("zh-CN");
     sharedTotal.textContent = comparison.shared.length.toLocaleString("zh-CN");
@@ -1023,10 +1709,32 @@
       comparison.peerOnly.length,
       "only",
     );
-    renderRatingDifferences(comparison.ratingDifferences);
-    renderComparisonBars(compareYears, comparison.currentProfile.years, comparison.peerProfile.years);
-    renderComparisonBars(compareRatings, comparison.currentProfile.ratings, comparison.peerProfile.ratings);
+    currentOnlyMetric.textContent = String(comparison.currentOnly.length);
+    peerOnlyMetric.textContent = String(comparison.peerOnly.length);
+    sharedRatedMetric.textContent = String(comparison.ratingDifferences.length);
+    ratingGapMetric.textContent = comparison.ratingComparison.averageGap === null
+      ? "—"
+      : comparison.ratingComparison.averageGap.toFixed(1);
+    renderOverviewPairs(comparison);
+    renderDiscoveryList(comparison);
+    renderYearComparison(comparison);
+    renderRatingComparison(comparison);
+    renderCompleteness(comparison);
+    renderTagComparison(comparison.tagComparison);
+    const shareData = JSON.stringify(createComparisonShareData(comparison, peer))
+      .replace(/</gu, "\\u003c")
+      .replace(/>/gu, "\\u003e")
+      .replace(/&/gu, "\\u0026");
+    shareComparisonData.textContent = shareData;
     results.hidden = false;
+    shareButton.disabled = false;
+    let rememberedTab = "overview";
+    try {
+      rememberedTab = window.localStorage.getItem(tabStorageKey) || "overview";
+    } catch {
+      rememberedTab = "overview";
+    }
+    activateCompareTab(rememberedTab, false);
   }
 
   function rememberPeer(repository, branch) {
@@ -1050,7 +1758,7 @@
   function setBusy(value) {
     busy = value;
     submitButton.disabled = value;
-    submitButton.textContent = value ? "正在比对" : "开始 PK";
+    submitButton.textContent = value ? "正在比对" : "开始对比";
     submitButton.classList.toggle("is-loading", value);
   }
 
@@ -1074,19 +1782,27 @@
     branchInput.value = branch;
     setBusy(true);
     results.hidden = true;
-    setStatus(`正在读取 ${repository} 的公开轻量索引…`, "loading");
+    setStatus(`正在读取 ${repository} 的公开索引与标签缓存…`, "loading");
 
     try {
-      const [currentItems, peerItems] = await Promise.all([
+      const [currentItems, peerItems, currentCache, peerCache] = await Promise.all([
         loadCurrentItems(),
         loadPeerItems(repository, branch),
+        loadBangumiCache(ownRepository, ownBranch, "当前档案"),
+        loadBangumiCache(repository, branch, "对方档案"),
       ]);
       const comparison = compareItems(currentItems, peerItems);
-      renderComparison(comparison);
+      comparison.tagComparison = compareTags(
+        comparison.current,
+        comparison.peer,
+        currentCache,
+        peerCache,
+      );
+      renderComparison(comparison, { repository, branch });
       rememberPeer(repository, branch);
       syncUrl(repository, branch);
       setStatus(
-        `已读取 ${repository}@${branch}，匹配 ${comparison.shared.length} 部共同作品。`,
+        `已读取 ${repository}@${branch}，匹配 ${comparison.shared.length} 部共同作品。${comparison.tagComparison.available ? "标签偏好也已纳入对比。" : "公开标签缓存不足，标签模块已跳过。"}`,
       );
     } catch (error) {
       setStatus(
@@ -1098,56 +1814,30 @@
     }
   }
 
-  async function copyText(text) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    if (!copied) {
-      throw new Error("浏览器未允许复制");
-    }
-  }
-
-  async function shareComparison() {
-    if (!ownRepository) {
-      setStatus("请先在 config/site.json 配置 GitHub 仓库。", "error");
-      return;
-    }
-    const url = new URL(window.location.href);
-    url.search = "";
-    url.hash = "";
-    url.searchParams.set("peer", ownRepository);
-    url.searchParams.set("branch", ownBranch);
-    const label = shareButton.querySelector("span");
-    const original = label.textContent;
-    shareButton.disabled = true;
-    try {
-      await copyText(url.toString());
-      shareButton.classList.add("is-success");
-      label.textContent = "邀请链接已复制";
-      setStatus("邀请链接已复制，打开后会填入你的分享仓库。");
-      window.setTimeout(() => {
-        shareButton.classList.remove("is-success");
-        label.textContent = original;
-        shareButton.disabled = false;
-      }, 2200);
-    } catch (error) {
-      shareButton.disabled = false;
-      setStatus(error.message || "复制失败，请手动复制浏览器地址。", "error");
-    }
-  }
-
+  const tabButtons = [...section.querySelectorAll("[data-compare-tab]")];
+  tabButtons.forEach((button, index) => {
+    button.addEventListener("click", () => {
+      activateCompareTab(button.dataset.compareTab);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+        return;
+      }
+      event.preventDefault();
+      const nextIndex =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabButtons.length - 1
+            : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) %
+              tabButtons.length;
+      const next = tabButtons[nextIndex];
+      activateCompareTab(next.dataset.compareTab);
+      next.focus();
+    });
+  });
   form.addEventListener("submit", compare);
-  shareButton.addEventListener("click", shareComparison);
+  activateCompareTab("overview", false);
 
   const params = new URLSearchParams(window.location.search);
   let remembered = null;
