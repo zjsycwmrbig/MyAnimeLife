@@ -100,6 +100,37 @@ test("handles an empty anime library", async () => {
   await fs.rm(fixtureRoot, { recursive: true, force: true });
 });
 
+test("continues the build when external ids overlap across records", async () => {
+  const fixtureRoot = await createBuildFixture("default");
+  await writeLibrary(fixtureRoot, [
+    {
+      ...validRecord,
+      id: "older-anilist-owner",
+      externalIds: { anilist: "129874", mal: "49926" },
+      createdAt: "2026-10-25T12:00:00Z",
+      updatedAt: "2026-10-25T12:00:00Z",
+    },
+    {
+      ...validRecord,
+      id: "newer-conflicting-record",
+      externalIds: { anilist: "129874", mal: "49926" },
+      createdAt: "2026-11-04T07:26:41Z",
+      updatedAt: "2026-11-04T07:26:41Z",
+    },
+  ]);
+
+  const result = await buildSite({
+    root: fixtureRoot,
+    now: new Date("2026-11-04T12:00:00Z"),
+  });
+
+  assert.equal(result.entryCount, 2);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /跨站索引重复，已继续构建/u);
+  await fs.access(path.join(fixtureRoot, "dist", "index.html"));
+  await fs.rm(fixtureRoot, { recursive: true, force: true });
+});
+
 test("upgrades legacy cover URLs and marks Bangumi cover fallbacks", async () => {
   const fixtureRoot = await createBuildFixture("default");
   await writeLibrary(fixtureRoot, [
@@ -233,9 +264,9 @@ test("ships three independently buildable templates", async () => {
     assert.doesNotMatch(indexHtml, /recommendations\.js\?v=/u);
     assert.match(
       indexHtml,
-      /name="myanimelife-project-version" content="1\.1\.5"/u,
+      /name="myanimelife-project-version" content="1\.1\.6"/u,
     );
-    assert.match(indexHtml, /项目 v1\.1\.5/u);
+    assert.match(indexHtml, /项目 v1\.1\.6/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);

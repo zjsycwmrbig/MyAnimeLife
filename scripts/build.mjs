@@ -273,6 +273,7 @@ export async function loadTemplate(root, templateName) {
 function validateRecordCollection(entries, label) {
   const seenIds = new Set();
   const seenExternalIds = new Map();
+  const warnings = [];
 
   for (const [position, record] of entries.entries()) {
     const recordLabel = `${label} 第 ${position + 1} 条`;
@@ -300,13 +301,15 @@ function validateRecordCollection(entries, label) {
       const externalKey = `${source}:${id}`;
       const existing = seenExternalIds.get(externalKey);
       if (existing) {
-        throw new Error(
-          `跨站索引重复: ${externalKey} 同时出现在 ${existing} 和 ${record.id}`,
+        warnings.push(
+          `跨站索引重复，已继续构建: ${externalKey} 同时出现在 ${existing} 和 ${record.id}`,
         );
+        continue;
       }
       seenExternalIds.set(externalKey, record.id);
     }
   }
+  return warnings;
 }
 
 function assertIndexMatchesRecords(records, index) {
@@ -352,7 +355,7 @@ export async function loadLibrary(root = defaultRoot, options = {}) {
   for (const [position, entry] of index.entries()) {
     validateIndex(entry, `${config.indexFile} 第 ${position + 1} 条`);
   }
-  validateRecordCollection(records, config.dataFile);
+  const warnings = validateRecordCollection(records, config.dataFile);
   assertIndexMatchesRecords(records, index);
 
   return {
@@ -360,6 +363,7 @@ export async function loadLibrary(root = defaultRoot, options = {}) {
     index,
     dataText,
     indexText,
+    warnings,
   };
 }
 
@@ -952,6 +956,7 @@ export async function buildSite(options = {}) {
     entryCount: records.length,
     generatedAt,
     template: config.template,
+    warnings: libraryData.warnings,
   };
 }
 
@@ -962,6 +967,9 @@ const isDirectRun =
 if (isDirectRun) {
   try {
     const result = await buildSite();
+    for (const warning of result.warnings ?? []) {
+      console.warn(`构建警告: ${warning}`);
+    }
     console.log(
       `已构建 ${result.entryCount} 条记录，模板 ${result.template}，输出 ${result.outputDirectory}`,
     );
