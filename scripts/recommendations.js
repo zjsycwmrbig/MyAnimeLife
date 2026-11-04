@@ -6,6 +6,10 @@
   const profile = section.querySelector("[data-recommendation-profile]");
   const status = section.querySelector("[data-recommendation-status]");
   const grid = section.querySelector("[data-recommendation-grid]");
+  const newReleaseGrid = section.querySelector("[data-recommendation-new-release-grid]");
+  const newReleaseSummary = section.querySelector(
+    "[data-recommendation-new-release-summary]",
+  );
   const pagination = section.querySelector("[data-recommendation-pagination]");
   const pagesSummary = section.querySelector("[data-recommendation-pages-summary]");
   const pages = section.querySelector("[data-recommendation-pages]");
@@ -43,8 +47,8 @@
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const detailCache = readDetailCache();
   const detailQueue = [];
+  const detailWaiters = new Map();
   const pendingDetails = new Set();
-  const seenCards = new WeakSet();
   let payload = null;
   let mode = "recommended";
   let page = 1;
@@ -151,9 +155,20 @@
     image.src = url;
   }
 
-  function itemMeta(item) {
+  function releaseDateLabel(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
     return [
-      Number.isInteger(item.year) ? String(item.year) : "",
+      date.getUTCFullYear(),
+      String(date.getUTCMonth() + 1).padStart(2, "0"),
+      String(date.getUTCDate()).padStart(2, "0"),
+    ].join(".");
+  }
+
+  function itemMeta(item, { includeReleaseDate = false } = {}) {
+    return [
+      includeReleaseDate ? releaseDateLabel(item.begin) : "",
+      !includeReleaseDate && Number.isInteger(item.year) ? String(item.year) : "",
       item.seasonLabel || "",
       item.type && item.type !== "unknown"
         ? typeLabels[String(item.type).toLowerCase()] || item.type
@@ -257,7 +272,7 @@
     return tags;
   }
 
-  function createCard(item) {
+  function createCard(item, { includeReleaseDate = false } = {}) {
     const card = createElement("article", "recommendation-card");
     card.dataset.recommendationItem = item.subjectId;
     const link = createElement("a", "recommendation-card-link");
@@ -273,7 +288,11 @@
 
     const body = createElement("div", "recommendation-card-body");
     const meta = createElement("div", "recommendation-card-meta");
-    meta.append(...itemMeta(item).map((value) => createElement("span", "", value)));
+    meta.append(
+      ...itemMeta(item, { includeReleaseDate }).map((value) =>
+        createElement("span", "", value),
+      ),
+    );
     if (Number(item.ratingCount) > 0) {
       meta.append(
         createElement(
@@ -292,15 +311,17 @@
     originalTitle.hidden = !originalTitle.textContent;
 
     const reason = createElement("p", "recommendation-reason", item.reason);
-    const detail = createElement(
-      "p",
-      "recommendation-summary",
-      item.summary || "正在读取作品简介…",
+    body.append(meta, title, originalTitle, reason, createTagList(item));
+    const detailPanel = createElement("div", "recommendation-card-detail");
+    const detail = createElement("p", "recommendation-card-detail-summary");
+    detail.setAttribute("aria-live", "polite");
+    detailPanel.append(
+      createElement("p", "recommendation-card-detail-label", "作品简介"),
+      detail,
     );
-    body.append(meta, title, originalTitle, reason, createTagList(item), detail);
     link.append(cover, body);
-    card.append(link);
-    observeDetail(item, detail, cover);
+    card.append(link, detailPanel);
+    bindCardDetail(card, item, detail, cover);
     return card;
   }
 
@@ -360,7 +381,6 @@
     content.append(copy, createTagList(item, "recommendation-featured-tags", 5), detail);
     link.append(cover, content);
     slide.append(link);
-    observeDetail(item, detail, cover);
     return slide;
   }
 
@@ -377,37 +397,41 @@
     }
   }
 
-  function observeDetail(item, detail, cover) {
-    const elements = { detail, cover };
-    if (String(item.summary ?? "").trim()) return;
+  function requestDetail(item, elements) {
+    if (String(item.summary ?? "").trim()) {
+      applyDetail(item, elements, { summary: item.summary });
+      return;
+    }
     const cached = freshDetail(item.subjectId);
     if (cached) {
       applyDetail(item, elements, cached);
       return;
     }
-    if (!("IntersectionObserver" in window)) {
-      enqueueDetail(item, elements);
-      return;
-    }
-    const card = detail.closest("[data-recommendation-item]");
-    if (!card || seenCards.has(card)) return;
-    seenCards.add(card);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        enqueueDetail(item, elements);
-      },
-      { rootMargin: "280px 0px" },
-    );
-    observer.observe(card);
-  }
-
-  function enqueueDetail(item, elements) {
+    const waiters = detailWaiters.get(item.subjectId) ?? new Set();
+    waiters.add(elements);
+    detailWaiters.set(item.subjectId, waiters);
     if (pendingDetails.has(item.subjectId)) return;
     pendingDetails.add(item.subjectId);
-    detailQueue.push({ item, elements });
+    detailQueue.push({ item });
     pumpDetails();
+  }
+
+  function bindCardDetail(card, item, detail, cover) {
+    const elements = { detail, cover };
+    const open = () => {
+      card.classList.add("is-detail-open");
+      if (!detail.textContent) detail.textContent = "正在读取作品简介…";
+      if (card.dataset.detailRequested === "true") return;
+      card.dataset.detailRequested = "true";
+      requestDetail(item, elements);
+    };
+    const close = () => card.classList.remove("is-detail-open");
+    card.addEventListener("pointerenter", open);
+    card.addEventListener("pointerleave", close);
+    card.addEventListener("focusin", open);
+    card.addEventListener("focusout", (event) => {
+      if (!card.contains(event.relatedTarget)) close();
+    });
   }
 
   function pumpDetails() {
@@ -415,11 +439,20 @@
       const task = detailQueue.shift();
       activeDetailRequests += 1;
       loadDetail(task.item)
-        .then((value) => applyDetail(task.item, task.elements, value))
-        .catch(() => applyDetail(task.item, task.elements, { error: true }))
+        .then((value) => {
+          for (const elements of detailWaiters.get(task.item.subjectId) ?? []) {
+            applyDetail(task.item, elements, value);
+          }
+        })
+        .catch(() => {
+          for (const elements of detailWaiters.get(task.item.subjectId) ?? []) {
+            applyDetail(task.item, elements, { error: true });
+          }
+        })
         .finally(() => {
           activeDetailRequests -= 1;
           pendingDetails.delete(task.item.subjectId);
+          detailWaiters.delete(task.item.subjectId);
           pumpDetails();
         });
     }
@@ -562,11 +595,23 @@
   function syncFeatured() {
     if (!featuredItems.length) return;
     const slides = [...featuredTrack.querySelectorAll("[data-featured-index]")];
+    let activeSlide = null;
     for (const slide of slides) {
       const active = Number(slide.dataset.featuredIndex) === featuredIndex;
       slide.classList.toggle("is-active", active);
       slide.setAttribute("aria-hidden", String(!active));
       slide.querySelector("a")?.setAttribute("tabindex", active ? "0" : "-1");
+      if (active) activeSlide = slide;
+    }
+    if (activeSlide && activeSlide.dataset.detailRequested !== "true") {
+      const item = featuredItems[Number(activeSlide.dataset.featuredIndex)];
+      if (item) {
+        activeSlide.dataset.detailRequested = "true";
+        requestDetail(item, {
+          detail: activeSlide.querySelector(".recommendation-featured-summary"),
+          cover: activeSlide.querySelector(".recommendation-featured-media"),
+        });
+      }
     }
     const dots = featuredDots
       ? [...featuredDots.querySelectorAll("button")]
@@ -674,6 +719,30 @@
     renderPagination(totalPages, items.length);
   }
 
+  function renderNewReleases() {
+    if (!newReleaseGrid) return;
+    const items = Array.isArray(payload?.newReleaseItems)
+      ? payload.newReleaseItems
+      : [];
+    if (!items.length) {
+      const empty = createElement("div", "recommendation-empty");
+      empty.append(
+        createElement("h3", "", "近期暂无契合的新番"),
+        createElement("p", "", "公共索引更新后会重新计算。"),
+      );
+      newReleaseGrid.replaceChildren(empty);
+      if (newReleaseSummary) newReleaseSummary.textContent = "最近 540 天暂无结果";
+      return;
+    }
+    newReleaseGrid.replaceChildren(
+      ...items.map((item) => createCard(item, { includeReleaseDate: true })),
+    );
+    if (newReleaseSummary) {
+      const windowDays = Math.max(1, Number(payload?.newRelease?.windowDays) || 540);
+      newReleaseSummary.textContent = `最近 ${windowDays} 天 · ${items.length} 部按时间与口味综合排序`;
+    }
+  }
+
   function setMode(nextMode) {
     mode = ["recommended", "acclaimed", "explore"].includes(nextMode)
       ? nextMode
@@ -700,10 +769,12 @@
       payload = value;
       renderProfile();
       renderFeatured();
+      renderNewReleases();
       renderCollection();
     } catch (error) {
       featuredTrack.replaceChildren();
       grid.replaceChildren();
+      newReleaseGrid?.replaceChildren();
       const empty = createElement("div", "recommendation-empty");
       empty.append(
         createElement("h3", "", "暂时无法生成推荐"),

@@ -57,8 +57,9 @@ test("builds a production recommendation snapshot from personal taste", () => {
   const result = buildDiscoveryRecommendations(fixture());
 
   assert.equal(result.algorithm.name, "taste-hybrid-mmr");
-  assert.equal(result.algorithm.projectVersion, "1.1.2");
+  assert.equal(result.algorithm.projectVersion, "1.1.3");
   assert.equal(result.algorithm.status, "production");
+  assert.equal(result.schemaVersion, 2);
   assert.equal(result.mode, "limited");
   assert.equal(result.profile.ratedCount, 2);
   assert.equal(result.profile.personalAverage, 9.5);
@@ -163,4 +164,30 @@ test("excludes title aliases from the same work while preserving other seasons",
   assert.equal(subjectIds.includes("7"), false);
   assert.equal(subjectIds.includes("8"), true);
   assert.equal(subjectIds.includes("9"), true);
+});
+
+test("builds a recent new-release shelf from time and taste fit", () => {
+  const input = fixture();
+  input.catalogMetadata = normalizePublicCatalogMetadata({
+    items: {
+      1: ["已收录科幻", "Owned Sci-Fi", 2020, "tv", "2020-01-01", 1, "第1季", null],
+      2: ["已收录原创", "Owned Original", 2021, "tv", "2021-01-01", 1, "第1季", null],
+      3: ["最新契合候选", "Newest Fit", 2026, "tv", "2026-10-30", 1, "第4季", null],
+      4: ["较早契合候选", "Older Fit", 2026, "tv", "2026-05-01", 1, "第2季", null],
+      5: ["即将开播候选", "Upcoming Fit", 2026, "tv", "2026-12-20", 1, "第1季", null],
+      6: ["窗口外候选", "Old Candidate", 2024, "tv", "2024-01-01", 1, "第1季", null],
+    },
+  });
+
+  const result = buildDiscoveryRecommendations(input);
+  const ids = result.newReleaseItems.map((item) => item.subjectId);
+
+  assert.equal(result.newRelease.windowDays, 540);
+  assert.equal(result.newRelease.itemCount, 3);
+  assert.equal(ids[0], "3");
+  assert.equal(ids.includes("4"), true);
+  assert.equal(ids.includes("5"), true);
+  assert.equal(ids.includes("6"), false);
+  assert.equal(typeof result.newReleaseItems[0].releaseAgeDays, "number");
+  assert.ok(result.newReleaseItems[0].newReleaseScore > 0);
 });

@@ -233,9 +233,9 @@ test("ships three independently buildable templates", async () => {
     assert.doesNotMatch(indexHtml, /recommendations\.js\?v=/u);
     assert.match(
       indexHtml,
-      /name="myanimelife-project-version" content="1\.1\.2"/u,
+      /name="myanimelife-project-version" content="1\.1\.3"/u,
     );
-    assert.match(indexHtml, /项目 v1\.1\.2/u);
+    assert.match(indexHtml, /项目 v1\.1\.3/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);
@@ -282,6 +282,8 @@ test("ships three independently buildable templates", async () => {
     assert.match(recommendationsHtml, /data-recommendation-featured/u);
     assert.match(recommendationsHtml, /data-recommendation-featured-track/u);
     assert.match(recommendationsHtml, /data-recommendation-featured-dots/u);
+    assert.match(recommendationsHtml, /新番推荐/u);
+    assert.match(recommendationsHtml, /data-recommendation-new-release-grid/u);
     assert.match(recommendationsHtml, /继续发现/u);
     assert.match(recommendationsHtml, /data-recommendation-grid/u);
     assert.match(

@@ -13,6 +13,10 @@ const TAG_SHRINKAGE = 5;
 const YEAR_SIGMA = 8;
 const MMR_LAMBDA = 0.82;
 const CANDIDATE_SHORTLIST = 320;
+const NEW_RELEASE_LIMIT = 8;
+const NEW_RELEASE_WINDOW_DAYS = 540;
+const NEW_RELEASE_UPCOMING_DAYS = 60;
+const NEW_RELEASE_RECENCY_DAYS = 240;
 
 function cleanString(value) {
   return String(value ?? "").trim();
@@ -452,6 +456,57 @@ function createReason(profile, matchedTags, qualityScore) {
   return "从公共索引中发现的新片";
 }
 
+function recommendationItemView({ candidateVector, ...item }) {
+  return item;
+}
+
+function selectNewReleaseCandidates(candidates, generatedAt) {
+  const now = Date.parse(generatedAt);
+  if (!Number.isFinite(now)) return [];
+  const earliest = now - NEW_RELEASE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const latest = now + NEW_RELEASE_UPCOMING_DAYS * 24 * 60 * 60 * 1000;
+  return candidates
+    .map((candidate) => ({
+      candidate,
+      beginTimestamp: Date.parse(candidate.begin),
+    }))
+    .filter(({ candidate, beginTimestamp }) =>
+      Number.isFinite(beginTimestamp) &&
+      beginTimestamp >= earliest &&
+      beginTimestamp <= latest &&
+      (
+        candidate.tagMatch > 0 ||
+        candidate.qualityScore >= 0.5 ||
+        candidate.rankScore >= 0.45
+      ),
+    )
+    .map(({ candidate, beginTimestamp }) => {
+      const ageDays = Math.max(0, (now - beginTimestamp) / (24 * 60 * 60 * 1000));
+      const recency = clamp(
+        1 - ageDays / (NEW_RELEASE_WINDOW_DAYS + NEW_RELEASE_RECENCY_DAYS),
+        0,
+        1,
+      );
+      return {
+        candidate,
+        releaseAgeDays: Math.round(ageDays),
+        newReleaseScore:
+          Math.round(
+            (recency * 0.62 + candidate.recommendationScore * 0.38) * 10000,
+          ) / 10000,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.newReleaseScore - left.newReleaseScore ||
+        Date.parse(right.candidate.begin) - Date.parse(left.candidate.begin) ||
+        left.candidate.subjectId.localeCompare(right.candidate.subjectId, "en", {
+          numeric: true,
+        }),
+    )
+    .slice(0, NEW_RELEASE_LIMIT);
+}
+
 export function buildDiscoveryRecommendations({
   publicSnapshot,
   catalogMetadata,
@@ -547,11 +602,19 @@ export function buildDiscoveryRecommendations({
   }
 
   candidates.sort(rankCandidate);
+  const newReleaseItems = selectNewReleaseCandidates(
+    candidates,
+    cleanString(generatedAt) || new Date().toISOString(),
+  ).map(({ candidate, releaseAgeDays, newReleaseScore }) => ({
+    ...recommendationItemView(candidate),
+    releaseAgeDays,
+    newReleaseScore,
+  }));
   const diversified = diversify(candidates, clamp(Number(limit) || DEFAULT_LIMIT, 1, 300));
-  const items = diversified.map(({ candidateVector, ...item }) => item);
+  const items = diversified.map(recommendationItemView);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     algorithm: {
       name: DISCOVERY_ALGORITHM_NAME,
       projectVersion: PROJECT_VERSION,
@@ -584,5 +647,11 @@ export function buildDiscoveryRecommendations({
     candidateCount: candidates.length,
     itemCount: items.length,
     items,
+    newRelease: {
+      windowDays: NEW_RELEASE_WINDOW_DAYS,
+      upcomingDays: NEW_RELEASE_UPCOMING_DAYS,
+      itemCount: newReleaseItems.length,
+    },
+    newReleaseItems,
   };
 }
