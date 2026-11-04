@@ -23,10 +23,13 @@
 
   const FEATURED_COUNT = 5;
   const PAGE_SIZE = 12;
-  const DETAIL_CACHE_KEY = "myanimelife.recommendation-details.v1";
+  const DETAIL_CACHE_KEY = "myanimelife.recommendation-details.v2";
   const DETAIL_TTL = 7 * 24 * 60 * 60 * 1000;
   const DETAIL_FAILURE_TTL = 60 * 60 * 1000;
   const DETAIL_CONCURRENCY = 2;
+  const BANGUMI_DETAIL_TIMEOUT = 1800;
+  const ANILIST_DETAIL_TIMEOUT = 6500;
+  const ANILIST_ENDPOINT = "https://graphql.anilist.co";
   const CAROUSEL_INTERVAL = 6500;
   const typeLabels = {
     tv: "TV",
@@ -292,7 +295,7 @@
     const detail = createElement(
       "p",
       "recommendation-summary",
-      item.summary || "正在读取 Bangumi 简介…",
+      item.summary || "正在读取作品简介…",
     );
     body.append(meta, title, originalTitle, reason, createTagList(item), detail);
     link.append(cover, body);
@@ -342,13 +345,15 @@
     originalTitle.hidden = !originalTitle.textContent;
     const reason = createElement("p", "recommendation-featured-reason", item.reason);
     const score = createScore(item, "recommendation-featured-score");
+    const kicker = createElement("div", "recommendation-featured-kicker");
+    kicker.append(rank, meta);
     const topLine = createElement("div", "recommendation-featured-topline");
-    topLine.append(rank, meta);
+    topLine.append(kicker);
     if (score) topLine.append(score);
     const detail = createElement(
       "p",
       "recommendation-featured-summary",
-      item.summary || "正在读取 Bangumi 简介…",
+      item.summary || "正在读取作品简介…",
     );
     const copy = createElement("div", "recommendation-featured-copy");
     copy.append(topLine, title, originalTitle, reason);
@@ -364,7 +369,7 @@
       item.summary = value.summary;
       if (elements.detail?.isConnected) elements.detail.textContent = value.summary;
     } else if (value?.error && elements.detail?.isConnected) {
-      elements.detail.textContent = "暂时无法读取 Bangumi 简介。";
+      elements.detail.textContent = "暂时无法读取作品简介。";
     }
     if (value?.coverUrl && !safeCoverUrl(item.coverUrl)) {
       item.coverUrl = value.coverUrl;
@@ -374,6 +379,7 @@
 
   function observeDetail(item, detail, cover) {
     const elements = { detail, cover };
+    if (String(item.summary ?? "").trim()) return;
     const cached = freshDetail(item.subjectId);
     if (cached) {
       applyDetail(item, elements, cached);
@@ -419,38 +425,130 @@
     }
   }
 
-  async function loadDetail(item) {
-    const cached = freshDetail(item.subjectId);
-    if (cached) return cached;
+  async function fetchJsonWithTimeout(url, init, timeoutMs) {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 9000);
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(
-        `https://api.bgm.tv/v0/subjects/${encodeURIComponent(item.subjectId)}`,
-        {
-          headers: { Accept: "application/json" },
-          signal: controller.signal,
-        },
-      );
+      const response = await fetch(url, { ...init, signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const detail = await response.json();
-      const value = {
-        summary: String(detail?.summary ?? "").trim(),
-        coverUrl:
-          detail?.images?.large ??
-          detail?.images?.common ??
-          detail?.images?.medium ??
-          "",
-        error: false,
-      };
-      if (!value.summary && !value.coverUrl) throw new Error("Bangumi 未返回详情");
-      rememberDetail(item.subjectId, value);
-      return value;
+      return await response.json();
     } catch (error) {
-      rememberDetail(item.subjectId, { summary: "", coverUrl: "", error: true });
+      if (error?.name === "AbortError") throw new Error("请求超时");
       throw error;
     } finally {
       window.clearTimeout(timer);
+    }
+  }
+
+  function plainDescription(value) {
+    const source = String(value ?? "")
+      .replace(/<br\s*\/?>/giu, "\n")
+      .replace(/<\/p>/giu, "\n");
+    const parsed = new DOMParser().parseFromString(source, "text/html");
+    return String(parsed.body.textContent ?? "")
+      .replace(/\r/gu, "")
+      .replace(/[ \t]+/gu, " ")
+      .replace(/\n{3,}/gu, "\n\n")
+      .trim();
+  }
+
+  function anilistIdFromCover(value) {
+    const match = String(value ?? "").match(
+      /\/(?:bx|b|nx|n|mx|m|ax|a)(\d+)[-_]/iu,
+    );
+    return match ? Number(match[1]) : null;
+  }
+
+  async function fetchBangumiDetail(item) {
+    const detail = await fetchJsonWithTimeout(
+      `https://api.bgm.tv/v0/subjects/${encodeURIComponent(item.subjectId)}`,
+      { headers: { Accept: "application/json" } },
+      BANGUMI_DETAIL_TIMEOUT,
+    );
+    const value = {
+      summary: String(detail?.summary ?? "").trim(),
+      coverUrl:
+        detail?.images?.large ??
+        detail?.images?.common ??
+        detail?.images?.medium ??
+        "",
+      error: false,
+    };
+    if (!value.summary) throw new Error("Bangumi 未返回简介");
+    return value;
+  }
+
+  async function fetchAniListDetail(item) {
+    const fields = `
+      id
+      description(asHtml: false)
+      seasonYear
+      coverImage { extraLarge large }
+      title { native romaji english }
+    `;
+    const anilistId = anilistIdFromCover(item.coverUrl);
+    let media = null;
+    if (anilistId) {
+      const payload = await fetchJsonWithTimeout(
+        ANILIST_ENDPOINT,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: `query ($id: Int) { Media(id: $id, type: ANIME) { ${fields} } }`,
+            variables: { id: anilistId },
+          }),
+        },
+        ANILIST_DETAIL_TIMEOUT,
+      );
+      media = payload?.data?.Media ?? null;
+    }
+    if (!media && item.title) {
+      const payload = await fetchJsonWithTimeout(
+        ANILIST_ENDPOINT,
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: `query ($search: String) { Page(perPage: 6) { media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) { ${fields} } } }`,
+            variables: { search: item.title },
+          }),
+        },
+        ANILIST_DETAIL_TIMEOUT,
+      );
+      const candidates = payload?.data?.Page?.media ?? [];
+      const candidateYear = numberOrNull(item.year);
+      media =
+        candidates.find((candidate) => {
+          const year = numberOrNull(candidate?.seasonYear);
+          return candidateYear === null || year === null || Math.abs(candidateYear - year) <= 1;
+        }) ?? null;
+    }
+    const value = {
+      summary: plainDescription(media?.description),
+      coverUrl: media?.coverImage?.extraLarge ?? media?.coverImage?.large ?? "",
+      error: false,
+    };
+    if (!value.summary) throw new Error("AniList 未返回简介");
+    return value;
+  }
+
+  async function loadDetail(item) {
+    const cached = freshDetail(item.subjectId);
+    if (cached) return cached;
+    try {
+      const value = await fetchBangumiDetail(item);
+      rememberDetail(item.subjectId, value);
+      return value;
+    } catch {
+      try {
+        const value = await fetchAniListDetail(item);
+        rememberDetail(item.subjectId, value);
+        return value;
+      } catch (error) {
+        rememberDetail(item.subjectId, { summary: "", coverUrl: "", error: true });
+        throw error;
+      }
     }
   }
 

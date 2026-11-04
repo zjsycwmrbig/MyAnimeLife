@@ -328,20 +328,34 @@
   z-index: 2;
   inset: 0;
   display: flex;
-  max-width: 760px;
+  width: 100%;
+  max-width: none;
   flex-direction: column;
   justify-content: end;
   gap: 16px;
   padding: clamp(28px, 5vw, 58px);
+  padding-bottom: clamp(54px, 7vw, 78px);
 }
 
 .recommendation-featured-copy {
   display: grid;
+  width: 100%;
+  min-width: 0;
   gap: 10px;
 }
 
 .recommendation-featured-topline {
   display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 18px;
+}
+
+.recommendation-featured-kicker {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px 18px;
@@ -434,17 +448,22 @@
 }
 
 .recommendation-featured-score {
+  min-width: 104px;
+  flex: 0 0 auto;
   display: inline-grid;
   grid-template-columns: auto auto;
   align-items: end;
   gap: 0 8px;
   margin-left: auto;
-  padding: 7px 11px 6px 10px;
-  border: 0;
+  padding: 9px 12px 8px 11px;
+  border: 1px solid rgb(215 173 88 / 35%);
   border-left: 2px solid var(--recommendation-gold);
-  border-radius: 2px;
-  background: rgb(255 255 255 / 7%);
+  border-radius: 3px;
+  background:
+    linear-gradient(135deg, rgb(215 173 88 / 16%), rgb(10 17 13 / 72%));
   color: #fff;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 20%);
+  backdrop-filter: blur(10px);
 }
 
 .recommendation-featured-score small {
@@ -458,9 +477,9 @@
 
 .recommendation-featured-score strong {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 560;
-  line-height: 0.85;
+  line-height: 0.82;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1019,6 +1038,7 @@
   .recommendation-featured-content {
     max-width: none;
     padding: 32px;
+    padding-bottom: 70px;
   }
 
   .recommendation-featured-copy h3 {
@@ -1091,6 +1111,14 @@
     padding: 24px 20px 76px;
   }
 
+  .recommendation-featured-topline {
+    gap: 8px 10px;
+  }
+
+  .recommendation-featured-kicker {
+    gap: 6px 10px;
+  }
+
   .recommendation-featured-copy h3 {
     font-size: 37px;
   }
@@ -1100,8 +1128,9 @@
   }
 
   .recommendation-featured-score {
-    margin-left: 0;
-    padding: 8px 11px 7px 9px;
+    min-width: 91px;
+    margin-left: auto;
+    padding: 8px 10px 7px 9px;
   }
 
   .recommendation-featured-score strong {

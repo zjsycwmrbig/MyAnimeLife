@@ -57,7 +57,7 @@ test("builds a production recommendation snapshot from personal taste", () => {
   const result = buildDiscoveryRecommendations(fixture());
 
   assert.equal(result.algorithm.name, "taste-hybrid-mmr");
-  assert.equal(result.algorithm.projectVersion, "1.1.1");
+  assert.equal(result.algorithm.projectVersion, "1.1.2");
   assert.equal(result.algorithm.status, "production");
   assert.equal(result.mode, "limited");
   assert.equal(result.profile.ratedCount, 2);
@@ -109,4 +109,58 @@ test("merges personal Bangumi cache and keeps candidate limits deterministic", (
     second.items.map((item) => item.subjectId),
   );
   assert.ok(first.items.length <= 96);
+});
+
+test("excludes title aliases from the same work while preserving other seasons", () => {
+  const input = fixture();
+  input.publicSnapshot.subjects[7] = [
+    8.2,
+    800,
+    70,
+    [["科幻", 500], ["悬疑", 320]],
+  ];
+  input.publicSnapshot.subjects[8] = [
+    8.1,
+    760,
+    80,
+    [["科幻", 480], ["悬疑", 300]],
+  ];
+  input.publicSnapshot.subjects[9] = [
+    8.3,
+    720,
+    68,
+    [["科幻", 460], ["悬疑", 290]],
+  ];
+  input.catalogMetadata = normalizePublicCatalogMetadata({
+    items: {
+      1: ["已收录科幻", "Owned Sci-Fi", 2020, "tv", "2020-01-01", 1, "第1季", null],
+      2: ["已收录原创", "Owned Original", 2021, "tv", "2021-01-01", 1, "第1季", null],
+      7: ["季度同名作品", "Seasonal Work", 2023, "tv", "2023-01-01", 1, "第1季", null],
+      8: ["季度同名作品", "Seasonal Work", 2024, "tv", "2024-01-01", 1, "第1季", null],
+      9: ["季度同名作品", "Seasonal Work", 2023, "tv", "2023-07-01", 2, "第2季", null],
+    },
+  });
+  input.records = [
+    record("owned-sci-fi", 1, 10),
+    record("owned-original", 2, 9),
+    record("legacy-title-alias", 999, 9, {
+      title: "历史译名",
+      match: {
+        status: "matched",
+        method: "title-exact",
+        source: "bangumi",
+        confidence: 1,
+        matchedTitle: "季度同名作品",
+        matchedAt: generatedAt,
+      },
+      season: { key: "legacy:first", number: 1, label: "第1季", year: 2023 },
+    }),
+  ];
+
+  const result = buildDiscoveryRecommendations(input);
+  const subjectIds = result.items.map((item) => item.subjectId);
+
+  assert.equal(subjectIds.includes("7"), false);
+  assert.equal(subjectIds.includes("8"), true);
+  assert.equal(subjectIds.includes("9"), true);
 });

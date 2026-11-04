@@ -2,6 +2,7 @@ import {
   normalizePublicCatalogMetadata,
   normalizeRecommendationTags,
 } from "./recommendations.mjs";
+import { normalizeDuplicateTitle } from "./duplicate-data.mjs";
 import { PROJECT_VERSION } from "./project-version.mjs";
 
 export const DISCOVERY_ALGORITHM_NAME = "taste-hybrid-mmr";
@@ -28,6 +29,83 @@ function finiteNumberOrNull(value) {
 function integerOrNull(value) {
   const number = Number(value);
   return Number.isInteger(number) ? number : null;
+}
+
+function seasonNumberFromLabel(value) {
+  const label = cleanString(value);
+  if (!label) return null;
+  const match = label.match(/(?:第\s*)?(\d{1,2})\s*(?:季|期|part)/iu);
+  return match ? integerOrNull(Number(match[1])) : null;
+}
+
+function recordTitleKeys(record) {
+  const values = [
+    record?.title,
+    record?.match?.matchedTitle,
+    ...(Array.isArray(record?.names) ? record.names : []),
+  ];
+  return new Set(values.map(normalizeDuplicateTitle).filter(Boolean));
+}
+
+function metadataTitleKeys(metadata) {
+  return new Set(
+    [metadata?.displayTitle, metadata?.originalTitle]
+      .map(normalizeDuplicateTitle)
+      .filter(Boolean),
+  );
+}
+
+function ownedTitleIndex(records) {
+  const index = new Map();
+  for (const record of records) {
+    if (record?.deletedAt) continue;
+    const identity = {
+      year: integerOrNull(record?.season?.year),
+      seasonNumber:
+        integerOrNull(record?.season?.number) ??
+        seasonNumberFromLabel(record?.season?.label),
+    };
+    for (const titleKey of recordTitleKeys(record)) {
+      const matches = index.get(titleKey) ?? [];
+      matches.push(identity);
+      index.set(titleKey, matches);
+    }
+  }
+  return index;
+}
+
+function metadataMatchesOwnedTitle(metadata, index) {
+  if (!metadata || !index.size) return false;
+  const candidateYear = integerOrNull(metadata.year);
+  const candidateSeason =
+    integerOrNull(metadata.seasonNumber) ??
+    seasonNumberFromLabel(metadata.seasonLabel);
+  for (const titleKey of metadataTitleKeys(metadata)) {
+    for (const owned of index.get(titleKey) ?? []) {
+      if (
+        candidateYear !== null &&
+        owned.year !== null &&
+        candidateYear !== owned.year
+      ) {
+        continue;
+      }
+      if (
+        candidateSeason !== null &&
+        owned.seasonNumber !== null &&
+        candidateSeason !== owned.seasonNumber
+      ) {
+        continue;
+      }
+      if (
+        candidateYear !== null ||
+        candidateSeason !== null ||
+        (owned.year === null && owned.seasonNumber === null)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function clamp(value, minimum, maximum) {
@@ -400,6 +478,7 @@ export function buildDiscoveryRecommendations({
       .map((record) => cleanString(record.externalIds?.bangumi))
       .filter(Boolean),
   );
+  const ownedTitles = ownedTitleIndex(records ?? []);
   const ratedDocuments = [...documents.values()].filter(
     (document) => Number.isFinite(document.score) && document.ratingCount > 0,
   );
@@ -413,6 +492,7 @@ export function buildDiscoveryRecommendations({
     if (ownedSubjectIds.has(subjectId)) continue;
     const metadata = metadataBySubject.get(subjectId) ?? null;
     if (!metadata?.displayTitle) continue;
+    if (metadataMatchesOwnedTitle(metadata, ownedTitles)) continue;
     const vector = candidateVector(document, idfWeights);
     if (!vector.norm) continue;
     const tagMatch = cosine(profile.positiveVector, vector);
