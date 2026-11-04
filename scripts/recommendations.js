@@ -341,16 +341,18 @@
     );
     originalTitle.hidden = !originalTitle.textContent;
     const reason = createElement("p", "recommendation-featured-reason", item.reason);
+    const score = createScore(item, "recommendation-featured-score");
+    const topLine = createElement("div", "recommendation-featured-topline");
+    topLine.append(rank, meta);
+    if (score) topLine.append(score);
     const detail = createElement(
       "p",
       "recommendation-featured-summary",
       item.summary || "正在读取 Bangumi 简介…",
     );
     const copy = createElement("div", "recommendation-featured-copy");
-    copy.append(rank, meta, title, originalTitle, reason);
+    copy.append(topLine, title, originalTitle, reason);
     content.append(copy, createTagList(item, "recommendation-featured-tags", 5), detail);
-    const score = createScore(item, "recommendation-featured-score");
-    if (score) content.append(score);
     link.append(cover, content);
     slide.append(link);
     observeDetail(item, detail, cover);
