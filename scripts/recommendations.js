@@ -199,28 +199,15 @@
     return items;
   }
 
-  function profileModeLabel(value) {
-    if (value === "personalized") return "口味匹配已启用";
-    if (value === "limited") return "轻量个性化";
-    return "公共口碑推荐";
-  }
-
   function renderProfile() {
     profile.replaceChildren();
-    const heading = createElement("div", "recommendation-profile-heading");
-    const badge = createElement(
-      "strong",
-      `recommendation-profile-mode is-${payload.mode || "public"}`,
-      profileModeLabel(payload.mode),
-    );
-    const meta = createElement("span", "recommendation-profile-meta");
+    const meta = createElement("p", "recommendation-profile-meta");
     const ratedCount = Math.max(0, Number(payload.profile?.ratedCount) || 0);
     const personalAverage = numberOrNull(payload.profile?.personalAverage);
     meta.textContent = ratedCount
       ? `已分析 ${ratedCount} 部评分${personalAverage === null ? "" : ` · 平均 ${personalAverage.toFixed(1)}`}`
       : "尚无评分，先按公共口碑推荐";
-    heading.append(badge, meta);
-    profile.append(heading);
+    profile.append(meta);
 
     const tags = Array.isArray(payload.profile?.topTags)
       ? payload.profile.topTags.slice(0, 10)

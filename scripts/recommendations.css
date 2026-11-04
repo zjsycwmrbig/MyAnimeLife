@@ -93,23 +93,6 @@
   box-shadow: var(--shadow-soft);
 }
 
-.recommendation-profile-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.recommendation-profile-mode {
-  color: var(--accent-dark);
-  font-size: 12px;
-  letter-spacing: 0.02em;
-}
-
-.recommendation-profile-mode.is-personalized {
-  color: var(--teal);
-}
-
 .recommendation-profile-meta,
 .recommendation-profile-label,
 .recommendation-profile-empty {
@@ -1131,25 +1114,24 @@
 @media (min-width: 861px) {
   .recommendation-workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 18px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
 
   .recommendation-profile {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
   }
 
   .recommendation-toolbar {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
-    align-items: flex-end;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 12px;
-    padding: 0;
-    border-bottom: 0;
+    align-items: center;
+    flex-direction: row;
+    gap: 18px;
+    margin-bottom: 9px;
+    padding: 7px 0 10px;
+    border-bottom: 1px solid var(--line);
   }
 
   .recommendation-stage,
@@ -1301,12 +1283,6 @@
 
   .recommendation-profile {
     padding: 16px;
-  }
-
-  .recommendation-profile-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
   }
 
   .recommendation-modes {

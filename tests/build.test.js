@@ -233,9 +233,9 @@ test("ships three independently buildable templates", async () => {
     assert.doesNotMatch(indexHtml, /recommendations\.js\?v=/u);
     assert.match(
       indexHtml,
-      /name="myanimelife-project-version" content="1\.1\.4"/u,
+      /name="myanimelife-project-version" content="1\.1\.5"/u,
     );
-    assert.match(indexHtml, /项目 v1\.1\.4/u);
+    assert.match(indexHtml, /项目 v1\.1\.5/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);
@@ -278,7 +278,13 @@ test("ships three independently buildable templates", async () => {
     );
     assert.match(recommendationsHtml, /data-anime-recommendations/u);
     assert.match(recommendationsHtml, /前五部推荐/u);
-    assert.match(recommendationsHtml, /本周焦点/u);
+    assert.match(recommendationsHtml, /为你精选/u);
+    assert.doesNotMatch(recommendationsHtml, /本周焦点/u);
+    assert.ok(
+      recommendationsHtml.indexOf("recommendation-toolbar") <
+        recommendationsHtml.indexOf("recommendation-profile"),
+      "recommendation modes should appear before the taste profile",
+    );
     assert.match(recommendationsHtml, /data-recommendation-featured/u);
     assert.match(recommendationsHtml, /data-recommendation-featured-track/u);
     assert.match(recommendationsHtml, /data-recommendation-featured-dots/u);

@@ -31,10 +31,6 @@
     data-project-version="{{ projectVersion }}"
     aria-label="番剧推荐"
   >
-    <div class="recommendation-profile" data-recommendation-profile aria-live="polite">
-      <span class="recommendation-profile-label">正在分析你的口味</span>
-    </div>
-
     <div class="recommendation-toolbar">
       <div class="recommendation-modes" role="tablist" aria-label="推荐方式">
         <button class="is-active" type="button" role="tab" aria-selected="true" data-recommendation-mode="recommended">综合推荐</button>
@@ -44,11 +40,15 @@
       <p class="recommendation-status" data-recommendation-status role="status" aria-live="polite">正在读取推荐索引</p>
     </div>
 
+    <div class="recommendation-profile" data-recommendation-profile aria-live="polite">
+      <span class="recommendation-profile-label">正在分析你的口味</span>
+    </div>
+
     <section class="recommendation-stage" aria-labelledby="featured-recommendations-title">
       <div class="recommendation-section-heading">
         <div>
           <p class="section-index">01 / FEATURED FIVE</p>
-          <h2 id="featured-recommendations-title">本周焦点</h2>
+          <h2 id="featured-recommendations-title">为你精选</h2>
         </div>
         <p>前五部以画幅轮播展示，可用按钮、圆点或键盘方向键切换。</p>
       </div>

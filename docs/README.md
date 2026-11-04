@@ -1,6 +1,6 @@
 # MyAnimeLife 文档
 
-当前项目版本：`1.1.4`（可用版本）
+当前项目版本：`1.1.5`（可用版本）
 
 - [项目版本规则](./project-versioning.md)
 - [番剧推荐算法](./recommendation-algorithm.md)
