@@ -3,6 +3,10 @@
 
 {% block bodyClass %}index-page{% endblock %}
 
+{% block head %}
+  <link rel="stylesheet" href="{{ assetRoot }}recommendations.css?v={{ assetVersion }}" />
+{% endblock %}
+
 {% block content %}
   <div class="page-shell">
     <section class="archive-intro" aria-labelledby="archive-title">
@@ -28,10 +32,12 @@
       </dl>
     </section>
 
+    {% include "recommendations.njk" %}
+
     <section class="collection" aria-labelledby="collection-title">
       <div class="collection-heading">
         <div>
-          <p class="section-index">POSTER WALL / 全部记录</p>
+          <p class="section-index">02 / COLLECTION</p>
           <h2 id="collection-title">作品墙</h2>
         </div>
         <p id="results-summary" class="results-summary" aria-live="polite">
@@ -300,4 +306,10 @@
       {% endif %}
     </section>
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ assetRoot }}share.js?v={{ assetVersion }}" defer></script>
+  <script src="{{ assetRoot }}app.js?v={{ assetVersion }}" defer></script>
+  <script src="{{ assetRoot }}recommendations.js?v={{ assetVersion }}" defer></script>
 {% endblock %}

@@ -23,6 +23,8 @@ import {
   createSimilarCatalogIndex,
   normalizePublicCatalogMetadata,
 } from "./recommendations.mjs";
+import { buildDiscoveryRecommendations } from "./discovery-recommendations.mjs";
+import { PROJECT_VERSION } from "./project-version.mjs";
 import { normalizeShareConfig } from "./site-settings.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -702,6 +704,13 @@ export async function buildSite(options = {}) {
     records: publicEntries,
     generatedAt: now.toISOString(),
   });
+  const discoveryRecommendations = buildDiscoveryRecommendations({
+    publicSnapshot: publicBangumiData.snapshot,
+    catalogMetadata: normalizePublicCatalogMetadata(publicBangumiData.catalog),
+    personalCacheEntries: bangumiCache.entries,
+    records: publicEntries,
+    generatedAt: now.toISOString(),
+  });
   const outputDirectory = resolveInside(root, config.outputDirectory);
   const environment = createNunjucksEnvironment(template.directory);
   const generatedAt = now.toISOString();
@@ -717,6 +726,10 @@ export async function buildSite(options = {}) {
   await fs.rm(outputDirectory, { recursive: true, force: true });
   await fs.mkdir(outputDirectory, { recursive: true });
   await writeSimilarRecommendationData(outputDirectory, recommendations);
+  await writeFile(
+    resolveInside(outputDirectory, "data", "recommendations.json"),
+    `${JSON.stringify(discoveryRecommendations, null, 2)}\n`,
+  );
   await fs.cp(
     path.join(template.directory, template.manifest.assets),
     path.join(outputDirectory, "assets"),
@@ -735,6 +748,14 @@ export async function buildSite(options = {}) {
       path.join(root, "scripts", "similar.css"),
       path.join(outputDirectory, "assets", "similar.css"),
     ),
+    fs.copyFile(
+      path.join(root, "scripts", "recommendations.js"),
+      path.join(outputDirectory, "assets", "recommendations.js"),
+    ),
+    fs.copyFile(
+      path.join(root, "scripts", "recommendations.css"),
+      path.join(outputDirectory, "assets", "recommendations.css"),
+    ),
   ]);
 
   const common = {
@@ -743,6 +764,7 @@ export async function buildSite(options = {}) {
     generatedAt,
     generatedAtLabel,
     dataVersion: libraryDataVersion,
+    projectVersion: PROJECT_VERSION,
     assetVersion: generatedAt.replace(/[^0-9A-Za-z]/gu, ""),
     share: normalizeShareConfig(config.share, config.template),
     dataEndpoint: "data/library.json",
@@ -756,6 +778,7 @@ export async function buildSite(options = {}) {
     assetRoot: "./assets/",
     records,
     stats,
+    recommendationsEndpoint: "data/recommendations.json",
   };
   const indexHtml = environment.render(
     template.manifest.entrypoints.index,

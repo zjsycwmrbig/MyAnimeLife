@@ -1,0 +1,48 @@
+{% from "icons.njk" import icon %}
+<section
+  class="recommendation-shelf"
+  data-anime-recommendations
+  data-recommendations-endpoint="{{ recommendationsEndpoint }}?v={{ assetVersion }}"
+  data-project-version="{{ projectVersion }}"
+  aria-labelledby="recommendations-title"
+>
+  <div class="recommendation-heading">
+    <div>
+      <p class="section-index">01 / DISCOVERY</p>
+      <h2 id="recommendations-title">番剧推荐</h2>
+    </div>
+    <p>根据你的评分、偏好标签与 Bangumi 公共口碑，从尚未收录的作品中整理下一部值得看的番剧。</p>
+  </div>
+
+  <div class="recommendation-profile" data-recommendation-profile aria-live="polite">
+    <span class="recommendation-profile-label">正在分析你的口味</span>
+  </div>
+
+  <div class="recommendation-toolbar">
+    <div class="recommendation-modes" role="tablist" aria-label="推荐方式">
+      <button class="is-active" type="button" role="tab" aria-selected="true" data-recommendation-mode="recommended">综合推荐</button>
+      <button type="button" role="tab" aria-selected="false" data-recommendation-mode="acclaimed">口碑优先</button>
+      <button type="button" role="tab" aria-selected="false" data-recommendation-mode="explore">小众探索</button>
+    </div>
+    <p class="recommendation-status" data-recommendation-status role="status" aria-live="polite">正在读取推荐索引</p>
+  </div>
+
+  <div class="recommendation-grid" data-recommendation-grid aria-live="polite">
+    {% for index in range(0, 6) %}
+      <div class="recommendation-card recommendation-card-skeleton" aria-hidden="true">
+        <span class="recommendation-skeleton-cover"></span>
+        <span class="recommendation-skeleton-line"></span>
+        <span class="recommendation-skeleton-line is-short"></span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <nav class="recommendation-pagination" data-recommendation-pagination aria-label="番剧推荐分页" hidden>
+    <p data-recommendation-summary></p>
+    <div>
+      <button type="button" data-recommendation-page="previous" aria-label="上一页">{{ icon("chevron-left") }}</button>
+      <span data-recommendation-pages></span>
+      <button type="button" data-recommendation-page="next" aria-label="下一页">{{ icon("chevron-right") }}</button>
+    </div>
+  </nav>
+</section>

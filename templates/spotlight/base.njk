@@ -7,6 +7,7 @@
     <meta name="description" content="{{ pageDescription }}" />
     <meta name="theme-color" content="#11171b" />
     <meta name="myanimelife-data-version" content="{{ dataVersion }}" />
+    <meta name="myanimelife-project-version" content="{{ projectVersion }}" />
     <meta property="og:title" content="{{ pageTitle }}" />
     <meta property="og:description" content="{{ pageDescription }}" />
     <meta property="og:type" content="website" />
@@ -70,6 +71,7 @@
       <div class="site-footer-inner">
         <p>{{ site.footer }}</p>
         <p>
+          <span>项目 v{{ projectVersion }}</span>
           <span>数据更新 {{ generatedAtLabel }}</span>
           <a href="{{ homeUrl }}{{ dataEndpoint }}">JSON</a>
         </p>

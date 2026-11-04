@@ -227,6 +227,15 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /测试番剧/u);
     assert.match(indexHtml, /insights\//u);
     assert.match(indexHtml, /data-page-size="25"/u);
+    assert.match(indexHtml, /data-anime-recommendations/u);
+    assert.match(indexHtml, /番剧推荐/u);
+    assert.match(indexHtml, /recommendations\.css\?v=20261025T120000000Z/u);
+    assert.match(indexHtml, /recommendations\.js\?v=20261025T120000000Z/u);
+    assert.match(
+      indexHtml,
+      /name="myanimelife-project-version" content="1\.0\.0"/u,
+    );
+    assert.match(indexHtml, /项目 v1\.0\.0/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);
@@ -410,6 +419,9 @@ test("ships three independently buildable templates", async () => {
       "assets/share.js",
       "assets/similar.js",
       "assets/similar.css",
+      "assets/recommendations.js",
+      "assets/recommendations.css",
+      "data/recommendations.json",
     ]) {
       await fs.access(path.join(fixtureRoot, "dist", file));
     }
