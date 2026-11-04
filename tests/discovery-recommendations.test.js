@@ -57,7 +57,7 @@ test("builds a production recommendation snapshot from personal taste", () => {
   const result = buildDiscoveryRecommendations(fixture());
 
   assert.equal(result.algorithm.name, "taste-hybrid-mmr");
-  assert.equal(result.algorithm.projectVersion, "1.1.3");
+  assert.equal(result.algorithm.projectVersion, "1.1.4");
   assert.equal(result.algorithm.status, "production");
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.mode, "limited");

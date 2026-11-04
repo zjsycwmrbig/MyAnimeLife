@@ -233,9 +233,9 @@ test("ships three independently buildable templates", async () => {
     assert.doesNotMatch(indexHtml, /recommendations\.js\?v=/u);
     assert.match(
       indexHtml,
-      /name="myanimelife-project-version" content="1\.1\.3"/u,
+      /name="myanimelife-project-version" content="1\.1\.4"/u,
     );
-    assert.match(indexHtml, /项目 v1\.1\.3/u);
+    assert.match(indexHtml, /项目 v1\.1\.4/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);

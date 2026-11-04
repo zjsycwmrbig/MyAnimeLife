@@ -801,48 +801,208 @@
 
 .recommendation-card-detail {
   position: absolute;
-  z-index: 4;
-  top: calc(100% - 1px);
-  left: -1px;
-  width: calc(100% + 2px);
-  max-height: min(360px, 52vh);
+  z-index: 12;
+  top: -1px;
+  width: auto;
+  max-width: calc(100vw - 32px);
+  height: var(--recommendation-detail-card-height, auto);
+  max-height: var(--recommendation-detail-card-height, 72vh);
   overflow: auto;
-  padding: 15px 16px 16px;
+  padding: 18px 19px 20px;
   border: 1px solid var(--line-strong);
-  border-top: 2px solid var(--accent);
-  border-radius: 0 0 7px 7px;
+  border-radius: 7px;
   background: var(--surface-strong);
-  box-shadow: 0 18px 32px rgb(23 32 27 / 18%);
+  box-shadow: 0 22px 52px rgb(23 32 27 / 22%);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-5px);
   visibility: hidden;
   transition:
     opacity 160ms ease,
     transform 180ms ease,
     visibility 160ms ease;
+  overscroll-behavior: contain;
+  scrollbar-color: color-mix(in srgb, var(--accent) 45%, var(--line)) transparent;
+  scrollbar-width: thin;
+}
+
+.recommendation-card-detail::before {
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 100%;
+  content: "";
+}
+
+.recommendation-card.is-detail-right .recommendation-card-detail {
+  left: calc(100% + 10px);
+  width: min(352px, calc(100vw - 32px));
+  border-left: 3px solid var(--accent);
+  transform: translateX(-8px) scale(0.985);
+  transform-origin: left top;
+}
+
+.recommendation-card.is-detail-right .recommendation-card-detail::before {
+  right: 100%;
+}
+
+.recommendation-card.is-detail-left .recommendation-card-detail {
+  right: calc(100% + 10px);
+  left: auto;
+  width: min(352px, calc(100vw - 32px));
+  border-right: 3px solid var(--accent);
+  transform: translateX(8px) scale(0.985);
+  transform-origin: right top;
+}
+
+.recommendation-card.is-detail-left .recommendation-card-detail::before {
+  left: 100%;
+}
+
+.recommendation-card.is-detail-sheet .recommendation-card-detail {
+  top: calc(100% + 9px);
+  right: 0;
+  left: 0;
+  width: auto;
+  max-height: var(--recommendation-detail-card-height, 52vh);
+  border-top: 3px solid var(--accent);
+  transform: translateY(-7px) scale(0.99);
+  transform-origin: center top;
+}
+
+.recommendation-card.is-detail-sheet .recommendation-card-detail::before {
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  width: auto;
+  height: 12px;
 }
 
 .recommendation-card.is-detail-open .recommendation-card-detail {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: translateX(0) translateY(0) scale(1);
   visibility: visible;
 }
 
-.recommendation-card-detail-label {
-  margin: 0 0 8px;
+.recommendation-card-detail-header {
+  display: grid;
+  gap: 5px;
+  padding-right: 4px;
+}
+
+.recommendation-card-detail-kicker {
+  margin: 0;
   color: var(--accent-dark);
   font-size: 8px;
   font-weight: 850;
   letter-spacing: 0.14em;
 }
 
-.recommendation-card-detail-summary {
+.recommendation-card-detail-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.recommendation-card-detail-original {
   margin: 0;
   color: var(--muted);
   font-size: 10px;
-  line-height: 1.8;
+  line-height: 1.5;
+}
+
+.recommendation-card-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 15px 0 0;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.recommendation-card-detail-fact {
+  min-width: 0;
+  padding: 9px 10px 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.recommendation-card-detail-fact dt {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommendation-card-detail-fact dd {
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommendation-card-detail-section {
+  margin-top: 15px;
+}
+
+.recommendation-card-detail-label {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.recommendation-card-detail-reason {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--accent);
+  background: var(--paper);
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.7;
+}
+
+.recommendation-card-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recommendation-card-detail-tags li {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.recommendation-card-detail-tags li.is-match {
+  border-color: color-mix(in srgb, var(--teal) 40%, var(--line));
+  background: color-mix(in srgb, var(--teal) 8%, var(--surface));
+  color: var(--teal);
+  font-weight: 700;
+}
+
+.recommendation-card-detail-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.85;
   white-space: pre-line;
 }
 
@@ -1245,7 +1405,6 @@
   }
 
   .recommendation-card-detail {
-    max-height: 50vh;
     padding: 12px 13px 14px;
   }
 

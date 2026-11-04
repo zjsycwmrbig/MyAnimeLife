@@ -35,6 +35,9 @@
   const ANILIST_DETAIL_TIMEOUT = 6500;
   const ANILIST_ENDPOINT = "https://graphql.anilist.co";
   const CAROUSEL_INTERVAL = 6500;
+  const SIDE_DETAIL_MIN_WIDTH = 721;
+  const SIDE_DETAIL_WIDTH = 352;
+  const SIDE_DETAIL_GAP = 10;
   const typeLabels = {
     tv: "TV",
     ova: "OVA",
@@ -272,6 +275,100 @@
     return tags;
   }
 
+  function createDetailFact(label, value) {
+    if (value === null || value === undefined || value === "") return null;
+    const item = createElement("div", "recommendation-card-detail-fact");
+    item.append(
+      createElement("dt", "", label),
+      createElement("dd", "", String(value)),
+    );
+    return item;
+  }
+
+  function createDetailPanel(item) {
+    const panel = createElement("aside", "recommendation-card-detail");
+    panel.setAttribute("aria-label", `${item.title} 的 Bangumi 资料与推荐依据`);
+    panel.setAttribute("aria-hidden", "true");
+
+    const header = createElement("header", "recommendation-card-detail-header");
+    header.append(
+      createElement("p", "recommendation-card-detail-kicker", "BANGUMI / 推荐详情"),
+      createElement("h3", "recommendation-card-detail-title", item.title),
+    );
+    if (item.originalTitle && item.originalTitle !== item.title) {
+      header.append(
+        createElement(
+          "p",
+          "recommendation-card-detail-original",
+          item.originalTitle,
+        ),
+      );
+    }
+
+    const facts = createElement("dl", "recommendation-card-detail-facts");
+    const score = numberOrNull(item.score);
+    const ratingCount = numberOrNull(item.ratingCount);
+    const rank = numberOrNull(item.rank);
+    for (const fact of [
+      createDetailFact("BANGUMI 评分", score === null ? "" : score.toFixed(1)),
+      createDetailFact(
+        "评分人数",
+        ratingCount > 0 ? `${Math.round(ratingCount).toLocaleString("zh-CN")} 人` : "",
+      ),
+      createDetailFact("全站排名", rank > 0 ? `#${Math.round(rank)}` : ""),
+      createDetailFact("开播日期", releaseDateLabel(item.begin)),
+      createDetailFact(
+        "作品类型",
+        item.type && item.type !== "unknown"
+          ? typeLabels[String(item.type).toLowerCase()] || item.type
+          : "",
+      ),
+      createDetailFact(
+        "年份 / 季度",
+        [Number.isInteger(item.year) ? String(item.year) : "", item.seasonLabel || ""]
+          .filter(Boolean)
+          .join(" · "),
+      ),
+    ]) {
+      if (fact) facts.append(fact);
+    }
+
+    const reason = createElement("section", "recommendation-card-detail-section");
+    reason.append(
+      createElement("p", "recommendation-card-detail-label", "推荐依据"),
+      createElement(
+        "p",
+        "recommendation-card-detail-reason",
+        item.reason || "来自 Bangumi 公共口碑与你的收藏偏好。",
+      ),
+    );
+
+    const tagSection = createElement("section", "recommendation-card-detail-section");
+    const tags = createTagList(item, "recommendation-card-detail-tags", 10);
+    tagSection.append(
+      createElement("p", "recommendation-card-detail-label", "BANGUMI 标签"),
+      tags,
+    );
+    tagSection.hidden = tags.childElementCount === 0;
+
+    const summary = createElement("section", "recommendation-card-detail-section");
+    const summaryText = createElement(
+      "p",
+      "recommendation-card-detail-summary",
+      String(item.summary ?? "").trim() || "悬浮后读取作品简介…",
+    );
+    summaryText.setAttribute("aria-live", "polite");
+    summary.append(
+      createElement("p", "recommendation-card-detail-label", "作品简介"),
+      summaryText,
+    );
+
+    panel.append(header);
+    if (facts.childElementCount) panel.append(facts);
+    panel.append(reason, tagSection, summary);
+    return { panel, summary: summaryText };
+  }
+
   function createCard(item, { includeReleaseDate = false } = {}) {
     const card = createElement("article", "recommendation-card");
     card.dataset.recommendationItem = item.subjectId;
@@ -312,16 +409,10 @@
 
     const reason = createElement("p", "recommendation-reason", item.reason);
     body.append(meta, title, originalTitle, reason, createTagList(item));
-    const detailPanel = createElement("div", "recommendation-card-detail");
-    const detail = createElement("p", "recommendation-card-detail-summary");
-    detail.setAttribute("aria-live", "polite");
-    detailPanel.append(
-      createElement("p", "recommendation-card-detail-label", "作品简介"),
-      detail,
-    );
+    const { panel: detailPanel, summary: detail } = createDetailPanel(item);
     link.append(cover, body);
     card.append(link, detailPanel);
-    bindCardDetail(card, item, detail, cover);
+    bindCardDetail(card, item, detail, cover, detailPanel);
     return card;
   }
 
@@ -416,21 +507,70 @@
     pumpDetails();
   }
 
-  function bindCardDetail(card, item, detail, cover) {
+  function bindCardDetail(card, item, detail, cover, panel) {
     const elements = { detail, cover };
+    let closeTimer = null;
+    const clearCloseTimer = () => {
+      if (closeTimer === null) return;
+      window.clearTimeout(closeTimer);
+      closeTimer = null;
+    };
+    const position = () => {
+      card.classList.remove(
+        "is-detail-left",
+        "is-detail-right",
+        "is-detail-sheet",
+      );
+      const rect = card.getBoundingClientRect();
+      panel.style.setProperty(
+        "--recommendation-detail-card-height",
+        `${Math.max(1, Math.round(rect.height))}px`,
+      );
+      if (window.innerWidth < SIDE_DETAIL_MIN_WIDTH) {
+        card.classList.add("is-detail-sheet");
+        return;
+      }
+
+      const cardCenter = rect.left + rect.width / 2;
+      const rightSpace = window.innerWidth - rect.right - SIDE_DETAIL_GAP;
+      const leftSpace = rect.left - SIDE_DETAIL_GAP;
+      let openRight = cardCenter < window.innerWidth / 2;
+      if (openRight && rightSpace < SIDE_DETAIL_WIDTH && leftSpace > rightSpace) {
+        openRight = false;
+      } else if (!openRight && leftSpace < SIDE_DETAIL_WIDTH && rightSpace > leftSpace) {
+        openRight = true;
+      }
+      card.classList.add(openRight ? "is-detail-right" : "is-detail-left");
+    };
     const open = () => {
+      clearCloseTimer();
+      position();
       card.classList.add("is-detail-open");
+      panel.setAttribute("aria-hidden", "false");
       if (!detail.textContent) detail.textContent = "正在读取作品简介…";
       if (card.dataset.detailRequested === "true") return;
       card.dataset.detailRequested = "true";
       requestDetail(item, elements);
     };
-    const close = () => card.classList.remove("is-detail-open");
+    const close = () => {
+      clearCloseTimer();
+      card.classList.remove("is-detail-open");
+      panel.setAttribute("aria-hidden", "true");
+    };
+    const scheduleClose = () => {
+      clearCloseTimer();
+      closeTimer = window.setTimeout(close, 120);
+    };
     card.addEventListener("pointerenter", open);
-    card.addEventListener("pointerleave", close);
+    card.addEventListener("pointerleave", scheduleClose);
+    panel.addEventListener("pointerenter", clearCloseTimer);
+    panel.addEventListener("pointerleave", scheduleClose);
     card.addEventListener("focusin", open);
     card.addEventListener("focusout", (event) => {
       if (!card.contains(event.relatedTarget)) close();
+    });
+    window.addEventListener("resize", () => {
+      if (card.classList.contains("is-detail-open")) position();
     });
   }
 
