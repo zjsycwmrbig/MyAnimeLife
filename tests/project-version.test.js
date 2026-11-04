@@ -15,13 +15,13 @@ test("keeps the project version consistent across release metadata", async () =>
     await fs.readFile(path.join(root, "VERSION"), "utf8")
   ).trim();
   const algorithmDoc = await fs.readFile(
-    path.join(root, "docs", "recommendation-algorithm-v1.0.0.md"),
+    path.join(root, "docs", "recommendation-algorithm.md"),
     "utf8",
   );
 
-  assert.equal(PROJECT_VERSION, "1.0.0");
+  assert.equal(PROJECT_VERSION, "1.1.0");
   assert.equal(packageJson.version, PROJECT_VERSION);
   assert.equal(versionFile, PROJECT_VERSION);
   assert.match(algorithmDoc, /状态：可用版本（production）/u);
-  assert.match(algorithmDoc, /项目版本：`1\.0\.0`/u);
+  assert.match(algorithmDoc, /项目版本：`1\.1\.0`/u);
 });

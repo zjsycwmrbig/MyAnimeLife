@@ -226,16 +226,16 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, new RegExp(heading, "u"));
     assert.match(indexHtml, /测试番剧/u);
     assert.match(indexHtml, /insights\//u);
+    assert.match(indexHtml, /recommendations\//u);
     assert.match(indexHtml, /data-page-size="25"/u);
-    assert.match(indexHtml, /data-anime-recommendations/u);
-    assert.match(indexHtml, /番剧推荐/u);
-    assert.match(indexHtml, /recommendations\.css\?v=20261025T120000000Z/u);
-    assert.match(indexHtml, /recommendations\.js\?v=20261025T120000000Z/u);
+    assert.doesNotMatch(indexHtml, /data-anime-recommendations/u);
+    assert.doesNotMatch(indexHtml, /recommendations\.css\?v=/u);
+    assert.doesNotMatch(indexHtml, /recommendations\.js\?v=/u);
     assert.match(
       indexHtml,
-      /name="myanimelife-project-version" content="1\.0\.0"/u,
+      /name="myanimelife-project-version" content="1\.1\.0"/u,
     );
-    assert.match(indexHtml, /项目 v1\.0\.0/u);
+    assert.match(indexHtml, /项目 v1\.1\.0/u);
     assert.match(indexHtml, /id="records-pagination"/u);
     assert.match(indexHtml, /aria-label="记录分页"/u);
     assert.match(indexHtml, /id="pagination-size"/u);
@@ -271,6 +271,31 @@ test("ships three independently buildable templates", async () => {
     assert.match(indexHtml, /app\.js\?v=20261025T120000000Z/u);
     assert.match(indexHtml, /class="header-icon-link header-admin-link"/u);
     assert.match(indexHtml, /aria-haspopup="dialog"/u);
+
+    const recommendationsHtml = await fs.readFile(
+      path.join(fixtureRoot, "dist", "recommendations", "index.html"),
+      "utf8",
+    );
+    assert.match(recommendationsHtml, /data-anime-recommendations/u);
+    assert.match(recommendationsHtml, /前五部推荐/u);
+    assert.match(recommendationsHtml, /本周焦点/u);
+    assert.match(recommendationsHtml, /data-recommendation-featured/u);
+    assert.match(recommendationsHtml, /data-recommendation-featured-track/u);
+    assert.match(recommendationsHtml, /data-recommendation-featured-dots/u);
+    assert.match(recommendationsHtml, /继续发现/u);
+    assert.match(recommendationsHtml, /data-recommendation-grid/u);
+    assert.match(
+      recommendationsHtml,
+      /recommendations\.css\?v=20261025T120000000Z/u,
+    );
+    assert.match(
+      recommendationsHtml,
+      /recommendations\.js\?v=20261025T120000000Z/u,
+    );
+    assert.match(
+      recommendationsHtml,
+      /data-recommendations-endpoint="\.\.\/data\/recommendations\.json\?v=/u,
+    );
 
     const detailHtml = await fs.readFile(
       path.join(
@@ -422,6 +447,7 @@ test("ships three independently buildable templates", async () => {
       "assets/recommendations.js",
       "assets/recommendations.css",
       "data/recommendations.json",
+      "recommendations/index.html",
     ]) {
       await fs.access(path.join(fixtureRoot, "dist", file));
     }

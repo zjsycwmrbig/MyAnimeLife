@@ -1,6 +1,6 @@
 # MyAnimeLife
 
-当前项目版本：**1.0.0**。项目采用语义化版本：新增功能提升次版本号，Bug 修复、视觉调整和性能优化提升补丁号；主版本仅在明确要求时提升。版本规则与推荐算法说明见 [`docs/`](docs/README.md)。
+当前项目版本：**1.1.0**。项目采用语义化版本：新增功能提升次版本号，Bug 修复、视觉调整和性能优化提升补丁号；主版本仅在明确要求时提升。版本规则与推荐算法说明见 [`docs/`](docs/README.md)。
 
 一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`，Bangumi 评分与标签的个人缓存保存在 `data/bangumi-cache.jsonl`；模板另外预置 `admin/bangumi-public-catalog.json` 与 `admin/bangumi-public.json`，让新用户无需首次下载即可搜索索引并读取公共 Bangumi 元数据。GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
@@ -158,7 +158,7 @@ data/anime.jsonl + data/anime-index.jsonl <-> userscript/ = Bangumi Scout
 - 支持标题、评价、备注和跨站索引 ID 搜索
 - 我的记录支持关键词、内容状态、评分范围、作品年份和收录日期组合筛选，并可切换收录时间、修改时间、评分、作品年份和标题的正倒序
 - 每部番剧有独立详情页，底部会根据 Bangumi 公共标签和个人标签缓存计算相似推荐；默认隐藏已收录作品，可切换查看全部，并按共同标签数量排序、分页展示
-- 首页提供基于个人标签、主观评分、公共口碑和年代偏好的“番剧推荐”，支持综合、口碑和小众三种视角；简介在进入视口后按需读取 Bangumi API，并限制并发与本地缓存
+- 独立的 `/recommendations/` 作品推荐页基于个人标签、主观评分、公共口碑和年代偏好生成片单，前五部使用大图轮播，其余作品分页展示；支持综合、口碑和小众三种视角，简介在进入视口后按需读取 Bangumi API，并限制并发与本地缓存
 - 显示 Bangumi、Bilibili、AniList、MyAnimeList 的关联 ID 和链接
 - 构建时自动生成供油猴脚本读取的 `dist/data/library.json`
 - 同时提供本地批量管理页和 GitHub Pages 在线管理页，可搜索、编辑评分和评价、批量删除并提交到远端

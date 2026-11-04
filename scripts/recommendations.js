@@ -7,19 +7,27 @@
   const status = section.querySelector("[data-recommendation-status]");
   const grid = section.querySelector("[data-recommendation-grid]");
   const pagination = section.querySelector("[data-recommendation-pagination]");
-  const summary = section.querySelector("[data-recommendation-summary]");
+  const pagesSummary = section.querySelector("[data-recommendation-pages-summary]");
   const pages = section.querySelector("[data-recommendation-pages]");
   const previousButton = section.querySelector('[data-recommendation-page="previous"]');
   const nextButton = section.querySelector('[data-recommendation-page="next"]');
   const modeButtons = [...section.querySelectorAll("[data-recommendation-mode]")];
+  const featured = section.querySelector("[data-recommendation-featured]");
+  const featuredTrack = section.querySelector("[data-recommendation-featured-track]");
+  const featuredPrevious = section.querySelector("[data-recommendation-featured-previous]");
+  const featuredNext = section.querySelector("[data-recommendation-featured-next]");
+  const featuredDots = section.querySelector("[data-recommendation-featured-dots]");
+  const featuredCounter = section.querySelector("[data-recommendation-featured-counter]");
 
-  if (!endpoint || !profile || !status || !grid || !pagination) return;
+  if (!endpoint || !profile || !status || !grid || !pagination || !featuredTrack) return;
 
+  const FEATURED_COUNT = 5;
   const PAGE_SIZE = 12;
   const DETAIL_CACHE_KEY = "myanimelife.recommendation-details.v1";
   const DETAIL_TTL = 7 * 24 * 60 * 60 * 1000;
   const DETAIL_FAILURE_TTL = 60 * 60 * 1000;
   const DETAIL_CONCURRENCY = 2;
+  const CAROUSEL_INTERVAL = 6500;
   const typeLabels = {
     tv: "TV",
     ova: "OVA",
@@ -29,6 +37,7 @@
     tv_sp: "TV 特别篇",
     tv_short: "短篇",
   };
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const detailCache = readDetailCache();
   const detailQueue = [];
   const pendingDetails = new Set();
@@ -36,7 +45,10 @@
   let payload = null;
   let mode = "recommended";
   let page = 1;
+  let featuredItems = [];
+  let featuredIndex = 0;
   let activeDetailRequests = 0;
+  let carouselTimer = null;
 
   function createElement(tag, className = "", text = "") {
     const element = document.createElement(tag);
@@ -85,7 +97,7 @@
     try {
       localStorage.setItem(DETAIL_CACHE_KEY, JSON.stringify(detailCache));
     } catch {
-      // The recommendation shelf remains usable without storage access.
+      // The recommendation page remains usable without storage access.
     }
   }
 
@@ -114,18 +126,26 @@
     }
     const fallback = createElement("span", "recommendation-cover-fallback", item.title);
     fallback.setAttribute("aria-hidden", "true");
-    cover.append(fallback);
+    cover.prepend(fallback);
     if (!url) return;
+
     const image = document.createElement("img");
-    image.src = url;
     image.alt = "";
     image.title = `${item.title} 封面`;
     image.loading = "lazy";
     image.decoding = "async";
     image.referrerPolicy = "no-referrer";
-    image.addEventListener("load", () => image.dataset.loaded = "true", { once: true });
+    image.addEventListener(
+      "load",
+      () => {
+        image.dataset.loaded = "true";
+        fallback.remove();
+      },
+      { once: true },
+    );
     image.addEventListener("error", () => image.remove(), { once: true });
-    cover.append(image);
+    cover.insertBefore(image, fallback.nextSibling);
+    image.src = url;
   }
 
   function itemMeta(item) {
@@ -182,7 +202,7 @@
     profile.append(heading);
 
     const tags = Array.isArray(payload.profile?.topTags)
-      ? payload.profile.topTags.slice(0, 8)
+      ? payload.profile.topTags.slice(0, 10)
       : [];
     if (tags.length) {
       const tagList = createElement("div", "recommendation-profile-tags");
@@ -206,8 +226,37 @@
     }
   }
 
+  function createScore(item, className = "recommendation-public-score") {
+    const scoreValue = numberOrNull(item.score);
+    if (scoreValue === null) return null;
+    const score = createElement("span", className);
+    score.append(
+      createElement("small", "", "BGM"),
+      createElement("strong", "", scoreValue.toFixed(1)),
+    );
+    return score;
+  }
+
+  function createTagList(item, className = "recommendation-tags", limit = 6) {
+    const tags = createElement("ul", className);
+    const matchedNames = new Set(
+      (item.matchedTags ?? []).map((tag) => String(tag.name)),
+    );
+    for (const tag of (item.tags ?? []).slice(0, limit)) {
+      tags.append(
+        createElement(
+          "li",
+          matchedNames.has(tag) ? "is-match" : "",
+          String(tag),
+        ),
+      );
+    }
+    return tags;
+  }
+
   function createCard(item) {
     const card = createElement("article", "recommendation-card");
+    card.dataset.recommendationItem = item.subjectId;
     const link = createElement("a", "recommendation-card-link");
     link.href = `https://bgm.tv/subject/${encodeURIComponent(item.subjectId)}`;
     link.target = "_blank";
@@ -216,15 +265,8 @@
 
     const cover = createElement("div", "recommendation-cover");
     appendCover(cover, item);
-    const publicScore = numberOrNull(item.score);
-    if (publicScore !== null) {
-      const score = createElement("span", "recommendation-public-score");
-      score.append(
-        createElement("small", "", "BGM"),
-        createElement("strong", "", publicScore.toFixed(1)),
-      );
-      cover.append(score);
-    }
+    const score = createScore(item);
+    if (score) cover.append(score);
 
     const body = createElement("div", "recommendation-card-body");
     const meta = createElement("div", "recommendation-card-meta");
@@ -247,29 +289,72 @@
     originalTitle.hidden = !originalTitle.textContent;
 
     const reason = createElement("p", "recommendation-reason", item.reason);
-    const tags = createElement("ul", "recommendation-tags");
-    const matchedNames = new Set(
-      (item.matchedTags ?? []).map((tag) => String(tag.name)),
-    );
-    for (const tag of (item.tags ?? []).slice(0, 6)) {
-      tags.append(
-        createElement(
-          "li",
-          matchedNames.has(tag) ? "is-match" : "",
-          String(tag),
-        ),
-      );
-    }
     const detail = createElement(
       "p",
       "recommendation-summary",
       item.summary || "正在读取 Bangumi 简介…",
     );
-    body.append(meta, title, originalTitle, reason, tags, detail);
+    body.append(meta, title, originalTitle, reason, createTagList(item), detail);
     link.append(cover, body);
     card.append(link);
     observeDetail(item, detail, cover);
     return card;
+  }
+
+  function createFeaturedSlide(item, index) {
+    const slide = createElement("article", "recommendation-featured-slide");
+    slide.dataset.recommendationItem = item.subjectId;
+    slide.dataset.featuredIndex = String(index);
+    slide.setAttribute("role", "group");
+    slide.setAttribute("aria-roledescription", "幻灯片");
+    slide.setAttribute("aria-label", `${index + 1} / ${FEATURED_COUNT}`);
+
+    const link = createElement("a", "recommendation-featured-link");
+    link.href = `https://bgm.tv/subject/${encodeURIComponent(item.subjectId)}`;
+    link.target = "_blank";
+    link.rel = "noreferrer noopener";
+
+    const cover = createElement("div", "recommendation-featured-media");
+    appendCover(cover, item);
+    const shade = createElement("span", "recommendation-featured-shade");
+    shade.setAttribute("aria-hidden", "true");
+    cover.append(shade);
+
+    const content = createElement("div", "recommendation-featured-content");
+    const rank = createElement("p", "recommendation-featured-rank", `TOP ${String(index + 1).padStart(2, "0")}`);
+    const meta = createElement("div", "recommendation-featured-meta");
+    meta.append(...itemMeta(item).map((value) => createElement("span", "", value)));
+    if (Number(item.ratingCount) > 0) {
+      meta.append(
+        createElement(
+          "span",
+          "",
+          `${Number(item.ratingCount).toLocaleString("zh-CN")} 人评分`,
+        ),
+      );
+    }
+    const title = createElement("h3", "", item.title);
+    const originalTitle = createElement(
+      "p",
+      "recommendation-featured-original",
+      item.originalTitle && item.originalTitle !== item.title ? item.originalTitle : "",
+    );
+    originalTitle.hidden = !originalTitle.textContent;
+    const reason = createElement("p", "recommendation-featured-reason", item.reason);
+    const detail = createElement(
+      "p",
+      "recommendation-featured-summary",
+      item.summary || "正在读取 Bangumi 简介…",
+    );
+    const copy = createElement("div", "recommendation-featured-copy");
+    copy.append(rank, meta, title, originalTitle, reason);
+    content.append(copy, createTagList(item, "recommendation-featured-tags", 5), detail);
+    const score = createScore(item, "recommendation-featured-score");
+    if (score) content.append(score);
+    link.append(cover, content);
+    slide.append(link);
+    observeDetail(item, detail, cover);
+    return slide;
   }
 
   function applyDetail(item, elements, value) {
@@ -296,7 +381,7 @@
       enqueueDetail(item, elements);
       return;
     }
-    const card = detail.closest(".recommendation-card");
+    const card = detail.closest("[data-recommendation-item]");
     if (!card || seenCards.has(card)) return;
     seenCards.add(card);
     const observer = new IntersectionObserver(
@@ -305,7 +390,7 @@
         observer.disconnect();
         enqueueDetail(item, elements);
       },
-      { rootMargin: "240px 0px" },
+      { rootMargin: "280px 0px" },
     );
     observer.observe(card);
   }
@@ -360,12 +445,83 @@
       rememberDetail(item.subjectId, value);
       return value;
     } catch (error) {
-      const value = { summary: "", coverUrl: "", error: true };
-      rememberDetail(item.subjectId, value);
+      rememberDetail(item.subjectId, { summary: "", coverUrl: "", error: true });
       throw error;
     } finally {
       window.clearTimeout(timer);
     }
+  }
+
+  function stopCarousel() {
+    if (carouselTimer !== null) {
+      window.clearInterval(carouselTimer);
+      carouselTimer = null;
+    }
+  }
+
+  function syncFeatured() {
+    if (!featuredItems.length) return;
+    const slides = [...featuredTrack.querySelectorAll("[data-featured-index]")];
+    for (const slide of slides) {
+      const active = Number(slide.dataset.featuredIndex) === featuredIndex;
+      slide.classList.toggle("is-active", active);
+      slide.setAttribute("aria-hidden", String(!active));
+      slide.querySelector("a")?.setAttribute("tabindex", active ? "0" : "-1");
+    }
+    const dots = featuredDots
+      ? [...featuredDots.querySelectorAll("button")]
+      : [];
+    for (const [index, dot] of dots.entries()) {
+      const active = index === featuredIndex;
+      dot.classList.toggle("is-active", active);
+      dot.setAttribute("aria-selected", String(active));
+    }
+    if (featuredCounter) {
+      featuredCounter.textContent = `${String(featuredIndex + 1).padStart(2, "0")} / ${String(featuredItems.length).padStart(2, "0")}`;
+    }
+    if (featuredPrevious) featuredPrevious.disabled = featuredItems.length < 2;
+    if (featuredNext) featuredNext.disabled = featuredItems.length < 2;
+  }
+
+  function setFeatured(nextIndex) {
+    if (!featuredItems.length) return;
+    featuredIndex =
+      (Number(nextIndex) + featuredItems.length) % featuredItems.length;
+    syncFeatured();
+  }
+
+  function startCarousel() {
+    stopCarousel();
+    if (reducedMotion || featuredItems.length < 2 || document.hidden) return;
+    carouselTimer = window.setInterval(
+      () => setFeatured(featuredIndex + 1),
+      CAROUSEL_INTERVAL,
+    );
+  }
+
+  function renderFeatured() {
+    stopCarousel();
+    featuredItems = sortedItems().slice(0, FEATURED_COUNT);
+    featuredIndex = 0;
+    featuredTrack.replaceChildren(
+      ...featuredItems.map((item, index) => createFeaturedSlide(item, index)),
+    );
+    featuredDots?.replaceChildren(
+      ...featuredItems.map((item, index) => {
+        const dot = createElement("button", index === 0 ? "is-active" : "");
+        dot.type = "button";
+        dot.setAttribute("role", "tab");
+        dot.setAttribute("aria-label", `第 ${index + 1} 部：${item.title}`);
+        dot.setAttribute("aria-selected", String(index === 0));
+        dot.addEventListener("click", () => {
+          setFeatured(index);
+          startCarousel();
+        });
+        return dot;
+      }),
+    );
+    syncFeatured();
+    startCarousel();
   }
 
   function pageSequence(current, total) {
@@ -376,9 +532,9 @@
   }
 
   function renderPagination(totalPages, totalItems) {
-    if (!summary || !pages || !previousButton || !nextButton) return;
+    if (!pagesSummary || !pages || !previousButton || !nextButton) return;
     pagination.hidden = totalItems <= PAGE_SIZE;
-    summary.textContent = `第 ${page} / ${totalPages} 页 · 共 ${totalItems} 部推荐`;
+    pagesSummary.textContent = `第 ${page} / ${totalPages} 页 · 共 ${totalItems} 部`;
     pages.replaceChildren();
     const sequence = pageSequence(page, totalPages);
     let previous = 0;
@@ -392,7 +548,7 @@
       if (value === page) button.setAttribute("aria-current", "page");
       button.addEventListener("click", () => {
         page = value;
-        render();
+        renderCollection();
       });
       pages.append(button);
       previous = value;
@@ -401,14 +557,20 @@
     nextButton.disabled = page >= totalPages;
   }
 
-  function render() {
+  function renderCollection() {
     if (!payload) return;
-    const items = sortedItems();
+    const items = sortedItems().slice(FEATURED_COUNT);
     const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-    page = Math.min(page, totalPages);
+    page = Math.min(Math.max(1, page), totalPages);
     const start = (page - 1) * PAGE_SIZE;
     grid.replaceChildren(...items.slice(start, start + PAGE_SIZE).map(createCard));
-    setStatus(`${items.length} 部候选 · 当前按${mode === "acclaimed" ? " Bangumi 口碑" : mode === "explore" ? "小众标签匹配" : "综合匹配"}排序`);
+    const modeLabel =
+      mode === "acclaimed"
+        ? "Bangumi 口碑"
+        : mode === "explore"
+          ? "小众标签匹配"
+          : "综合匹配";
+    setStatus(`${sortedItems().length} 部候选 · 当前按 ${modeLabel}排序`);
     renderPagination(totalPages, items.length);
   }
 
@@ -422,7 +584,8 @@
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-selected", String(active));
     }
-    render();
+    renderFeatured();
+    renderCollection();
   }
 
   async function load() {
@@ -436,8 +599,10 @@
       }
       payload = value;
       renderProfile();
-      render();
+      renderFeatured();
+      renderCollection();
     } catch (error) {
+      featuredTrack.replaceChildren();
       grid.replaceChildren();
       const empty = createElement("div", "recommendation-empty");
       empty.append(
@@ -456,13 +621,42 @@
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => setMode(button.dataset.recommendationMode));
   });
+  featuredPrevious?.addEventListener("click", () => {
+    setFeatured(featuredIndex - 1);
+    startCarousel();
+  });
+  featuredNext?.addEventListener("click", () => {
+    setFeatured(featuredIndex + 1);
+    startCarousel();
+  });
+  featured?.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setFeatured(featuredIndex - 1);
+      startCarousel();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setFeatured(featuredIndex + 1);
+      startCarousel();
+    }
+  });
+  featured?.addEventListener("mouseenter", stopCarousel);
+  featured?.addEventListener("mouseleave", startCarousel);
+  featured?.addEventListener("focusin", stopCarousel);
+  featured?.addEventListener("focusout", (event) => {
+    if (!featured.contains(event.relatedTarget)) startCarousel();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopCarousel();
+    else startCarousel();
+  });
   previousButton?.addEventListener("click", () => {
     page = Math.max(1, page - 1);
-    render();
+    renderCollection();
   });
   nextButton?.addEventListener("click", () => {
     page += 1;
-    render();
+    renderCollection();
   });
 
   const start = () => void load();

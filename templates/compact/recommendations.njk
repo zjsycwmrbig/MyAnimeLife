@@ -1,48 +1,113 @@
+{% extends "base.njk" %}
 {% from "icons.njk" import icon %}
-<section
-  class="recommendation-shelf"
-  data-anime-recommendations
-  data-recommendations-endpoint="{{ recommendationsEndpoint }}?v={{ assetVersion }}"
-  data-project-version="{{ projectVersion }}"
-  aria-labelledby="recommendations-title"
->
-  <div class="recommendation-heading">
-    <div>
-      <p class="section-index">01 / DISCOVERY</p>
-      <h2 id="recommendations-title">番剧推荐</h2>
-    </div>
-    <p>根据你的评分、偏好标签与 Bangumi 公共口碑，从尚未收录的作品中整理下一部值得看的番剧。</p>
-  </div>
 
-  <div class="recommendation-profile" data-recommendation-profile aria-live="polite">
-    <span class="recommendation-profile-label">正在分析你的口味</span>
-  </div>
+{% block bodyClass %}recommendations-page{% endblock %}
 
-  <div class="recommendation-toolbar">
-    <div class="recommendation-modes" role="tablist" aria-label="推荐方式">
-      <button class="is-active" type="button" role="tab" aria-selected="true" data-recommendation-mode="recommended">综合推荐</button>
-      <button type="button" role="tab" aria-selected="false" data-recommendation-mode="acclaimed">口碑优先</button>
-      <button type="button" role="tab" aria-selected="false" data-recommendation-mode="explore">小众探索</button>
-    </div>
-    <p class="recommendation-status" data-recommendation-status role="status" aria-live="polite">正在读取推荐索引</p>
-  </div>
+{% block head %}
+  <link rel="stylesheet" href="{{ assetRoot }}recommendations.css?v={{ assetVersion }}" />
+{% endblock %}
 
-  <div class="recommendation-grid" data-recommendation-grid aria-live="polite">
-    {% for index in range(0, 6) %}
-      <div class="recommendation-card recommendation-card-skeleton" aria-hidden="true">
-        <span class="recommendation-skeleton-cover"></span>
-        <span class="recommendation-skeleton-line"></span>
-        <span class="recommendation-skeleton-line is-short"></span>
+{% block content %}
+  <section class="recommendation-hero-band" aria-labelledby="recommendations-title">
+    <div class="page-shell recommendation-hero">
+      <div class="recommendation-hero-copy">
+        <p class="eyebrow">DISCOVERY / 作品推荐</p>
+        <h1 id="recommendations-title">从你的口味出发，遇见下一部</h1>
+        <p>结合个人评分、标签偏好、Bangumi 公共口碑和年代倾向，从尚未收录的作品中整理下一份片单。</p>
       </div>
-    {% endfor %}
-  </div>
-
-  <nav class="recommendation-pagination" data-recommendation-pagination aria-label="番剧推荐分页" hidden>
-    <p data-recommendation-summary></p>
-    <div>
-      <button type="button" data-recommendation-page="previous" aria-label="上一页">{{ icon("chevron-left") }}</button>
-      <span data-recommendation-pages></span>
-      <button type="button" data-recommendation-page="next" aria-label="下一页">{{ icon("chevron-right") }}</button>
+      <dl class="recommendation-hero-stats" aria-label="推荐说明">
+        <div><dt>个人信号</dt><dd>评分与标签</dd></div>
+        <div><dt>公共数据</dt><dd>Bangumi</dd></div>
+        <div><dt>展示方式</dt><dd>每日精选 + 分页</dd></div>
+        <div><dt>简介读取</dt><dd>进入视口后</dd></div>
+      </dl>
     </div>
-  </nav>
-</section>
+  </section>
+
+  <section
+    class="page-shell recommendation-workspace"
+    data-anime-recommendations
+    data-recommendations-endpoint="{{ recommendationsEndpoint }}?v={{ assetVersion }}"
+    data-project-version="{{ projectVersion }}"
+    aria-label="番剧推荐"
+  >
+    <div class="recommendation-profile" data-recommendation-profile aria-live="polite">
+      <span class="recommendation-profile-label">正在分析你的口味</span>
+    </div>
+
+    <div class="recommendation-toolbar">
+      <div class="recommendation-modes" role="tablist" aria-label="推荐方式">
+        <button class="is-active" type="button" role="tab" aria-selected="true" data-recommendation-mode="recommended">综合推荐</button>
+        <button type="button" role="tab" aria-selected="false" data-recommendation-mode="acclaimed">口碑优先</button>
+        <button type="button" role="tab" aria-selected="false" data-recommendation-mode="explore">小众探索</button>
+      </div>
+      <p class="recommendation-status" data-recommendation-status role="status" aria-live="polite">正在读取推荐索引</p>
+    </div>
+
+    <section class="recommendation-stage" aria-labelledby="featured-recommendations-title">
+      <div class="recommendation-section-heading">
+        <div>
+          <p class="section-index">01 / FEATURED FIVE</p>
+          <h2 id="featured-recommendations-title">本周焦点</h2>
+        </div>
+        <p>前五部以画幅轮播展示，可用按钮、圆点或键盘方向键切换。</p>
+      </div>
+
+      <div
+        class="recommendation-featured"
+        data-recommendation-featured
+        role="region"
+        aria-roledescription="轮播"
+        aria-label="前五部推荐"
+      >
+        <div class="recommendation-featured-track" data-recommendation-featured-track aria-live="polite">
+          <div class="recommendation-featured-skeleton" aria-hidden="true"></div>
+        </div>
+        <button class="recommendation-carousel-control is-previous" type="button" data-recommendation-featured-previous aria-label="上一部推荐">
+          {{ icon("chevron-left") }}
+        </button>
+        <button class="recommendation-carousel-control is-next" type="button" data-recommendation-featured-next aria-label="下一部推荐">
+          {{ icon("chevron-right") }}
+        </button>
+        <div class="recommendation-carousel-footer">
+          <div class="recommendation-carousel-dots" data-recommendation-featured-dots aria-label="选择推荐"></div>
+          <p data-recommendation-featured-counter>01 / 05</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="recommendation-collection" aria-labelledby="more-recommendations-title">
+      <div class="recommendation-section-heading">
+        <div>
+          <p class="section-index">02 / MORE PICKS</p>
+          <h2 id="more-recommendations-title">继续发现</h2>
+        </div>
+        <p data-recommendation-summary>正在整理完整推荐</p>
+      </div>
+
+      <div class="recommendation-grid" data-recommendation-grid aria-live="polite">
+        {% for index in range(0, 8) %}
+          <div class="recommendation-card recommendation-card-skeleton" aria-hidden="true">
+            <span class="recommendation-skeleton-cover"></span>
+            <span class="recommendation-skeleton-line"></span>
+            <span class="recommendation-skeleton-line is-short"></span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <nav class="recommendation-pagination" data-recommendation-pagination aria-label="番剧推荐分页" hidden>
+        <p data-recommendation-pages-summary></p>
+        <div>
+          <button type="button" data-recommendation-page="previous" aria-label="上一页">{{ icon("chevron-left") }}</button>
+          <span data-recommendation-pages></span>
+          <button type="button" data-recommendation-page="next" aria-label="下一页">{{ icon("chevron-right") }}</button>
+        </div>
+      </nav>
+    </section>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ assetRoot }}share.js?v={{ assetVersion }}" defer></script>
+  <script src="{{ assetRoot }}recommendations.js?v={{ assetVersion }}" defer></script>
+{% endblock %}

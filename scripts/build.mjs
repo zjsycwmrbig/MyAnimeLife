@@ -246,7 +246,14 @@ export async function loadTemplate(root, templateName) {
     );
   }
 
-  for (const entrypoint of ["index", "detail", "insights", "compare", "notFound"]) {
+  for (const entrypoint of [
+    "index",
+    "detail",
+    "insights",
+    "compare",
+    "recommendations",
+    "notFound",
+  ]) {
     const value = manifest.entrypoints?.[entrypoint];
     if (typeof value !== "string" || !value.trim()) {
       throw new Error(`模板 ${templateName} 缺少 entrypoints.${entrypoint}`);
@@ -778,7 +785,6 @@ export async function buildSite(options = {}) {
     assetRoot: "./assets/",
     records,
     stats,
-    recommendationsEndpoint: "data/recommendations.json",
   };
   const indexHtml = environment.render(
     template.manifest.entrypoints.index,
@@ -819,6 +825,23 @@ export async function buildSite(options = {}) {
   await writeFile(
     path.join(outputDirectory, "compare", "index.html"),
     compareHtml,
+  );
+
+  const recommendationsContext = {
+    ...common,
+    pageTitle: `作品推荐 | ${config.site.title}`,
+    pageDescription: `根据 ${config.site.title} 的评分与标签偏好，从 Bangumi 公共索引中整理下一份片单。`,
+    homeUrl: "../",
+    assetRoot: "../assets/",
+    recommendationsEndpoint: "../data/recommendations.json",
+  };
+  const recommendationsHtml = environment.render(
+    template.manifest.entrypoints.recommendations,
+    recommendationsContext,
+  );
+  await writeFile(
+    path.join(outputDirectory, "recommendations", "index.html"),
+    recommendationsHtml,
   );
 
   for (const record of records) {
