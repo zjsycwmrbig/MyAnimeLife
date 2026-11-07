@@ -49,6 +49,7 @@ import {
 import { toErrorMessage } from "../core/network.js";
 import { INDEX_STATES } from "../index/index-service.js";
 import { detectPageKind } from "../recognizers/page-context.js";
+import { SITE_MODES } from "../core/site-allowlist.js";
 
 const TYPE_LABELS = {
   tv: "TV",
@@ -272,6 +273,11 @@ export class ScoutPanel {
     this.recognitionCache = options.recognitionCache;
     this.coverResolver = options.coverResolver;
     this.githubRecords = options.githubRecords;
+    this.siteMode =
+      options.siteMode === SITE_MODES.PASSIVE
+        ? SITE_MODES.PASSIVE
+        : SITE_MODES.FLOATING;
+    this.onOpen = options.onOpen;
     this.onRecognize = options.onRecognize;
     this.onSettingsSaved = options.onSettingsSaved;
     this.onUpdateIndex = options.onUpdateIndex;
@@ -318,6 +324,7 @@ export class ScoutPanel {
     this.suppressLauncherClick = false;
     this.dockedSide = null;
     this.panelHasCustomPosition = false;
+    this.launcherDockPinnedBottom = false;
     const initialUi = this.settingsStore.get().ui;
     this.panelWidth = initialUi.panelWidth;
     this.panelHeight = initialUi.panelHeight;
@@ -545,6 +552,7 @@ export class ScoutPanel {
       );
     }
     this.updatePagePresentation();
+    this.applySiteMode();
     this.applyPanelSize(this.panelWidth, this.panelHeight);
 
     this.shadow.addEventListener("keydown", (event) => {
@@ -560,6 +568,41 @@ export class ScoutPanel {
     });
     this.setIndexState(this.indexState);
     window.addEventListener("resize", () => this.handleViewportResize());
+    this.handleFullscreenChange = () => this.moveHostForFullscreen();
+    document.addEventListener("fullscreenchange", this.handleFullscreenChange);
+    document.addEventListener(
+      "webkitfullscreenchange",
+      this.handleFullscreenChange,
+    );
+  }
+
+  applySiteMode() {
+    this.root.dataset.siteMode = this.siteMode;
+    this.launcher.dataset.siteMode = this.siteMode;
+    this.panel.dataset.siteMode = this.siteMode;
+    if (this.siteMode !== SITE_MODES.PASSIVE) {
+      return;
+    }
+    this.dockedSide = "right";
+    requestAnimationFrame(() => {
+      this.applyLauncherDock("right", 0, 92, true);
+    });
+  }
+
+  moveHostForFullscreen() {
+    const fullscreenElement =
+      document.fullscreenElement ?? document.webkitFullscreenElement;
+    const canHostInside =
+      fullscreenElement &&
+      fullscreenElement !== this.host &&
+      !(
+        typeof HTMLVideoElement === "function" &&
+        fullscreenElement instanceof HTMLVideoElement
+      );
+    const target = canHostInside ? fullscreenElement : document.documentElement;
+    if (target && this.host.parentNode !== target) {
+      target.append(this.host);
+    }
   }
 
   updatePagePresentation() {
@@ -3838,6 +3881,9 @@ export class ScoutPanel {
     this.launcher.hidden = true;
     this.launcher.setAttribute("aria-expanded", "true");
     requestAnimationFrame(() => this.positionPanelForOpen());
+    if (typeof this.onOpen === "function") {
+      Promise.resolve(this.onOpen()).catch(() => {});
+    }
 
     if (
       options.recognize === true &&
@@ -4131,14 +4177,20 @@ export class ScoutPanel {
     this.applyLauncherDock(side, top);
   }
 
-  applyLauncherDock(side, top, height = 92) {
+  applyLauncherDock(side, top, height = 92, pinBottom = false) {
+    this.launcherDockPinnedBottom = pinBottom;
     this.launcher.classList.remove("is-docked-left", "is-docked-right");
     this.launcher.classList.add("is-side-docked", `is-docked-${side}`);
     this.launcher.dataset.docked = side;
-    this.launcher.style.top = `${Math.round(
-      clampNumber(top, 8, Math.max(8, window.innerHeight - height - 8)),
-    )}px`;
-    this.launcher.style.bottom = "auto";
+    if (pinBottom) {
+      this.launcher.style.top = "auto";
+      this.launcher.style.bottom = "0px";
+    } else {
+      this.launcher.style.top = `${Math.round(
+        clampNumber(top, 8, Math.max(8, window.innerHeight - height - 8)),
+      )}px`;
+      this.launcher.style.bottom = "auto";
+    }
     if (side === "left") {
       this.launcher.style.left = "0";
       this.launcher.style.right = "auto";
@@ -4188,6 +4240,8 @@ export class ScoutPanel {
       this.applyLauncherDock(
         this.dockedSide,
         this.launcher.getBoundingClientRect().top,
+        92,
+        this.launcherDockPinnedBottom,
       );
     }
   }

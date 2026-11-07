@@ -159,9 +159,16 @@ export class AnimeIndexService {
     }
 
     if (isCheckDue(this.snapshot, settings.index.updateFrequency)) {
-      this.checkForUpdates({ automatic: true }).catch(() => {
-        // The persisted cache remains usable after a failed background check.
-      });
+      const update = this.checkForUpdates({ automatic: true });
+      if (this.snapshot) {
+        update.catch(() => {
+          // The persisted cache remains usable after a failed background check.
+        });
+      } else {
+        await update.catch(() => {
+          // Keep the explicit error state when no cached index can be used.
+        });
+      }
     }
   }
 

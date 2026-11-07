@@ -117,6 +117,21 @@ button {
   padding: 7px 3px;
 }
 
+.scout-launcher[data-site-mode="passive"] {
+  width: 28px;
+  height: 84px;
+  border-color: rgb(255 255 255 / 16%);
+  border-radius: 8px 0 0 8px;
+  opacity: 0.72;
+  transform: translateX(4px);
+}
+
+.scout-launcher[data-site-mode="passive"]:hover,
+.scout-launcher[data-site-mode="passive"]:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .scout-launcher.is-side-docked .lucide {
   width: 17px;
   height: 17px;
@@ -1992,6 +2007,11 @@ button.scout-list-row:active {
   .scout-launcher {
     right: 12px;
     bottom: 12px;
+  }
+
+  .scout-launcher[data-site-mode="passive"] {
+    right: 0;
+    bottom: 0;
   }
 
   .scout-panel {

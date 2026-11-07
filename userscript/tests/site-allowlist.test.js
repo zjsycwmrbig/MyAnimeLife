@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   ENABLED_SITE_DOMAINS,
   isEnabledSite,
+  SITE_MODES,
+  siteModeForUrl,
   userscriptMatchPatterns,
 } from "../src/core/site-allowlist.js";
 
@@ -35,12 +37,21 @@ test("does not enable unrelated or lookalike hosts", () => {
   }
 });
 
-test("generates constrained userscript match patterns", () => {
+test("uses the floating launcher on supported sites and passive mode elsewhere", () => {
+  assert.equal(
+    siteModeForUrl("https://www.bilibili.com/bangumi/play/ep1"),
+    SITE_MODES.FLOATING,
+  );
+  assert.equal(
+    siteModeForUrl("https://example.com/anime"),
+    SITE_MODES.PASSIVE,
+  );
+  assert.equal(siteModeForUrl("ftp://www.bilibili.com/anime"), SITE_MODES.PASSIVE);
+});
+
+test("matches all HTTP and HTTPS pages while keeping the domain list as presentation metadata", () => {
   const patterns = userscriptMatchPatterns();
-  assert.ok(patterns.includes("*://www.bilibili.com/*") === false);
-  assert.ok(patterns.includes("*://bilibili.com/*"));
-  assert.ok(patterns.includes("*://*.bilibili.com/*"));
-  assert.ok(patterns.includes("*://v.qq.com/*"));
-  assert.equal(patterns.includes("*://*/*"), false);
-  assert.equal(patterns.length, ENABLED_SITE_DOMAINS.length * 2);
+  assert.deepEqual(patterns, ["*://*/*"]);
+  assert.ok(ENABLED_SITE_DOMAINS.includes("bilibili.com"));
+  assert.ok(ENABLED_SITE_DOMAINS.includes("v.qq.com"));
 });

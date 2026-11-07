@@ -2,15 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
-import { userscriptMatchPatterns } from "../src/core/site-allowlist.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(
   await fs.readFile(path.join(root, "package.json"), "utf8"),
 );
-const matchDirectives = userscriptMatchPatterns()
-  .map((pattern) => `// @match        ${pattern}`)
-  .join("\n");
+const matchDirectives = "// @match        *://*/*";
 
 const userscriptHeader = `// ==UserScript==
 // @name         Bangumi Scout - 番剧识别助手
@@ -20,6 +17,7 @@ const userscriptHeader = `// ==UserScript==
 // @description  使用本地番剧索引、正则候选、模糊搜索与 DeepSeek 辅助识别当前番剧
 // @author       local
 ${matchDirectives}
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue

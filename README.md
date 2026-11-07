@@ -1,6 +1,6 @@
 # MyAnimeLife
 
-当前项目版本：**1.1.6**。项目采用语义化版本：新增功能提升次版本号，Bug 修复、视觉调整和性能优化提升补丁号；主版本仅在明确要求时提升。版本规则与推荐算法说明见 [`docs/`](docs/README.md)。
+当前项目版本：**1.2.0**。项目采用语义化版本：新增功能提升次版本号，Bug 修复、视觉调整和性能优化提升补丁号；主版本仅在明确要求时提升。版本规则与推荐算法说明见 [`docs/`](docs/README.md)。
 
 一个可以通过 GitHub Template 生成个人副本的番剧档案仓库，同时包含展示站、本地管理页和 Bangumi Scout 油猴脚本。完整记录集中保存在 `data/anime.jsonl`，轻量索引保存在 `data/anime-index.jsonl`，Bangumi 评分与标签的个人缓存保存在 `data/bangumi-cache.jsonl`；模板另外预置 `admin/bangumi-public-catalog.json` 与 `admin/bangumi-public.json`，让新用户无需首次下载即可搜索索引并读取公共 Bangumi 元数据。GitHub Actions 在部署时校验数据、套用模板并生成 GitHub Pages 静态网站。
 
@@ -185,6 +185,8 @@ https://raw.githubusercontent.com/zjsycwmrbig/MyAnimeLife/main/userscript/dist/a
 ```
 
 在 Tampermonkey 中打开该地址，或新建脚本后粘贴内容即可。脚本通过 GitHub Contents API 读写个人仓库中的 `data/anime.jsonl` 和 `data/anime-index.jsonl`，不要求个人仓库与模板同名。详细设置和识别机制见 [`userscript/README.md`](userscript/README.md)。
+
+脚本会加载到所有 HTTP/HTTPS 页面：支持的影视与动漫站点显示常规右下角悬浮入口，其他站点使用紧贴右下角的侧边隐藏入口，并且只有用户第一次点击时才初始化番剧索引。展开后的面板不会因网页失焦或切换网页全屏而自动收起。
 
 如果希望脚本更新也完全由自己的仓库管理，可以把上述地址中的 `zjsycwmrbig/MyAnimeLife` 替换成自己的 `owner/repository`。使用 Template 创建的个人数据仓库同样会包含 `userscript/dist/anime-index.user.js`。
 

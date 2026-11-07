@@ -1,5 +1,8 @@
 import { createSettingsStore } from "./core/settings.js";
-import { isEnabledSite } from "./core/site-allowlist.js";
+import {
+  SITE_MODES,
+  siteModeForUrl,
+} from "./core/site-allowlist.js";
 import { createPersonalRecordStore } from "./core/personal-records.js";
 import { createRecognitionCacheStore } from "./core/recognition-cache.js";
 import { createCoverResolver } from "./core/cover-cache.js";
@@ -9,21 +12,20 @@ import { AnimeIndexService } from "./index/index-service.js";
 import { AnimeRecognizer } from "./recognizers/recognizer.js";
 import { ScoutPanel } from "./ui/panel.js";
 
-const enabledSite =
-  isEnabledSite(location.href) ||
-  globalThis.__BANGUMI_SCOUT_TEST_MODE__ === true;
+const supportedPage = ["http:", "https:"].includes(location.protocol);
+const siteMode = siteModeForUrl(location.href);
 
 if (
-  enabledSite &&
+  supportedPage &&
   window.top === window.self &&
   !document.getElementById("bangumi-scout-host")
 ) {
-  bootstrap().catch((error) => {
+  bootstrap({ siteMode }).catch((error) => {
     console.error("[Bangumi Scout] bootstrap failed", error);
   });
 }
 
-async function bootstrap() {
+async function bootstrap({ siteMode }) {
   const settingsStore = createSettingsStore();
   const personalRecordStore = createPersonalRecordStore();
   const recognitionCache = createRecognitionCacheStore();
@@ -39,6 +41,19 @@ async function bootstrap() {
   const recognizer = new AnimeRecognizer({ settingsStore, indexService });
 
   let recognitionPromise = null;
+  let indexInitializationPromise = null;
+
+  const ensureIndexInitialized = () => {
+    if (!indexInitializationPromise) {
+      indexInitializationPromise = indexService
+        .initialize()
+        .catch((error) => {
+          indexInitializationPromise = null;
+          throw error;
+        });
+    }
+    return indexInitializationPromise;
+  };
 
   const panel = new ScoutPanel({
     settingsStore,
@@ -48,6 +63,14 @@ async function bootstrap() {
     recognitionCache,
     coverResolver,
     githubRecords,
+    siteMode,
+    onOpen: () => {
+      ensureIndexInitialized().catch((error) => {
+        panel.showToast(`番剧索引加载失败：${toErrorMessage(error)}`, {
+          tone: "error",
+        });
+      });
+    },
     onRecognize: async (options = {}) => {
       if (!panel.panel.hidden) {
         panel.open({ recognize: false });
@@ -91,6 +114,7 @@ async function bootstrap() {
     if (options.ignoreRecognitionCache) {
       recognitionCache.clear(location.href);
     }
+    await ensureIndexInitialized();
     panel.setBusy(true, options.ai === "force" ? "AI 正在推断" : "正在识别");
     recognitionPromise = recognizer
       .recognize({
@@ -114,10 +138,10 @@ async function bootstrap() {
     return recognitionPromise;
   }
 
-  await indexService.initialize();
-
   if (typeof GM_registerMenuCommand === "function") {
-    GM_registerMenuCommand("打开 Bangumi Scout", () => panel.open());
+    GM_registerMenuCommand("打开 Bangumi Scout", () => {
+      panel.open();
+    });
     GM_registerMenuCommand("识别当前页面", () => {
       panel.open({ recognize: false });
       runRecognition({
@@ -140,5 +164,12 @@ async function bootstrap() {
     recognize: (options) => runRecognition(options),
     refreshIndex: () => indexService.forceUpdate(),
     getSettings: () => settingsStore.get(),
+    getSiteMode: () => siteMode,
   };
+
+  if (siteMode === SITE_MODES.FLOATING) {
+    ensureIndexInitialized().catch((error) => {
+      console.error("[Bangumi Scout] index initialization failed", error);
+    });
+  }
 }

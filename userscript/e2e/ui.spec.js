@@ -71,7 +71,14 @@ test("recognizes only after a click and opens separate extension settings", asyn
 
   const host = page.locator("#bangumi-scout-host");
   await expect(host.locator(".scout-panel")).toBeHidden();
-  await expect(host.locator(".scout-launcher")).toBeVisible();
+  const launcher = host.locator(".scout-launcher");
+  await expect(launcher).toBeVisible();
+  await expect(launcher).toHaveAttribute("data-site-mode", "passive");
+  await expect(launcher).toHaveClass(/is-side-docked/);
+  await expect(launcher).toHaveClass(/is-docked-right/);
+  expect(await page.evaluate(() => window.BangumiScout.getSiteMode())).toBe(
+    "passive",
+  );
   await expect(host.locator(".scout-title")).toHaveText("尚未识别");
   await expect(host.locator('[data-view="settings"]')).toHaveCount(0);
   expect(
@@ -391,15 +398,117 @@ test("renders a presentation card, opens cover preview, and resizes fluidly", as
   expect(restored.height).toBeLessThan(before.height - 40);
 });
 
-test("does not initialize on an unrelated website", async ({ page }) => {
+test("shows a passive edge entry on unrelated websites without loading the index", async ({
+  page,
+}) => {
+  const indexRequests = [];
+  page.on("request", (request) => {
+    const hostname = new URL(request.url()).hostname;
+    if (
+      ["data.jsdelivr.com", "cdn.jsdelivr.net", "unpkg.com"].includes(hostname)
+    ) {
+      indexRequests.push(request.url());
+    }
+  });
   await page.goto("/", { waitUntil: "networkidle" });
   await page.addScriptTag({ path: userscriptPath });
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
 
-  await expect(page.locator("#bangumi-scout-host")).toHaveCount(0);
+  const host = page.locator("#bangumi-scout-host");
+  const launcher = host.locator(".scout-launcher");
+  await expect(launcher).toBeVisible();
+  await expect(launcher).toHaveAttribute("data-site-mode", "passive");
+  await expect(launcher).toHaveClass(/is-side-docked/);
+  await expect(host.locator(".scout-panel")).toBeHidden();
+  const launcherBox = await launcher.boundingBox();
+  expect(launcherBox).not.toBeNull();
+  expect(launcherBox.x + launcherBox.width).toBeGreaterThan(1278);
+  expect(launcherBox.y + launcherBox.height).toBeGreaterThan(798);
+  expect(await page.evaluate(() => window.BangumiScout.getSiteMode())).toBe(
+    "passive",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests?.filter(({ url }) =>
+          ["api.bilibili.com", "api.deepseek.com", "api.github.com"].includes(
+            new URL(url).hostname,
+          ),
+        ).length ?? 0,
+    ),
+  ).toBe(0);
+  await page.waitForTimeout(150);
+  expect(indexRequests).toEqual([]);
+});
+
+test("keeps an expanded panel open when the page loses focus", async ({ page }) => {
+  await page.goto("/demo/bangumi/media/md292073015.html", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  const host = page.locator("#bangumi-scout-host");
+  const panel = host.locator(".scout-panel");
+  await host.locator(".scout-launcher").click();
+  await expect(panel).toBeVisible();
+
+  await page.locator("body").click({ position: { x: 5, y: 5 } });
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.evaluate(() => document.dispatchEvent(new Event("fullscreenchange")));
+
+  await expect(panel).toBeVisible();
+});
+
+test("keeps the expanded panel inside a Fullscreen API container", async ({
+  page,
+}) => {
+  await page.goto("/demo/bangumi/media/md292073015.html", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  const host = page.locator("#bangumi-scout-host");
+  const panel = host.locator(".scout-panel");
+  await host.locator(".scout-launcher").click();
+  await expect(panel).toBeVisible();
+
+  await page.evaluate(() => {
+    const fullscreenTarget = document.createElement("div");
+    fullscreenTarget.id = "e2e-fullscreen-target";
+    fullscreenTarget.style.cssText = "width:100vw;height:100vh;background:#111;";
+    const button = document.createElement("button");
+    button.id = "e2e-fullscreen-trigger";
+    button.textContent = "Fullscreen";
+    button.addEventListener("click", () => fullscreenTarget.requestFullscreen());
+    fullscreenTarget.append(button);
+    document.body.append(fullscreenTarget);
+  });
+  await page.locator("#e2e-fullscreen-trigger").click();
   await expect
-    .poll(() => page.evaluate(() => Boolean(window.BangumiScout)))
-    .toBe(false);
+    .poll(() => page.evaluate(() => document.fullscreenElement?.id))
+    .toBe("e2e-fullscreen-target");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.getElementById("bangumi-scout-host")?.parentElement?.id ??
+          "",
+      ),
+    )
+    .toBe("e2e-fullscreen-target");
+  await expect(panel).toBeVisible();
+
+  await page.evaluate(() => document.exitFullscreen());
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          document.getElementById("bangumi-scout-host")?.parentElement
+            ?.tagName ?? "",
+      ),
+    )
+    .toBe("HTML");
+  await expect(panel).toBeVisible();
 });
 
 test("loads every Bilibili follow page and batch imports selected anime once", async ({
@@ -415,6 +524,11 @@ test("loads every Bilibili follow page and batch imports selected anime once", a
   const host = page.locator("#bangumi-scout-host");
   const launcher = host.locator(".scout-launcher");
   await expect(host.locator(".scout-panel")).toBeHidden();
+  await expect(launcher).toHaveAttribute("data-site-mode", "floating");
+  await expect(launcher).not.toHaveClass(/is-side-docked/);
+  expect(await page.evaluate(() => window.BangumiScout.getSiteMode())).toBe(
+    "floating",
+  );
   await expect(launcher).toHaveAttribute(
     "data-page-kind",
     "bilibili-follow",
@@ -711,6 +825,9 @@ test("loads and saves a rating through the configured GitHub repository", async 
   await recognizeCurrentPage(host);
 
   await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
+  await expect(host.locator(".scout-confidence").first()).toHaveText(
+    "精确匹配",
+  );
   const review = host.locator('textarea[name="personal.review"]');
   await expect(review).toHaveValue("这条评价来自预览 GitHub 仓库。");
   await expect(host.getByRole("radio", { name: "8 分" })).toHaveAttribute(

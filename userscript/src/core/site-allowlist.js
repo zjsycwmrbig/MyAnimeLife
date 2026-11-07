@@ -45,6 +45,11 @@ export const ENABLED_SITE_DOMAINS = Object.freeze([
   "animestore.docomo.ne.jp",
 ]);
 
+export const SITE_MODES = Object.freeze({
+  FLOATING: "floating",
+  PASSIVE: "passive",
+});
+
 function normalizedHostname(value) {
   return String(value ?? "")
     .trim()
@@ -68,9 +73,10 @@ export function isEnabledSite(input) {
   );
 }
 
+export function siteModeForUrl(input) {
+  return isEnabledSite(input) ? SITE_MODES.FLOATING : SITE_MODES.PASSIVE;
+}
+
 export function userscriptMatchPatterns() {
-  return ENABLED_SITE_DOMAINS.flatMap((domain) => [
-    `*://${domain}/*`,
-    `*://*.${domain}/*`,
-  ]);
+  return ["*://*/*"];
 }
