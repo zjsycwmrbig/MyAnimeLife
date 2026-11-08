@@ -58,9 +58,9 @@ MyAnimeLife 仓库中的油猴脚本模块。个人评分和短评会先保存�
 - 国际影视：Crunchyroll、Netflix、Prime Video、Disney+、Hulu、Max、Apple TV、Viki、WeTV、Viu
 - 资料与评分：MyAnimeList、AniList、AniDB、Kitsu、Shikimori、Simkl、Trakt、IMDb、TMDB、TheTVDB
 
-未列出的域名使用贴边隐藏模式：入口折叠为右下角侧边标签，点击后展开完整面板。被动模式不会在网页加载时初始化或下载索引；第一次打开面板、识别页面或手动刷新索引时才启动。需要调整常驻站点时，在 `src/core/site-allowlist.js` 的 `ENABLED_SITE_DOMAINS` 中添加或移除域名后重新运行 `npm run build`。
+未列出的域名使用紧凑的贴边隐藏模式：入口折叠为右下角窄标签，点击后展开完整面板。被动模式不会在网页加载时初始化或下载索引；第一次打开面板、识别页面或手动刷新索引时才启动。需要调整常驻站点时，在 `src/core/site-allowlist.js` 的 `ENABLED_SITE_DOMAINS` 中添加或移除域名后重新运行 `npm run build`。
 
-面板展开后不会因网页重新获得焦点、点击面板外区域或进入网页全屏而自动收起。用户可以点击标题栏的隐藏按钮、关闭按钮，或按面板内的 `Escape` 主动收起；支持 Fullscreen API 的播放器进入全屏时，脚本会把入口挂载到全屏容器内继续显示。
+面板会在点击网页其他区域、窗口失焦、切换标签页或进入视频全屏时自动收起。Fullscreen API 全屏期间整个脚本宿主保持隐藏，退出全屏后只恢复紧凑入口；Bilibili Web 全屏会读取播放器的 `data-screen` 状态执行相同处理。用户仍可点击标题栏的隐藏按钮、关闭按钮，或按面板内的 `Escape` 主动收起。
 
 主要设置项：
 

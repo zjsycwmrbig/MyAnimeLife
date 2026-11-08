@@ -422,6 +422,8 @@ test("shows a passive edge entry on unrelated websites without loading the index
   await expect(host.locator(".scout-panel")).toBeHidden();
   const launcherBox = await launcher.boundingBox();
   expect(launcherBox).not.toBeNull();
+  expect(launcherBox.width).toBeLessThanOrEqual(24);
+  expect(launcherBox.height).toBeLessThanOrEqual(60);
   expect(launcherBox.x + launcherBox.width).toBeGreaterThan(1278);
   expect(launcherBox.y + launcherBox.height).toBeGreaterThan(798);
   expect(await page.evaluate(() => window.BangumiScout.getSiteMode())).toBe(
@@ -441,7 +443,7 @@ test("shows a passive edge entry on unrelated websites without loading the index
   expect(indexRequests).toEqual([]);
 });
 
-test("keeps an expanded panel open when the page loses focus", async ({ page }) => {
+test("collapses the expanded panel when focus leaves it", async ({ page }) => {
   await page.goto("/demo/bangumi/media/md292073015.html", {
     waitUntil: "networkidle",
   });
@@ -453,13 +455,17 @@ test("keeps an expanded panel open when the page loses focus", async ({ page }) 
   await expect(panel).toBeVisible();
 
   await page.locator("body").click({ position: { x: 5, y: 5 } });
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await page.evaluate(() => document.dispatchEvent(new Event("fullscreenchange")));
+  await expect(panel).toBeHidden();
+  await expect(host.locator(".scout-launcher")).toBeVisible();
 
+  await host.locator(".scout-launcher").click();
   await expect(panel).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(panel).toBeHidden();
+  await expect(host.locator(".scout-launcher")).toBeVisible();
 });
 
-test("keeps the expanded panel inside a Fullscreen API container", async ({
+test("hides every plugin control while the page is fullscreen", async ({
   page,
 }) => {
   await page.goto("/demo/bangumi/media/md292073015.html", {
@@ -487,28 +493,27 @@ test("keeps the expanded panel inside a Fullscreen API container", async ({
   await expect
     .poll(() => page.evaluate(() => document.fullscreenElement?.id))
     .toBe("e2e-fullscreen-target");
+  await expect(panel).toBeHidden();
   await expect
     .poll(() =>
       page.evaluate(
         () =>
-          document.getElementById("bangumi-scout-host")?.parentElement?.id ??
-          "",
+          getComputedStyle(document.getElementById("bangumi-scout-host")).display,
       ),
     )
-    .toBe("e2e-fullscreen-target");
-  await expect(panel).toBeVisible();
+    .toBe("none");
 
   await page.evaluate(() => document.exitFullscreen());
   await expect
     .poll(() =>
       page.evaluate(
         () =>
-          document.getElementById("bangumi-scout-host")?.parentElement
-            ?.tagName ?? "",
+          getComputedStyle(document.getElementById("bangumi-scout-host")).display,
       ),
     )
-    .toBe("HTML");
-  await expect(panel).toBeVisible();
+    .not.toBe("none");
+  await expect(panel).toBeHidden();
+  await expect(host.locator(".scout-launcher")).toBeVisible();
 });
 
 test("loads every Bilibili follow page and batch imports selected anime once", async ({

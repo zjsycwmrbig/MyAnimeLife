@@ -325,6 +325,10 @@ export class ScoutPanel {
     this.dockedSide = null;
     this.panelHasCustomPosition = false;
     this.launcherDockPinnedBottom = false;
+    this.playerFullscreenObserver = null;
+    this.observedFullscreenPlayer = null;
+    this.playerLookupObserver = null;
+    this.fullscreenHidden = false;
     const initialUi = this.settingsStore.get().ui;
     this.panelWidth = initialUi.panelWidth;
     this.panelHeight = initialUi.panelHeight;
@@ -568,12 +572,28 @@ export class ScoutPanel {
     });
     this.setIndexState(this.indexState);
     window.addEventListener("resize", () => this.handleViewportResize());
-    this.handleFullscreenChange = () => this.moveHostForFullscreen();
+    this.handleDocumentPointerDown = (event) => {
+      const path = event.composedPath?.() ?? [];
+      if (path.includes(this.host) || this.host.contains(event.target)) {
+        return;
+      }
+      this.collapseOpenUi();
+    };
+    document.addEventListener("pointerdown", this.handleDocumentPointerDown, true);
+    window.addEventListener("blur", () => this.collapseOpenUi());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        this.collapseOpenUi();
+      }
+    });
+    this.handleFullscreenChange = () => this.syncFullscreenState();
     document.addEventListener("fullscreenchange", this.handleFullscreenChange);
     document.addEventListener(
       "webkitfullscreenchange",
       this.handleFullscreenChange,
     );
+    this.observePlayerFullscreenState();
+    this.syncFullscreenState();
   }
 
   applySiteMode() {
@@ -585,24 +605,98 @@ export class ScoutPanel {
     }
     this.dockedSide = "right";
     requestAnimationFrame(() => {
-      this.applyLauncherDock("right", 0, 92, true);
+      this.applyLauncherDock("right", 0, 64, true);
     });
   }
 
-  moveHostForFullscreen() {
-    const fullscreenElement =
-      document.fullscreenElement ?? document.webkitFullscreenElement;
-    const canHostInside =
-      fullscreenElement &&
-      fullscreenElement !== this.host &&
-      !(
-        typeof HTMLVideoElement === "function" &&
-        fullscreenElement instanceof HTMLVideoElement
-      );
-    const target = canHostInside ? fullscreenElement : document.documentElement;
-    if (target && this.host.parentNode !== target) {
-      target.append(this.host);
+  isFullscreenActive() {
+    if (document.fullscreenElement ?? document.webkitFullscreenElement) {
+      return true;
     }
+    const player = this.observedFullscreenPlayer;
+    const screen = String(player?.dataset?.screen ?? "").toLowerCase();
+    return screen === "full" || screen === "web";
+  }
+
+  observePlayerFullscreenState() {
+    const bilibiliHost = /(^|\.)bilibili\.com$/iu.test(location.hostname);
+    if (!bilibiliHost) {
+      return;
+    }
+    const player = document.querySelector(".bpx-player-container");
+    if (!player) {
+      if (!this.playerLookupObserver && document.body) {
+        this.playerLookupObserver = new MutationObserver(() => {
+          const nextPlayer = document.querySelector(".bpx-player-container");
+          if (!nextPlayer) {
+            return;
+          }
+          this.playerLookupObserver?.disconnect();
+          this.playerLookupObserver = null;
+          this.observedFullscreenPlayer = nextPlayer;
+          if (!this.playerFullscreenObserver) {
+            this.playerFullscreenObserver = new MutationObserver(() => {
+              this.syncFullscreenState();
+            });
+          }
+          this.playerFullscreenObserver.observe(nextPlayer, {
+            attributes: true,
+            attributeFilter: ["class", "data-screen"],
+          });
+          this.syncFullscreenState();
+        });
+        this.playerLookupObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
+      }
+      return;
+    }
+    if (player === this.observedFullscreenPlayer) {
+      this.syncFullscreenState();
+      return;
+    }
+    this.observedFullscreenPlayer = player;
+    if (!this.playerFullscreenObserver) {
+      this.playerFullscreenObserver = new MutationObserver(() => {
+        this.syncFullscreenState();
+      });
+    }
+    this.playerFullscreenObserver.disconnect();
+    this.playerFullscreenObserver.observe(player, {
+      attributes: true,
+      attributeFilter: ["class", "data-screen"],
+    });
+    this.syncFullscreenState();
+  }
+
+  syncFullscreenState() {
+    const hidden = this.isFullscreenActive();
+    if (hidden === this.fullscreenHidden) {
+      return;
+    }
+    this.fullscreenHidden = hidden;
+    if (hidden) {
+      this.collapseOpenUi();
+      this.host.style.setProperty("display", "none", "important");
+    } else {
+      this.host.style.removeProperty("display");
+    }
+  }
+
+  collapseOpenUi() {
+    const hasOpenUi =
+      !this.panel.hidden ||
+      !this.settingsWindow.hidden ||
+      !this.coverViewer.hidden;
+    if (!hasOpenUi) {
+      return;
+    }
+    this.coverViewer.hidden = true;
+    this.coverViewerImage.removeAttribute("src");
+    this.settingsBackdrop.hidden = true;
+    this.settingsWindow.hidden = true;
+    this.close();
   }
 
   updatePagePresentation() {
@@ -613,6 +707,9 @@ export class ScoutPanel {
       // Keep the generic presentation when the page URL is unavailable.
     }
     this.pageKind = pageKind;
+    if (this.host) {
+      this.observePlayerFullscreenState();
+    }
     if (pageKind === this.presentationPageKind) {
       return;
     }
@@ -4177,7 +4274,7 @@ export class ScoutPanel {
     this.applyLauncherDock(side, top);
   }
 
-  applyLauncherDock(side, top, height = 92, pinBottom = false) {
+  applyLauncherDock(side, top, height = 64, pinBottom = false) {
     this.launcherDockPinnedBottom = pinBottom;
     this.launcher.classList.remove("is-docked-left", "is-docked-right");
     this.launcher.classList.add("is-side-docked", `is-docked-${side}`);
@@ -4240,7 +4337,7 @@ export class ScoutPanel {
       this.applyLauncherDock(
         this.dockedSide,
         this.launcher.getBoundingClientRect().top,
-        92,
+        64,
         this.launcherDockPinnedBottom,
       );
     }

@@ -110,20 +110,20 @@ button {
 
 .scout-launcher.is-side-docked {
   display: flex;
-  width: 30px;
-  height: 92px;
+  width: 24px;
+  height: 64px;
   flex-direction: column;
-  gap: 6px;
-  padding: 7px 3px;
+  gap: 4px;
+  padding: 5px 2px;
 }
 
 .scout-launcher[data-site-mode="passive"] {
-  width: 28px;
-  height: 84px;
+  width: 21px;
+  height: 56px;
   border-color: rgb(255 255 255 / 16%);
-  border-radius: 8px 0 0 8px;
-  opacity: 0.72;
-  transform: translateX(4px);
+  border-radius: 7px 0 0 7px;
+  opacity: 0.62;
+  transform: translateX(3px);
 }
 
 .scout-launcher[data-site-mode="passive"]:hover,
@@ -133,13 +133,14 @@ button {
 }
 
 .scout-launcher.is-side-docked .lucide {
-  width: 17px;
-  height: 17px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
 }
 
 .scout-launcher.is-side-docked .scout-launcher-label {
   display: block;
+  font-size: 9px;
 }
 
 .scout-launcher.is-docked-left {
@@ -151,8 +152,10 @@ button {
 }
 
 .scout-launcher.is-side-docked .scout-launcher-dot {
-  top: 4px;
-  right: 4px;
+  top: 3px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
 }
 
 .scout-root button:focus-visible,
