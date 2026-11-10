@@ -59,3 +59,44 @@ test("clears recognition drafts by page or anime identity", () => {
   assert.equal(store.clearItem("bangumi:1"), true);
   assert.equal(store.get("https://example.com/anime/b"), null);
 });
+
+test("returns the latest unsynced draft across pages", () => {
+  installMemoryStorage();
+  const store = createRecognitionCacheStore();
+  store.save("https://example.com/anime/old", {
+    item: { id: "bangumi:1", title: "旧草稿", names: ["旧草稿"] },
+    updatedAt: "2026-10-26T08:00:00.000Z",
+  });
+  store.save("https://example.com/anime/new?from=search", {
+    item: { id: "bangumi:2", title: "新草稿", names: ["新草稿"] },
+    rating: 10,
+    updatedAt: "2026-10-26T09:00:00.000Z",
+  });
+
+  const latest = store.getLatest();
+  assert.equal(latest.pageUrl, "https://example.com/anime/new");
+  assert.equal(latest.draft.item.id, "bangumi:2");
+  assert.equal(latest.draft.rating, 10);
+
+  const fallback = store.getLatest({
+    excludePageUrl: "https://example.com/anime/new",
+  });
+  assert.equal(fallback.pageUrl, "https://example.com/anime/old");
+  assert.equal(fallback.draft.item.id, "bangumi:1");
+});
+
+test("handles invalid draft timestamps when finding the latest draft", () => {
+  installMemoryStorage();
+  const store = createRecognitionCacheStore();
+  store.save("https://example.com/anime/invalid", {
+    item: { id: "bangumi:1", title: "无效时间", names: ["无效时间"] },
+    updatedAt: "not-a-date",
+  });
+  store.save("https://example.com/anime/valid", {
+    item: { id: "bangumi:2", title: "有效时间", names: ["有效时间"] },
+    updatedAt: "2026-10-26T09:00:00.000Z",
+  });
+
+  assert.equal(store.getLatest().draft.item.id, "bangumi:2");
+  assert.equal(store.get("https://example.com/anime/invalid").item.id, "bangumi:1");
+});

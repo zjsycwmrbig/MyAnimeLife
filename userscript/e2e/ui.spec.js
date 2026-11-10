@@ -58,6 +58,23 @@ async function routeBilibiliFollowPage(page) {
   });
 }
 
+async function routeUnrelatedPage(page) {
+  await page.route("**/demo/unrelated.html", async (route) => {
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8" /><title>无关页面</title></head>
+  <body>
+    <main><h1>与番剧无关的页面</h1></main>
+    <script src="/demo/preview-mock.js"></script>
+    <script src="/dist/anime-index.user.js"></script>
+  </body>
+</html>`,
+    });
+  });
+}
+
 test("recognizes only after a click and opens separate extension settings", async ({
   page,
 }) => {
@@ -303,6 +320,49 @@ test("restores unsynced ratings and reviews until they are cleared", async ({
   await host.locator(".scout-launcher").click();
   await recognizeCurrentPage(host);
   await expect(host.locator(".scout-review")).toHaveValue("");
+});
+
+test("opens the latest unsynced draft on an unrelated page", async ({ page }) => {
+  await routeUnrelatedPage(page);
+  await page.goto("/demo/bangumi/media/md292073015.html", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+
+  let host = page.locator("#bangumi-scout-host");
+  await host.locator(".scout-launcher").click();
+  await recognizeCurrentPage(host);
+  await host
+    .getByRole("radio", { name: "8 分", exact: true })
+    .click();
+  await host.locator(".scout-review").fill("离开原页面后仍应出现的草稿");
+  await page.waitForTimeout(400);
+
+  await page.goto("/demo/unrelated.html", { waitUntil: "networkidle" });
+  await page.waitForFunction(() => Boolean(window.BangumiScout));
+  host = page.locator("#bangumi-scout-host");
+  await host.locator(".scout-launcher").click();
+
+  await expect(host.locator(".scout-title")).toHaveText("相反的你和我");
+  await expect(host.locator(".scout-record")).toContainText(
+    "已载入最近未提交草稿",
+  );
+  await expect(
+    host.getByRole("radio", { name: "8 分", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
+  await expect(host.locator(".scout-review")).toHaveValue(
+    "离开原页面后仍应出现的草稿",
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        window.__previewRequests.filter(({ url }) =>
+          ["api.bilibili.com", "api.deepseek.com", "api.github.com"].includes(
+            new URL(url).hostname,
+          ),
+        ).length,
+    ),
+  ).toBe(0);
 });
 
 test("keeps plugin typing from triggering page keyboard shortcuts", async ({

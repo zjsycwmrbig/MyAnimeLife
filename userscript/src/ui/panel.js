@@ -287,6 +287,8 @@ export class ScoutPanel {
     this.currentResult = null;
     this.selectedResult = null;
     this.recordItem = null;
+    this.recognitionDraftPageUrl = null;
+    this.recognitionDraftCrossPage = false;
     this.recordRating = null;
     this.recordDirty = false;
     this.recordRemoteRecord = null;
@@ -2132,10 +2134,16 @@ export class ScoutPanel {
   }
 
   setResult(result, options = {}) {
+    if (!options.preserveDraftPageUrl) {
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
+    }
     this.currentResult = result;
-    const cachedDraft = options.ignoreCachedSelection
-      ? null
-      : this.recognitionCache?.get(location.href) ?? null;
+    const cachedDraft = Object.hasOwn(options, "cachedDraft")
+      ? options.cachedDraft
+      : options.ignoreCachedSelection
+        ? null
+        : this.recognitionCache?.get(location.href) ?? null;
     const cachedSelection = cachedDraft?.selectedResult?.item?.id
       ? cachedDraft.selectedResult
       : cachedDraft?.item?.id
@@ -2182,7 +2190,11 @@ export class ScoutPanel {
       this.persistRecognitionDraft({ silent: true });
     }
     if (cachedSelection) {
-      this.showToast("已恢复本机尚未同步的识别草稿");
+      this.showToast(
+        this.recognitionDraftCrossPage
+          ? "已载入最近未提交草稿"
+          : "已恢复本机尚未同步的识别草稿",
+      );
     }
     if (this.rescanButtonTextNode) {
       this.rescanButtonTextNode.textContent = "重新识别";
@@ -2453,6 +2465,8 @@ export class ScoutPanel {
     if (!row?.item?.id) {
       return;
     }
+    this.recognitionDraftPageUrl = null;
+    this.recognitionDraftCrossPage = false;
     const usesCurrentBilibiliItem =
       row.item.id === this.currentResult?.best?.item?.id;
     this.selectedResult = {
@@ -2536,6 +2550,10 @@ export class ScoutPanel {
     }, delay);
   }
 
+  activeRecognitionDraftPageUrl() {
+    return this.recognitionDraftPageUrl || location.href;
+  }
+
   persistRecognitionDraft(options = {}) {
     const item = this.recordItem;
     if (!item?.id) {
@@ -2546,15 +2564,18 @@ export class ScoutPanel {
       review: this.reviewInput.value,
     };
     const saved = this.personalRecordStore?.save(item.id, record);
-    const draft = this.recognitionCache?.save(location.href, {
-      item,
-      selectedResult:
-        this.selectedResult?.item?.id === item.id
-          ? this.selectedResult
-          : null,
-      recognitionResult: this.currentResult,
-      ...record,
-    });
+    const draft = this.recognitionCache?.save(
+      this.activeRecognitionDraftPageUrl(),
+      {
+        item,
+        selectedResult:
+          this.selectedResult?.item?.id === item.id
+            ? this.selectedResult
+            : null,
+        recognitionResult: this.currentResult,
+        ...record,
+      },
+    );
     this.recordDirty = false;
     if (!options.silent) {
       const savedAt = formatRecordTime(saved?.updatedAt || draft?.updatedAt);
@@ -2574,7 +2595,9 @@ export class ScoutPanel {
     clearTimeout(this.draftSaveTimer);
     this.draftSaveTimer = null;
     this.personalRecordStore?.remove(item.id);
-    this.recognitionCache?.clear(location.href);
+    this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+    this.recognitionDraftPageUrl = null;
+    this.recognitionDraftCrossPage = false;
     this.recordRating = null;
     this.reviewInput.value = "";
     this.renderRecordReview();
@@ -2678,7 +2701,7 @@ export class ScoutPanel {
       this.recordRemoteRecord = null;
       this.setRecordRemoteLink(null);
       const cachedDraft = item?.id
-        ? this.recognitionCache?.get(location.href)
+        ? this.recognitionCache?.get(this.activeRecognitionDraftPageUrl())
         : null;
       const matchingDraft =
         cachedDraft?.item?.id === item?.id ? cachedDraft : null;
@@ -2691,23 +2714,28 @@ export class ScoutPanel {
       this.renderRecordReview();
       this.setRecordStatus(
         matchingDraft
-          ? "已恢复本机未同步草稿"
+          ? this.recognitionDraftCrossPage
+            ? "已载入最近未提交草稿"
+            : "已恢复本机未同步草稿"
           : record?.rating || record?.review
             ? "已载入本地草稿"
             : "尚未填写",
         matchingDraft ? "warning" : "",
       );
       if (item?.id && !matchingDraft) {
-        this.recognitionCache?.save(location.href, {
-          item,
-          selectedResult:
-            this.selectedResult?.item?.id === item.id
-              ? this.selectedResult
-              : null,
-          recognitionResult: this.currentResult,
-          rating: record?.rating ?? null,
-          review: record?.review ?? "",
-        });
+        this.recognitionCache?.save(
+          this.activeRecognitionDraftPageUrl(),
+          {
+            item,
+            selectedResult:
+              this.selectedResult?.item?.id === item.id
+                ? this.selectedResult
+                : null,
+            recognitionResult: this.currentResult,
+            rating: record?.rating ?? null,
+            review: record?.review ?? "",
+          },
+        );
       }
     }
 
@@ -2820,7 +2848,9 @@ export class ScoutPanel {
     this.recordDirty = false;
     clearTimeout(this.draftSaveTimer);
     this.draftSaveTimer = null;
-    this.recognitionCache?.clear(location.href);
+    this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+    this.recognitionDraftPageUrl = null;
+    this.recognitionDraftCrossPage = false;
     this.syncRecordRating();
     this.personalRecordStore?.save(
       this.recordItem.id,
@@ -2946,7 +2976,7 @@ export class ScoutPanel {
       return;
     }
     this.recordDirty = false;
-    this.recognitionCache?.save(location.href, {
+    this.recognitionCache?.save(this.activeRecognitionDraftPageUrl(), {
       item,
       selectedResult,
       recognitionResult: this.currentResult,
@@ -3043,7 +3073,9 @@ export class ScoutPanel {
       this.clearDuplicateWarning();
       clearTimeout(this.draftSaveTimer);
       this.draftSaveTimer = null;
-      this.recognitionCache?.clear(location.href);
+      this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
       if (saveRequest.item?.id) {
         this.personalRecordStore?.remove(saveRequest.item.id);
       }
@@ -3826,34 +3858,50 @@ export class ScoutPanel {
   }
 
   restoreCachedRecognition() {
-    const draft = this.recognitionCache?.get(location.href);
+    const currentPageDraft = this.recognitionCache?.get(location.href);
+    const latestOtherDraft = currentPageDraft
+      ? null
+      : this.recognitionCache?.getLatest({ excludePageUrl: location.href }) ??
+        null;
+    const draft = currentPageDraft ?? latestOtherDraft?.draft ?? null;
     const item = draft?.selectedResult?.item ?? draft?.item;
     if (!draft || !item?.id) {
       return false;
     }
+    this.recognitionDraftPageUrl = currentPageDraft
+      ? null
+      : latestOtherDraft?.pageUrl ?? null;
+    this.recognitionDraftCrossPage =
+      !currentPageDraft && Boolean(latestOtherDraft);
     const cachedResult = draft.recognitionResult ?? {};
     const selectedResult = draft.selectedResult ?? {
       item,
       confidence: 0,
       matchedBy: ["local-cache"],
     };
-    this.setResult({
-      ...cachedResult,
-      status: cachedResult.status ?? "matched",
-      best: selectedResult,
-      results:
-        Array.isArray(cachedResult.results) && cachedResult.results.length
-          ? cachedResult.results
-          : [{ ...selectedResult, confidence: selectedResult.confidence ?? 0 }],
-      titleCandidates: cachedResult.titleCandidates ?? [],
-      context: cachedResult.context ?? {},
-      aiResult: cachedResult.aiResult ?? null,
-      bilibiliMetadata:
-        cachedResult.bilibiliMetadata ??
-        selectedResult.bilibiliMetadata ??
-        null,
-      diagnostics: cachedResult.diagnostics ?? [],
-    });
+    this.setResult(
+      {
+        ...cachedResult,
+        status: cachedResult.status ?? "matched",
+        best: selectedResult,
+        results:
+          Array.isArray(cachedResult.results) && cachedResult.results.length
+            ? cachedResult.results
+            : [{ ...selectedResult, confidence: selectedResult.confidence ?? 0 }],
+        titleCandidates: cachedResult.titleCandidates ?? [],
+        context: cachedResult.context ?? {},
+        aiResult: cachedResult.aiResult ?? null,
+        bilibiliMetadata:
+          cachedResult.bilibiliMetadata ??
+          selectedResult.bilibiliMetadata ??
+          null,
+        diagnostics: cachedResult.diagnostics ?? [],
+      },
+      {
+        cachedDraft: draft,
+        preserveDraftPageUrl: true,
+      },
+    );
     this.candidateCollapsed = true;
     this.resultListSection.hidden = true;
     this.titleCandidateSection.hidden = true;

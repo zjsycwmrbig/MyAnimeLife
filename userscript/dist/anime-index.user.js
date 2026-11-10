@@ -2,7 +2,7 @@
 // @name         Bangumi Scout - 番剧识别助手
 // @name:zh-CN   Bangumi Scout - 番剧识别助手
 // @namespace    local.anime-index-userscript
-// @version      0.1.5
+// @version      0.1.6
 // @description  使用本地番剧索引、正则候选、模糊搜索与 DeepSeek 辅助识别当前番剧
 // @author       local
 // @match        *://*/*
@@ -422,6 +422,10 @@
       return {};
     }
   }
+  function draftTimestamp(draft) {
+    const timestamp2 = Date.parse(String(draft?.updatedAt ?? ""));
+    return Number.isFinite(timestamp2) ? timestamp2 : 0;
+  }
   function sanitizeRecognitionResult(result) {
     if (!result || typeof result !== "object") {
       return null;
@@ -463,7 +467,7 @@
     let drafts = loadDrafts();
     function persist() {
       const entries = Object.entries(drafts).sort(
-        ([, left], [, right]) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+        ([, left], [, right]) => draftTimestamp(right) - draftTimestamp(left)
       ).slice(0, MAX_DRAFTS);
       drafts = Object.fromEntries(entries);
       rawSet3(CACHE_KEY, JSON.stringify(drafts));
@@ -472,6 +476,18 @@
       get(pageUrl) {
         const entry = drafts[pageKey(pageUrl)];
         return entry ? sanitizeDraft(entry) : null;
+      },
+      getLatest(options = {}) {
+        const excludedPage = options.excludePageUrl ? pageKey(options.excludePageUrl) : null;
+        const latest = Object.entries(drafts).filter(([key, entry2]) => key !== excludedPage && sanitizeDraft(entry2)).sort(
+          ([, left], [, right]) => draftTimestamp(right) - draftTimestamp(left)
+        )[0];
+        if (!latest) {
+          return null;
+        }
+        const [pageUrl, entry] = latest;
+        const draft = sanitizeDraft(entry);
+        return draft ? { pageUrl, draft } : null;
       },
       save(pageUrl, draft) {
         const key = pageKey(pageUrl);
@@ -6652,6 +6668,8 @@ Source: Bilibili follow page in Tampermonkey`,
       this.currentResult = null;
       this.selectedResult = null;
       this.recordItem = null;
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
       this.recordRating = null;
       this.recordDirty = false;
       this.recordRemoteRecord = null;
@@ -8374,8 +8392,12 @@ Source: Bilibili follow page in Tampermonkey`,
       }
     }
     setResult(result, options = {}) {
+      if (!options.preserveDraftPageUrl) {
+        this.recognitionDraftPageUrl = null;
+        this.recognitionDraftCrossPage = false;
+      }
       this.currentResult = result;
-      const cachedDraft = options.ignoreCachedSelection ? null : this.recognitionCache?.get(location.href) ?? null;
+      const cachedDraft = Object.hasOwn(options, "cachedDraft") ? options.cachedDraft : options.ignoreCachedSelection ? null : this.recognitionCache?.get(location.href) ?? null;
       const cachedSelection = cachedDraft?.selectedResult?.item?.id ? cachedDraft.selectedResult : cachedDraft?.item?.id ? {
         item: cachedDraft.item,
         confidence: 0,
@@ -8411,7 +8433,9 @@ Source: Bilibili follow page in Tampermonkey`,
         this.persistRecognitionDraft({ silent: true });
       }
       if (cachedSelection) {
-        this.showToast("已恢复本机尚未同步的识别草稿");
+        this.showToast(
+          this.recognitionDraftCrossPage ? "已载入最近未提交草稿" : "已恢复本机尚未同步的识别草稿"
+        );
       }
       if (this.rescanButtonTextNode) {
         this.rescanButtonTextNode.textContent = "重新识别";
@@ -8637,6 +8661,8 @@ Source: Bilibili follow page in Tampermonkey`,
       if (!row?.item?.id) {
         return;
       }
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
       const usesCurrentBilibiliItem = row.item.id === this.currentResult?.best?.item?.id;
       this.selectedResult = {
         ...row,
@@ -8708,6 +8734,9 @@ Source: Bilibili follow page in Tampermonkey`,
         this.persistRecognitionDraft();
       }, delay);
     }
+    activeRecognitionDraftPageUrl() {
+      return this.recognitionDraftPageUrl || location.href;
+    }
     persistRecognitionDraft(options = {}) {
       const item = this.recordItem;
       if (!item?.id) {
@@ -8718,12 +8747,15 @@ Source: Bilibili follow page in Tampermonkey`,
         review: this.reviewInput.value
       };
       const saved = this.personalRecordStore?.save(item.id, record);
-      const draft = this.recognitionCache?.save(location.href, {
-        item,
-        selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
-        recognitionResult: this.currentResult,
-        ...record
-      });
+      const draft = this.recognitionCache?.save(
+        this.activeRecognitionDraftPageUrl(),
+        {
+          item,
+          selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
+          recognitionResult: this.currentResult,
+          ...record
+        }
+      );
       this.recordDirty = false;
       if (!options.silent) {
         const savedAt = formatRecordTime(saved?.updatedAt || draft?.updatedAt);
@@ -8742,7 +8774,9 @@ Source: Bilibili follow page in Tampermonkey`,
       clearTimeout(this.draftSaveTimer);
       this.draftSaveTimer = null;
       this.personalRecordStore?.remove(item.id);
-      this.recognitionCache?.clear(location.href);
+      this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
       this.recordRating = null;
       this.reviewInput.value = "";
       this.renderRecordReview();
@@ -8832,7 +8866,7 @@ Source: Bilibili follow page in Tampermonkey`,
         this.recordItem = item ?? null;
         this.recordRemoteRecord = null;
         this.setRecordRemoteLink(null);
-        const cachedDraft = item?.id ? this.recognitionCache?.get(location.href) : null;
+        const cachedDraft = item?.id ? this.recognitionCache?.get(this.activeRecognitionDraftPageUrl()) : null;
         const matchingDraft = cachedDraft?.item?.id === item?.id ? cachedDraft : null;
         const record = matchingDraft ?? (item?.id ? this.personalRecordStore?.get(item.id) : null);
         this.recordRating = record?.rating ?? null;
@@ -8840,17 +8874,20 @@ Source: Bilibili follow page in Tampermonkey`,
         this.reviewInput.value = record?.review ?? "";
         this.renderRecordReview();
         this.setRecordStatus(
-          matchingDraft ? "已恢复本机未同步草稿" : record?.rating || record?.review ? "已载入本地草稿" : "尚未填写",
+          matchingDraft ? this.recognitionDraftCrossPage ? "已载入最近未提交草稿" : "已恢复本机未同步草稿" : record?.rating || record?.review ? "已载入本地草稿" : "尚未填写",
           matchingDraft ? "warning" : ""
         );
         if (item?.id && !matchingDraft) {
-          this.recognitionCache?.save(location.href, {
-            item,
-            selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
-            recognitionResult: this.currentResult,
-            rating: record?.rating ?? null,
-            review: record?.review ?? ""
-          });
+          this.recognitionCache?.save(
+            this.activeRecognitionDraftPageUrl(),
+            {
+              item,
+              selectedResult: this.selectedResult?.item?.id === item.id ? this.selectedResult : null,
+              recognitionResult: this.currentResult,
+              rating: record?.rating ?? null,
+              review: record?.review ?? ""
+            }
+          );
         }
       }
       const enabled = Boolean(item?.id && recordStoreReady);
@@ -8935,7 +8972,9 @@ Source: Bilibili follow page in Tampermonkey`,
       this.recordDirty = false;
       clearTimeout(this.draftSaveTimer);
       this.draftSaveTimer = null;
-      this.recognitionCache?.clear(location.href);
+      this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+      this.recognitionDraftPageUrl = null;
+      this.recognitionDraftCrossPage = false;
       this.syncRecordRating();
       this.personalRecordStore?.save(
         this.recordItem.id,
@@ -9044,7 +9083,7 @@ ${toErrorMessage(error)}`,
         return;
       }
       this.recordDirty = false;
-      this.recognitionCache?.save(location.href, {
+      this.recognitionCache?.save(this.activeRecognitionDraftPageUrl(), {
         item,
         selectedResult,
         recognitionResult: this.currentResult,
@@ -9130,7 +9169,9 @@ ${toErrorMessage(error)}`,
         this.clearDuplicateWarning();
         clearTimeout(this.draftSaveTimer);
         this.draftSaveTimer = null;
-        this.recognitionCache?.clear(location.href);
+        this.recognitionCache?.clear(this.activeRecognitionDraftPageUrl());
+        this.recognitionDraftPageUrl = null;
+        this.recognitionDraftCrossPage = false;
         if (saveRequest.item?.id) {
           this.personalRecordStore?.remove(saveRequest.item.id);
         }
@@ -9783,28 +9824,38 @@ ${detail}${lastProgress ? `
       this.searchInput.focus();
     }
     restoreCachedRecognition() {
-      const draft = this.recognitionCache?.get(location.href);
+      const currentPageDraft = this.recognitionCache?.get(location.href);
+      const latestOtherDraft = currentPageDraft ? null : this.recognitionCache?.getLatest({ excludePageUrl: location.href }) ?? null;
+      const draft = currentPageDraft ?? latestOtherDraft?.draft ?? null;
       const item = draft?.selectedResult?.item ?? draft?.item;
       if (!draft || !item?.id) {
         return false;
       }
+      this.recognitionDraftPageUrl = currentPageDraft ? null : latestOtherDraft?.pageUrl ?? null;
+      this.recognitionDraftCrossPage = !currentPageDraft && Boolean(latestOtherDraft);
       const cachedResult = draft.recognitionResult ?? {};
       const selectedResult = draft.selectedResult ?? {
         item,
         confidence: 0,
         matchedBy: ["local-cache"]
       };
-      this.setResult({
-        ...cachedResult,
-        status: cachedResult.status ?? "matched",
-        best: selectedResult,
-        results: Array.isArray(cachedResult.results) && cachedResult.results.length ? cachedResult.results : [{ ...selectedResult, confidence: selectedResult.confidence ?? 0 }],
-        titleCandidates: cachedResult.titleCandidates ?? [],
-        context: cachedResult.context ?? {},
-        aiResult: cachedResult.aiResult ?? null,
-        bilibiliMetadata: cachedResult.bilibiliMetadata ?? selectedResult.bilibiliMetadata ?? null,
-        diagnostics: cachedResult.diagnostics ?? []
-      });
+      this.setResult(
+        {
+          ...cachedResult,
+          status: cachedResult.status ?? "matched",
+          best: selectedResult,
+          results: Array.isArray(cachedResult.results) && cachedResult.results.length ? cachedResult.results : [{ ...selectedResult, confidence: selectedResult.confidence ?? 0 }],
+          titleCandidates: cachedResult.titleCandidates ?? [],
+          context: cachedResult.context ?? {},
+          aiResult: cachedResult.aiResult ?? null,
+          bilibiliMetadata: cachedResult.bilibiliMetadata ?? selectedResult.bilibiliMetadata ?? null,
+          diagnostics: cachedResult.diagnostics ?? []
+        },
+        {
+          cachedDraft: draft,
+          preserveDraftPageUrl: true
+        }
+      );
       this.candidateCollapsed = true;
       this.resultListSection.hidden = true;
       this.titleCandidateSection.hidden = true;

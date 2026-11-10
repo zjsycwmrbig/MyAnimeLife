@@ -48,6 +48,11 @@ function loadDrafts() {
   }
 }
 
+function draftTimestamp(draft) {
+  const timestamp = Date.parse(String(draft?.updatedAt ?? ""));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function sanitizeRecognitionResult(result) {
   if (!result || typeof result !== "object") {
     return null;
@@ -105,7 +110,7 @@ export function createRecognitionCacheStore() {
     const entries = Object.entries(drafts)
       .sort(
         ([, left], [, right]) =>
-          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+          draftTimestamp(right) - draftTimestamp(left),
       )
       .slice(0, MAX_DRAFTS);
     drafts = Object.fromEntries(entries);
@@ -116,6 +121,22 @@ export function createRecognitionCacheStore() {
     get(pageUrl) {
       const entry = drafts[pageKey(pageUrl)];
       return entry ? sanitizeDraft(entry) : null;
+    },
+    getLatest(options = {}) {
+      const excludedPage = options.excludePageUrl
+        ? pageKey(options.excludePageUrl)
+        : null;
+      const latest = Object.entries(drafts)
+        .filter(([key, entry]) => key !== excludedPage && sanitizeDraft(entry))
+        .sort(([, left], [, right]) =>
+          draftTimestamp(right) - draftTimestamp(left),
+        )[0];
+      if (!latest) {
+        return null;
+      }
+      const [pageUrl, entry] = latest;
+      const draft = sanitizeDraft(entry);
+      return draft ? { pageUrl, draft } : null;
     },
     save(pageUrl, draft) {
       const key = pageKey(pageUrl);
