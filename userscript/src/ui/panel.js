@@ -822,7 +822,12 @@ export class ScoutPanel {
       attrs: { target: "_blank", rel: "noreferrer" },
     }, [icon(ExternalLink), "打开 B 站"]);
     this.siteLink.hidden = true;
-    this.resultActions.append(this.siteLink);
+    this.bangumiLink = element("a", {
+      className: "scout-button",
+      attrs: { target: "_blank", rel: "noreferrer" },
+    }, [icon(ExternalLink), "打开 Bangumi"]);
+    this.bangumiLink.hidden = true;
+    this.resultActions.append(this.siteLink, this.bangumiLink);
 
     this.resultList = element("div", { className: "scout-list" });
     this.resultListSection = element("section", { className: "scout-section" }, [
@@ -2265,6 +2270,20 @@ export class ScoutPanel {
     this.siteLink.hidden = !bilibiliId;
     if (bilibiliId) {
       this.siteLink.href = `https://www.bilibili.com/bangumi/media/md${bilibiliId}`;
+      this.siteLink.title = "在哔哩哔哩查看当前番剧";
+    } else {
+      this.siteLink.removeAttribute("href");
+      this.siteLink.removeAttribute("title");
+    }
+
+    const bangumiId = String(item?.sites?.bangumi ?? "").trim();
+    this.bangumiLink.hidden = !bangumiId;
+    if (bangumiId) {
+      this.bangumiLink.href = `https://bgm.tv/subject/${encodeURIComponent(bangumiId)}`;
+      this.bangumiLink.title = "在 Bangumi 查看当前番剧条目";
+    } else {
+      this.bangumiLink.removeAttribute("href");
+      this.bangumiLink.removeAttribute("title");
     }
 
     this.renderSelectedCover(item);

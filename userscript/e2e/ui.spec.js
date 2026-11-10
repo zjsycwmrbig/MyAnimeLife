@@ -97,6 +97,9 @@ test("recognizes only after a click and opens separate extension settings", asyn
     "passive",
   );
   await expect(host.locator(".scout-title")).toHaveText("尚未识别");
+  await expect(
+    host.getByRole("link", { name: "打开 Bangumi" }),
+  ).toBeHidden();
   await expect(host.locator('[data-view="settings"]')).toHaveCount(0);
   expect(
     await page.evaluate(
@@ -131,6 +134,9 @@ test("recognizes only after a click and opens separate extension settings", asyn
     "src",
     /^data:image\/svg\+xml/,
   );
+  await expect(
+    host.getByRole("link", { name: "打开 Bangumi" }),
+  ).toHaveAttribute("href", "https://bgm.tv/subject/525565");
   await expect(host.locator('[data-tab="settings"]')).toHaveCount(0);
   await expect(host.locator('[data-view="settings"]')).toBeHidden();
   await page.screenshot({
